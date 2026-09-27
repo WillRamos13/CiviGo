@@ -5,13 +5,9 @@ const { PrismaClient } = require("@prisma/client");
 
 const prisma = new PrismaClient();
 
-
-// Obtener incidentes agrupados para el mapa
-
 router.get("/", async(req,res)=>{
 
     try{
-
 
         const incidentes = await prisma.incident.findMany({
 
@@ -25,16 +21,11 @@ router.get("/", async(req,res)=>{
 
         });
 
-
         res.json(incidentes);
-
-
 
     }catch(error){
 
-
         console.log(error.message);
-
 
         res.status(500).json({
 
@@ -42,11 +33,8 @@ router.get("/", async(req,res)=>{
 
         });
 
-
     }
 
-
 });
-
 
 module.exports = router;

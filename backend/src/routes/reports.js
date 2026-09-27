@@ -273,7 +273,112 @@ error:"Error creando reporte"
 
 });
 
+router.put("/:id/confirmar", async(req,res)=>{
+
+try{
 
 
+const id = Number(req.params.id);
+
+
+
+const reporte =
+await prisma.report.findUnique({
+
+where:{
+id:id
+}
+
+});
+
+
+
+if(!reporte){
+
+return res.status(404).json({
+
+error:"Reporte no encontrado"
+
+});
+
+}
+
+
+
+const incidente =
+await prisma.incident.findUnique({
+
+where:{
+id:reporte.incidenteId
+}
+
+});
+
+
+
+if(!incidente){
+
+return res.status(404).json({
+
+error:"Incidente no encontrado"
+
+});
+
+}
+
+
+
+
+const actualizado =
+await prisma.incident.update({
+
+where:{
+id:incidente.id
+},
+
+data:{
+
+
+totalReportes:{
+increment:1
+},
+
+
+estado:
+incidente.totalReportes + 1 >= 3
+?
+"CONFIRMADO"
+:
+incidente.estado
+
+
+}
+
+});
+
+
+
+res.json(actualizado);
+
+
+
+}
+
+catch(error){
+
+console.log(error);
+
+
+res.status(500).json({
+
+error:"Error confirmando incidente"
+
+});
+
+
+}
+
+
+});
 
 module.exports = router;

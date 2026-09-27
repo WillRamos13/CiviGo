@@ -5,9 +5,6 @@ const { PrismaClient } = require("@prisma/client");
 
 const prisma = new PrismaClient();
 
-
-// REGISTRAR USUARIO
-
 router.post("/register", async(req,res)=>{
 
     try{
