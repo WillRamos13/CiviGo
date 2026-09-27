@@ -5,9 +5,13 @@ const { PrismaClient } = require("@prisma/client");
 
 const prisma = new PrismaClient();
 
+
+// Obtener incidentes para el mapa
+
 router.get("/", async(req,res)=>{
 
     try{
+
 
         const incidentes = await prisma.incident.findMany({
 
@@ -15,17 +19,69 @@ router.get("/", async(req,res)=>{
                 fechaCreacion:"desc"
             },
 
+
             include:{
-                reportes:true
+
+                _count:{
+
+                    select:{
+                        reportes:true
+                    }
+
+                }
+
             }
+
 
         });
 
-        res.json(incidentes);
+
+
+        const respuesta = incidentes.map((incidente)=>({
+
+
+            id: incidente.id,
+
+
+            tipo: incidente.tipo,
+
+
+            latitud: incidente.latitud,
+
+
+            longitud: incidente.longitud,
+
+
+            nivelRiesgo:
+            incidente.nivelRiesgo,
+
+
+            estado:
+            incidente.estado,
+
+
+            totalReportes:
+            incidente._count.reportes,
+
+
+            fechaCreacion:
+            incidente.fechaCreacion
+
+
+
+        }));
+
+
+
+        res.json(respuesta);
+
+
 
     }catch(error){
 
+
         console.log(error.message);
+
 
         res.status(500).json({
 
@@ -33,8 +89,11 @@ router.get("/", async(req,res)=>{
 
         });
 
+
     }
 
+
 });
+
 
 module.exports = router;

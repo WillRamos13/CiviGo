@@ -37,6 +37,72 @@ function distancia(lat1, lon1, lat2, lon2){
 }
 
 
+// Limitar riesgo máximo a 5
+
+function limitarRiesgo(valor){
+
+    if(valor >= 5){
+        return 5;
+    }
+
+    if(valor <= 0){
+        return 0;
+    }
+
+    return valor;
+
+}
+
+
+
+// Riesgo inicial según tipo
+
+function riesgoInicial(tipo){
+
+    const riesgos = {
+
+        "Incendio":5,
+
+        "Derrumbe":5,
+
+        "Humo o fuga de gas":5,
+
+        "Accidente vehicular":4,
+
+        "Robo":4,
+
+        "Intento de robo":3,
+
+        "Persona desaparecida":3,
+
+        "Pelea o disturbio":3,
+
+        "Persona sospechosa":2,
+
+        "Mala iluminación":2,
+
+        "Semáforo dañado":2,
+
+        "Calle bloqueada":2,
+
+        "Inundación":4,
+
+        "Bache":1,
+
+        "Basura acumulada":1,
+
+        "Animal peligroso":2,
+
+        "Otro":1
+
+    };
+
+
+    return riesgos[tipo] || 1;
+
+}
+
+
 
 // Obtener reportes
 
@@ -46,9 +112,11 @@ router.get("/", async(req,res)=>{
 
         const reportes =
         await prisma.report.findMany({
+
             orderBy:{
                 fechaCreacion:"desc"
             }
+
         });
 
 
@@ -60,7 +128,9 @@ router.get("/", async(req,res)=>{
         console.log(error);
 
         res.status(500).json({
+
             error:"Error obteniendo reportes"
+
         });
 
     }
@@ -129,6 +199,7 @@ incidente.longitud
 if(metros <= 100){
 
     incidenteEncontrado = incidente;
+
     break;
 
 }
@@ -145,22 +216,31 @@ if(metros <= 100){
 if(incidenteEncontrado){
 
 
+const nuevoNivel =
+limitarRiesgo(
+    incidenteEncontrado.nivelRiesgo + 1
+);
+
+
+
 await prisma.incident.update({
 
 where:{
 id:incidenteEncontrado.id
 },
 
+
 data:{
+
 
 totalReportes:{
 increment:1
 },
 
 
-nivelRiesgo:{
-increment:1
-}
+nivelRiesgo:
+nuevoNivel
+
 
 
 }
@@ -169,7 +249,18 @@ increment:1
 
 
 
+incidenteEncontrado.nivelRiesgo =
+nuevoNivel;
+
+
+
+incidenteEncontrado.totalReportes += 1;
+
+
+
 }
+
+
 
 
 
@@ -190,9 +281,13 @@ latitud,
 
 longitud,
 
-nivelRiesgo:1,
+
+nivelRiesgo:
+riesgoInicial(tipo),
+
 
 totalReportes:1,
+
 
 estado:"ACTIVO"
 
@@ -214,6 +309,7 @@ estado:"ACTIVO"
 
 
 const nuevoReporte =
+
 await prisma.report.create({
 
 data:{
@@ -221,18 +317,28 @@ data:{
 
 usuarioId,
 
+
 incidenteId:
 incidenteEncontrado.id,
 
+
 tipo,
+
 
 descripcion,
 
+
 latitud,
+
 
 longitud,
 
-imagen
+
+imagen,
+
+
+nivelRiesgo:
+incidenteEncontrado.nivelRiesgo
 
 
 }
@@ -243,19 +349,27 @@ imagen
 
 
 
+
 res.json({
 
 mensaje:"Reporte creado",
 
+
 reporte:nuevoReporte,
 
+
 incidente:incidenteEncontrado
+
 
 });
 
 
 
-}catch(error){
+
+
+}
+
+catch(error){
 
 
 console.log(error);
@@ -273,6 +387,13 @@ error:"Error creando reporte"
 
 });
 
+
+
+
+
+
+// Confirmar incidente
+
 router.put("/:id/confirmar", async(req,res)=>{
 
 try{
@@ -283,6 +404,7 @@ const id = Number(req.params.id);
 
 
 const reporte =
+
 await prisma.report.findUnique({
 
 where:{
@@ -306,6 +428,7 @@ error:"Reporte no encontrado"
 
 
 const incidente =
+
 await prisma.incident.findUnique({
 
 where:{
@@ -329,12 +452,24 @@ error:"Incidente no encontrado"
 
 
 
+const nuevoNivel =
+
+limitarRiesgo(
+incidente.nivelRiesgo + 1
+);
+
+
+
+
+
 const actualizado =
+
 await prisma.incident.update({
 
 where:{
 id:incidente.id
 },
+
 
 data:{
 
@@ -344,12 +479,22 @@ increment:1
 },
 
 
+nivelRiesgo:
+nuevoNivel,
+
+
 estado:
+
 incidente.totalReportes + 1 >= 3
+
 ?
+
 "CONFIRMADO"
+
 :
+
 incidente.estado
+
 
 
 }
@@ -364,9 +509,11 @@ res.json(actualizado);
 
 }
 
+
 catch(error){
 
 console.log(error);
+
 
 
 res.status(500).json({
@@ -380,5 +527,9 @@ error:"Error confirmando incidente"
 
 
 });
+
+
+
+
 
 module.exports = router;
