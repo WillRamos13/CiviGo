@@ -26,7 +26,7 @@ export default function MapView({ incidentes = [], ruta = null, onSelect, onPosi
     const [loaded, setLoaded] = useState(false), [risk, setRisk] = useState(true), [events, setEvents] = useState(true), [zones, setZones] = useState(true), [error, setError] = useState(''), [roads, setRoads] = useState<GeoJSON.FeatureCollection>(EMPTY_MAP_DATA), [roadError, setRoadError] = useState('');
     const styleReady = useRef(false);
     const layerState = useRef<MapLayerState>({ roads, incidents: incidentes, route: ruta, risk, events, zones, editor, brand: '#1554D8', routeOutline: '#fff' });
-    const token = process.env.NEXT_PUBLIC_MAPBOX_TOKEN;
+    const token = process.env.NEXT_PUBLIC_MAPBOX_TOKEN
     const [online, setOnline] = useState(true);
     useEffect(() => { const change = () => setOnline(navigator.onLine); window.addEventListener('online', change); window.addEventListener('offline', change); void Promise.resolve().then(change); return () => { window.removeEventListener('online', change); window.removeEventListener('offline', change); }; }, []);
     useEffect(() => { callbacks.current = { onSelect, onPosition }; }, [onSelect, onPosition]);

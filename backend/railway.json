@@ -1,0 +1,12 @@
+{
+  "$schema": "https://railway.com/railway.schema.json",
+  "build": {
+    "builder": "RAILPACK",
+    "buildCommand": "npm run db:generate"
+  },
+  "deploy": {
+    "startCommand": "npm start",
+    "preDeployCommand": ["npm run db:migrate", "npm run db:seed"],
+    "healthcheckPath": "/api/ready"
+  }
+}

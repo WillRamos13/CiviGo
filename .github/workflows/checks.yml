@@ -37,7 +37,7 @@ jobs:
           BACKEND_ENV_FILE: backend/.env.example
         run: |
           docker compose config --quiet
-          docker build -t civigo-api:ci -f backend/Dockerfile .
+          docker build -t civigo-api:ci -f backend/Dockerfile.local .
           docker build -t civigo-web:ci -f frontend/Dockerfile --build-arg BACKEND_URL=http://127.0.0.1:4000 .
       - name: Comprobar API, volumen y reescritura de la web en contenedores
         run: |

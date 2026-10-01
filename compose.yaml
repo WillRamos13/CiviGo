@@ -2,7 +2,7 @@ services:
   backend:
     build:
       context: .
-      dockerfile: backend/Dockerfile
+      dockerfile: backend/Dockerfile.local
     env_file: ${BACKEND_ENV_FILE:-backend/.env}
     environment:
       NODE_ENV: production
