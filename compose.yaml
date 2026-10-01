@@ -1,0 +1,33 @@
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    env_file: ${BACKEND_ENV_FILE:-backend/.env}
+    environment:
+      NODE_ENV: production
+      PORT: "4000"
+      API_HOST: 0.0.0.0
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3000}
+      UPLOAD_DIR: /app/uploads
+      DEMO_VERIFICATION: "false"
+    volumes:
+      - archivos:/app/uploads
+    ports:
+      - "127.0.0.1:4000:4000"
+    restart: unless-stopped
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+      args:
+        NEXT_PUBLIC_MAPBOX_TOKEN: ${NEXT_PUBLIC_MAPBOX_TOKEN:-}
+        BACKEND_URL: http://backend:4000
+    ports:
+      - "127.0.0.1:3000:3000"
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+volumes:
+  archivos:

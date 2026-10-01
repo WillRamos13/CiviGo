@@ -1,0 +1,15 @@
+# Local configuration and generated dependencies
+**/node_modules/
+**/.next/
+**/.npm-cache/
+**/.test-uploads/
+**/.local/
+**/.env
+**/.env.local
+**/.env.*
+!**/.env.example
+**/env.local
+**/uploads/
+**/coverage/
+**/*.tsbuildinfo
+*.log

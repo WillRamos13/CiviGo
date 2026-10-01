@@ -1,0 +1,15 @@
+**/node_modules
+**/.next
+**/.env
+**/.env.local
+**/.env.*
+!**/.env.example
+**/env.local
+**/.local
+**/.npm-cache
+**/.test-uploads
+**/uploads
+**/*.log
+**/*.tsbuildinfo
+.git
+docs/capturas

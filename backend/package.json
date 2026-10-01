@@ -4,8 +4,21 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "dev": "node src/server.js",
-    "postinstall": "prisma skills sync || exit 0"
+    "dev": "node --watch src/server.js",
+    "start": "node src/server.js",
+    "test": "node --test --test-concurrency=1 tests/*.test.js",
+    "test:integration": "node scripts/run-integration.js",
+    "db:bootstrap": "node scripts/bootstrap-admin.js",
+    "format:backend": "prettier --write src scripts tests",
+    "check": "node scripts/check.js",
+    "db:generate": "prisma generate",
+    "db:migrate": "prisma migrate deploy",
+    "db:seed": "node scripts/seed.js",
+    "demo:seed": "node scripts/seed-demo.js",
+    "passwords:migrate": "node scripts/hash-legacy-passwords.js",
+    "db:local": "node scripts/local-db.js",
+    "roads:import": "node scripts/import-roads.js",
+    "jobs:run": "node scripts/run-lifecycle.js"
   },
   "keywords": [],
   "author": "",
@@ -16,6 +29,15 @@
     "cors": "^2.8.6",
     "dotenv": "^18.0.1",
     "express": "^5.2.1",
+    "multer": "^2.4.0",
     "prisma": "^6.19.3"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "^0.5.8",
+    "@electric-sql/pglite-socket": "0.2.11",
+    "prettier": "^3.9.9"
+  },
+  "overrides": {
+    "deepmerge-ts": "^8.0.0"
   }
 }

@@ -1,166 +1,28 @@
-"use client";
-
-import { useState } from "react";
-
+'use client';
+import { useState, useId } from 'react';
+import { RISK_COLORS, RISK_NAMES } from '@/lib/types';
 
 export default function RiskLegend() {
-
-
-  const [mostrar, setMostrar] = useState(false);
-
-
-
-  const risks = [
-
-    {
-      color: "bg-gray-400",
-      text: "Sin datos - Nivel 0"
-    },
-
-    {
-      color: "bg-green-500",
-      text: "Seguro - Nivel 1"
-    },
-
-    {
-      color: "bg-yellow-400",
-      text: "Bajo - Nivel 2"
-    },
-
-    {
-      color: "bg-orange-500",
-      text: "Moderado - Nivel 3"
-    },
-
-    {
-      color: "bg-red-500",
-      text: "Alto - Nivel 4"
-    },
-
-    {
-      color: "bg-purple-600",
-      text: "Crítico - Nivel 5"
-    }
-
-  ];
-
-
-
-  return (
-
-    <div className="
-      absolute
-      bottom-5
-      left-5
-      z-10
-    ">
-
-
-      <button
-
-        onClick={()=>setMostrar(!mostrar)}
-
-        className="
-          bg-white
-          shadow-lg
-          rounded-xl
-          px-4
-          py-2
-          font-semibold
-          text-sm
-          hover:bg-gray-100
-        "
-
-      >
-
-        🛈 Riesgo
-
-      </button>
-
-
-
-
-
-      {
-        mostrar && (
-
-          <div className="
-            mt-3
-            bg-white
-            p-4
-            rounded-xl
-            shadow-lg
-            w-56
-          ">
-
-
-            <h3 className="
-              font-bold
-              mb-3
-            ">
-
-              Nivel de riesgo
-
-            </h3>
-
-
-
-            {
-              risks.map((risk)=>(
-
-
-                <div
-
-                  key={risk.text}
-
-                  className="
-                    flex
-                    items-center
-                    gap-3
-                    mb-2
-                    text-sm
-                  "
-
-                >
-
-
-                  <div
-
-                    className={`
-                      w-4
-                      h-4
-                      rounded-full
-                      ${risk.color}
-                    `}
-
-                  />
-
-
-                  <span>
-
-                    {risk.text}
-
-                  </span>
-
-
-                </div>
-
-
-              ))
-
-            }
-
-
-
-          </div>
-
-        )
-      }
-
-
-
-    </div>
-
-  );
-
+    const [detail, setDetail] = useState(false), detailId = useId();
+    return <div className="risk-legend">
+        <strong>Riesgo registrado por tramo</strong>
+        <div className="risk-scale">{RISK_COLORS.map(c => <span key={c} style={{ background: c }}/>)}</div>
+        <div className="legend-endpoints"><span>0 · Seguro</span><span>5 · Crítico</span></div>
+        <div style={{ display: 'flex', gap: 5, alignItems: 'center', fontSize: 9, marginTop: 9, color: 'var(--muted)' }}>
+            <span className="legend-dot" style={{ background: '#64748b' }}/>Gris: evaluación pendiente
+        </div>
+        <div className="incident-area-legend">
+            <strong>Zonas de incidentes</strong>
+            <div className="incident-area-scale" aria-hidden="true"/>
+            <div className="legend-endpoints"><span>Centro</span><span>Borde</span></div>
+        </div>
+        <button aria-expanded={detail} aria-controls={detailId} className="btn btn-quiet btn-small" style={{ padding: '5px 0', fontSize: 9, minHeight: 20 }} onClick={() => setDetail(!detail)}>
+            {detail ? 'Ocultar' : 'Ver'} niveles y puntos
+        </button>
+        <div id={detailId} hidden={!detail}>
+            <div className="legend-details">{RISK_NAMES.map((name, i) => <div key={name}><span className="legend-dot" style={{ background: RISK_COLORS[i] }}/>{i} · {name}</div>)}</div>
+            <p style={{ fontSize: 9, margin: '10px 0 0', maxWidth: 210 }}>0 puntos: nivel 0. Más de 0–5: nivel 1; &gt;5–10: 2; &gt;10–15: 3; &gt;15–20: 4; &gt;20: 5. Según los reportes disponibles.</p>
+            <p style={{ fontSize: 9, margin: '7px 0 0', maxWidth: 210 }}>Al alejar el zoom las zonas de incidentes se unen visualmente. Consulta la gravedad en cada marcador.</p>
+        </div>
+    </div>;
 }

@@ -1,1213 +1,144 @@
-"use client";
-
-import { useEffect, useRef, useState } from "react";
-import mapboxgl from "mapbox-gl";
-import RiskLegend from "./RiskLegend";
-
-import "mapbox-gl/dist/mapbox-gl.css";
-
-
-mapboxgl.accessToken =
-process.env.NEXT_PUBLIC_MAPBOX_TOKEN || "";
-
-
-
-const tiposReporte:any = {
-
-"Robo":{
-icono:"🚨"
-},
-
-"Intento de robo":{
-icono:"⚠️"
-},
-
-"Accidente vehicular":{
-icono:"🚗"
-},
-
-"Incendio":{
-icono:"🔥"
-},
-
-"Humo o fuga de gas":{
-icono:"💨"
-},
-
-"Persona desaparecida":{
-icono:"🔎"
-},
-
-"Persona sospechosa":{
-icono:"👤"
-},
-
-"Pelea o disturbio":{
-icono:"⚔️"
-},
-
-"Mala iluminación":{
-icono:"💡"
-},
-
-"Bache":{
-icono:"🕳️"
-},
-
-"Semáforo dañado":{
-icono:"🚦"
-},
-
-"Calle bloqueada":{
-icono:"🚧"
-},
-
-"Inundación":{
-icono:"🌊"
-},
-
-"Derrumbe":{
-icono:"⛰️"
-},
-
-"Basura acumulada":{
-icono:"🗑️"
-},
-
-"Animal peligroso":{
-icono:"🐕"
-},
-
-"Otro":{
-icono:"⚠️"
-}
-
+'use client';
+import { useEffect, useRef, useState } from 'react';
+import mapboxgl from 'mapbox-gl';
+import { MapPin } from 'lucide-react';
+import { getImageProps } from 'next/image';
+import { getIncidentIcon } from '@/lib/incident-icons';
+import { EMPTY_MAP_DATA, MAP_STYLE, syncMapLayers, type MapLayerState } from '@/lib/map-layers';
+import { api, errorMessage } from '@/lib/api';
+import type { Incidente, Ruta, Posicion } from '@/lib/types';
+import { RISK_COLORS } from '@/lib/types';
+import RiskLegend from './RiskLegend';
+import OfflineRoute from './OfflineRoute';
+import 'mapbox-gl/dist/mapbox-gl.css';
+type Props = {
+    incidentes?: Incidente[];
+    ruta?: Ruta | null;
+    onSelect?: (incidente: Incidente) => void;
+    onPosition?: (p: Posicion) => void | boolean;
+    posicion?: Posicion | null;
+    editor?: boolean;
 };
-
-
-
-function obtenerReporte(tipo:string){
-
-return tiposReporte[tipo] || tiposReporte["Otro"];
-
-}
-
-
-
-
-
-export default function MapView(){
-
-
-const mapContainer =
-useRef<HTMLDivElement|null>(null);
-
-
-const mapRef =
-useRef<mapboxgl.Map|null>(null);
-
-
-const markersRef =
-useRef<mapboxgl.Marker[]>([]);
-
-
-const incidentIdsRef =
-useRef<number[]>([]);
-
-
-
-
-
-const [mostrarRiesgo,setMostrarRiesgo] =
-useState(true);
-
-
-const [mostrarEventos,setMostrarEventos] =
-useState(true);
-
-
-
-
-
-
-// NUEVA ESCALA 0 - 5
-
-const colorRiesgo=(nivel:number)=>{
-
-
-if(nivel===5)
-return "#7c3aed"; // crítico
-
-
-if(nivel===4)
-return "#ef4444"; // alto
-
-
-if(nivel===3)
-return "#f97316"; // moderado
-
-
-if(nivel===2)
-return "#eab308"; // bajo
-
-
-if(nivel===1)
-return "#22c55e"; // seguro
-
-
-return "#94a3b8"; // sin datos
-
-
-};
-
-
-
-
-
-
-const confirmarReporte = async(id:number)=>{
-
-
-try{
-
-
-const response =
-
-await fetch(
-
-`http://localhost:4000/api/reports/${id}/confirmar`,
-
-{
-
-method:"PUT"
-
-}
-
-);
-
-
-
-
-const data =
-await response.json();
-
-
-
-console.log(
-"Confirmado:",
-data
-);
-
-
-
-alert(
-"Incidente confirmado 👍"
-);
-
-
-
-}
-
-catch(error){
-
-
-console.error(
-"Error confirmando:",
-error
-);
-
-
-}
-
-
-};
-
-
-
-
-
-const cargarIncidentes = async(map:mapboxgl.Map)=>{
-
-
-try{
-
-
-const response =
-
-await fetch(
-
-"http://localhost:4000/api/incidents"
-
-);
-
-
-
-const incidents =
-
-await response.json();
-
-
-
-
-console.log(
-"Incidentes recibidos:",
-incidents
-);
-
-
-
-
-
-incidents.forEach((incident:any)=>{
-
-
-
-if(
-incidentIdsRef.current.includes(
-incident.id
-)
-){
-
-return;
-
-}
-
-
-
-
-
-
-const config =
-
-obtenerReporte(
-incident.tipo
-);
-
-
-
-
-
-const elemento =
-
-document.createElement("div");
-
-
-
-
-
-elemento.innerHTML = `
-
-
-<div style="
-
-background:white;
-
-width:50px;
-
-height:50px;
-
-border-radius:50%;
-
-display:flex;
-
-align-items:center;
-
-justify-content:center;
-
-font-size:32px;
-
-box-shadow:0 4px 12px rgba(0,0,0,0.35);
-
-border:3px solid ${colorRiesgo(
-incident.nivelRiesgo || 0
-)};
-
-">
-
-
-${config.icono}
-
-
-</div>
-
-
-`;
-
-
-
-elemento.style.cursor="pointer";
-
-
-
-
-
-const popup =
-
-new mapboxgl.Popup({
-
-offset:25
-
-})
-
-.setHTML(`
-
-
-<div>
-
-
-<h3 style="
-font-weight:bold;
-font-size:17px;
-">
-
-
-${config.icono}
-
-${incident.tipo}
-
-
-</h3>
-
-
-<p>
-
-Estado:
-
-${incident.estado || "ACTIVO"}
-
-</p>
-
-
-<p>
-
-Nivel de riesgo:
-
-${incident.nivelRiesgo || 0}
-
-</p>
-
-
-<p>
-
-Reportes:
-
-${incident.totalReportes || 0}
-
-</p>
-
-
-<button
-
-id="confirmar-${incident.id}"
-
-style="
-
-background:#2563eb;
-
-color:white;
-
-padding:8px 12px;
-
-border-radius:8px;
-
-margin-top:10px;
-
-cursor:pointer;
-
-border:none;
-
-"
-
->
-
-👍 Confirmar incidente
-
-</button>
-
-
-<p>
-
-${incident.descripcion || "Sin descripción"}
-
-</p>
-
-
-${
-incident.imagen
-
-?
-
-`<img src="${incident.imagen}" width="180"/>`
-
-:
-
-""
-
-}
-
-
-
-</div>
-
-
-`);
-popup.on(
-"open",
-()=>{
-
-
-const boton =
-
-document.getElementById(
-
-`confirmar-${incident.id}`
-
-);
-
-
-
-if(boton){
-
-
-boton.onclick=()=>{
-
-
-confirmarReporte(
-incident.id
-);
-
-
-};
-
-
-}
-
-
-
-}
-
-);
-
-
-
-
-
-
-const marker =
-
-new mapboxgl.Marker(elemento)
-
-
-.setLngLat([
-
-incident.longitud,
-
-incident.latitud
-
-])
-
-
-.setPopup(popup)
-
-
-.addTo(map);
-
-
-
-
-
-
-markersRef.current.push(marker);
-
-
-
-incidentIdsRef.current.push(
-incident.id
-);
-
-
-
-});
-
-
-
-}
-
-catch(error){
-
-
-console.error(
-
-"Error cargando incidentes:",
-
-error
-
-);
-
-
-}
-
-
-};
-
-
-
-
-
-
-
-
-useEffect(()=>{
-
-
-if(!mapContainer.current)
-
-return;
-
-
-
-
-
-const map =
-
-new mapboxgl.Map({
-
-
-container:
-
-mapContainer.current,
-
-
-
-style:
-
-"mapbox://styles/mapbox/streets-v12",
-
-
-
-center:[
-
--77.0428,
-
--12.0464
-
-],
-
-
-
-zoom:13
-
-
-});
-
-
-
-
-
-mapRef.current = map;
-
-
-
-
-
-map.addControl(
-
-new mapboxgl.NavigationControl()
-
-);
-
-
-
-
-
-
-
-map.on(
-
-"load",
-
-async()=>{
-
-
-
-await cargarIncidentes(map);
-
-
-
-
-
-// ACTUALIZACIÓN CADA 10 SEGUNDOS
-
-const intervalo =
-
-setInterval(()=>{
-
-
-cargarIncidentes(map);
-
-
-},10000);
-
-
-
-
-
-
-
-const response =
-
-await fetch(
-
-"http://localhost:4000/api/incidents"
-
-);
-
-
-
-const incidents =
-
-await response.json();
-
-
-
-
-
-
-
-
-const geojson:any = {
-
-
-type:"FeatureCollection",
-
-
-features:
-
-incidents.map((incident:any)=>({
-
-
-
-type:"Feature",
-
-
-
-geometry:{
-
-
-
-type:"Point",
-
-
-
-coordinates:[
-
-
-incident.longitud,
-
-
-incident.latitud
-
-
-]
-
-
-},
-
-
-
-properties:{
-
-
-nivel:
-
-incident.nivelRiesgo || 0
-
-
-}
-
-
-}))
-
-
-
-};
-
-
-
-
-
-
-
-map.addSource(
-
-"riesgo",
-
-{
-
-
-type:"geojson",
-
-
-data:geojson
-
-
-}
-
-
-);
-
-
-
-
-
-
-
-
-
-map.addLayer({
-
-
-
-id:"capa-riesgo",
-
-
-
-type:"circle",
-
-
-
-source:"riesgo",
-
-
-
-paint:{
-
-
-
-
-
-"circle-radius":30,
-
-
-
-"circle-opacity":0.35,
-
-
-
-
-
-
-// NUEVA ESCALA 0-5
-
-"circle-color":[
-
-
-
-"match",
-
-
-
-[
-
-"get",
-
-"nivel"
-
-],
-
-
-
-
-0,
-
-"#94a3b8",
-
-
-
-1,
-
-"#22c55e",
-
-
-
-2,
-
-"#eab308",
-
-
-
-3,
-
-"#f97316",
-
-
-
-4,
-
-"#ef4444",
-
-
-
-5,
-
-"#7c3aed",
-
-
-
-
-"#94a3b8"
-
-
-
-]
-
-
-
-}
-
-
-
-});
-
-
-
-
-
-
-
-return()=>{
-
-
-clearInterval(intervalo);
-
-
-
-map.remove();
-
-
-
-};
-
-
-
-
-});
-
-
-
-},[]);
-
-
-
-
-
-
-
-
-
-useEffect(()=>{
-
-
-const map =
-
-mapRef.current;
-
-
-
-if(!map)
-
-return;
-
-
-
-
-
-if(
-
-map.getLayer("capa-riesgo")
-
-){
-
-
-
-map.setLayoutProperty(
-
-
-"capa-riesgo",
-
-
-
-"visibility",
-
-
-
-mostrarRiesgo
-
-?
-
-"visible"
-
-:
-
-"none"
-
-
-
-);
-
-
-
-}
-
-
-
-},[mostrarRiesgo]);
-
-
-
-
-
-
-
-
-
-useEffect(()=>{
-
-
-
-if(!mapRef.current)
-
-return;
-
-
-
-
-
-markersRef.current.forEach(marker=>{
-
-
-
-if(mostrarEventos){
-
-
-
-marker.addTo(
-
-mapRef.current!
-
-);
-
-
-
-}
-
-else{
-
-
-
-marker.remove();
-
-
-
-}
-
-
-
-});
-
-
-
-},[mostrarEventos]);
-
-
-
-
-
-
-
-
-
-return(
-
-
-
-<div className="
-
-w-full
-
-h-full
-
-relative
-
-">
-
-
-
-
-
-
-<div
-
-ref={mapContainer}
-
-
-className="
-
-w-full
-
-h-full
-
-"
-
-/>
-
-
-
-
-
-
-
-
-<div className="
-
-absolute
-
-top-5
-
-right-5
-
-bg-slate-900
-
-text-white
-
-p-4
-
-rounded-xl
-
-space-y-3
-
-">
-
-
-
-
-
-<label className="
-
-flex
-
-gap-2
-
-items-center
-
-">
-
-
-<input
-
-
-type="checkbox"
-
-
-checked={mostrarRiesgo}
-
-
-
-onChange={(e)=>
-
-setMostrarRiesgo(
-
-e.target.checked
-
-)
-
-}
-
-
-/>
-
-
-Capa de riesgo
-
-
-</label>
-
-
-
-
-
-
-
-
-
-<label className="
-
-flex
-
-gap-2
-
-items-center
-
-">
-
-
-
-<input
-
-
-type="checkbox"
-
-
-
-checked={mostrarEventos}
-
-
-
-onChange={(e)=>
-
-setMostrarEventos(
-
-e.target.checked
-
-)
-
-}
-
-
-/>
-
-
-Eventos
-
-
-</label>
-
-
-
-
-
-</div>
-
-
-
-
-
-
-
-
-<RiskLegend />
-
-
-
-
-
-
-</div>
-
-
-
-);
-
-
-
+const brandColor = (element: HTMLElement | null) => element ? getComputedStyle(element).getPropertyValue('--map-route-color').trim() || '#1554D8' : '#1554D8';
+export default function MapView({ incidentes = [], ruta = null, onSelect, onPosition, posicion = null, editor = false }: Props) {
+    const container = useRef<HTMLDivElement>(null), mapRef = useRef<mapboxgl.Map | null>(null), markers = useRef<mapboxgl.Marker[]>([]), positionMarker = useRef<mapboxgl.Marker | null>(null);
+    const callbacks = useRef({ onSelect, onPosition });
+    const [loaded, setLoaded] = useState(false), [risk, setRisk] = useState(true), [events, setEvents] = useState(true), [zones, setZones] = useState(true), [error, setError] = useState(''), [roads, setRoads] = useState<GeoJSON.FeatureCollection>(EMPTY_MAP_DATA), [roadError, setRoadError] = useState('');
+    const styleReady = useRef(false);
+    const layerState = useRef<MapLayerState>({ roads, incidents: incidentes, route: ruta, risk, events, zones, editor, brand: '#1554D8', routeOutline: '#fff' });
+    const token = process.env.NEXT_PUBLIC_MAPBOX_TOKEN;
+    const [online, setOnline] = useState(true);
+    useEffect(() => { const change = () => setOnline(navigator.onLine); window.addEventListener('online', change); window.addEventListener('offline', change); void Promise.resolve().then(change); return () => { window.removeEventListener('online', change); window.removeEventListener('offline', change); }; }, []);
+    useEffect(() => { callbacks.current = { onSelect, onPosition }; }, [onSelect, onPosition]);
+    useEffect(() => {
+        layerState.current = { roads, incidents: incidentes, route: ruta, risk, events, zones, editor,
+            brand: brandColor(container.current),
+            routeOutline: container.current ? getComputedStyle(container.current).getPropertyValue('--map-route-outline').trim() || '#fff' : '#fff' };
+        if (mapRef.current && styleReady.current) syncMapLayers(mapRef.current, layerState.current);
+    }, [roads, incidentes, ruta, risk, events, zones, editor]);
+    useEffect(() => {
+        if (!container.current || !token)
+            return;
+        const map = new mapboxgl.Map({ container: container.current, accessToken: token, style: MAP_STYLE, center: [posicion?.longitud ?? -75.7286, posicion?.latitud ?? -14.0678], zoom: editor ? 17 : 13.3, attributionControl: true });
+        mapRef.current = map;
+        map.addControl(new mapboxgl.NavigationControl(), 'top-right');
+        map.addControl(new mapboxgl.GeolocateControl({ positionOptions: { enableHighAccuracy: true }, trackUserLocation: !editor, showUserHeading: true }), 'top-right');
+        map.on('style.load', () => {
+            styleReady.current = true;
+            syncMapLayers(map, layerState.current);
+            setLoaded(true);
+            setError('');
+        });
+        map.on('error', e => { if (e.error?.message?.includes('token') || e.error?.message?.includes('401') || e.error?.message?.includes('403'))
+            setError('No se pudo cargar Mapbox. Revisa el token público y sus restricciones.'); });
+        if (editor)
+            map.on('click', e => callbacks.current.onPosition?.({ latitud: e.lngLat.lat, longitud: e.lngLat.lng }));
+        return () => { styleReady.current = false; markers.current.forEach(m => m.remove()); markers.current = []; positionMarker.current?.remove(); positionMarker.current = null; map.remove(); mapRef.current = null; };
+        // The map is initialized once. Later coordinate changes update its marker.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [token, editor]);
+    useEffect(() => { if (editor)
+        return; let active = true; const controller = new AbortController(); const get = async () => { try {
+        const data = await api<GeoJSON.FeatureCollection>('/navigation/roads', { signal: controller.signal });
+        if (active) {
+            setRoads(data);
+            setRoadError('');
+        }
+    }
+    catch (err) {
+        if (active)
+            setRoadError(errorMessage(err));
+    } }; void get(); const timer = setInterval(get, 30000); return () => { active = false; controller.abort(); clearInterval(timer); }; }, [editor]);
+    useEffect(() => {
+        const map = mapRef.current;
+        if (!loaded || !map)
+            return;
+        markers.current.forEach(m => m.remove());
+        markers.current = [];
+        if (!events || editor)
+            return;
+        for (const incident of incidentes) {
+            if (!Number.isFinite(incident.longitud) || !Number.isFinite(incident.latitud))
+                continue;
+            const button = document.createElement('button');
+            button.className = 'incident-marker';
+            button.type = 'button';
+            const level = incident.gravedad ?? incident.nivelRiesgo;
+            const color = level == null ? '#64748b' : RISK_COLORS[Math.max(0, Math.min(5, level))];
+            const asset = getIncidentIcon(incident.tipoSlug, incident.tipoNombre, incident.tipo);
+            if (asset) {
+                button.classList.add('incident-marker-with-icon');
+                button.style.setProperty('--incident-gravity-color', color);
+                const frame = document.createElement('span');
+                frame.className = 'incident-type-icon';
+                frame.setAttribute('aria-hidden', 'true');
+                const image = document.createElement('img');
+                const width = Math.round(32 * (asset.scale ?? 1));
+                const { props } = getImageProps({ src: asset.image, alt: '', width, height: Math.round(width * asset.image.height / asset.image.width), sizes: `${width}px`, loading: 'eager' });
+                // Reuse Next's optimizer instead of downloading the multi-MB PNG
+                // for each small DOM marker.
+                image.sizes = props.sizes ?? '';
+                image.srcset = props.srcSet ?? '';
+                image.src = props.src;
+                image.alt = '';
+                image.width = props.width ?? width;
+                image.height = props.height ?? width;
+                image.decoding = 'async';
+                image.style.transform = `scale(${asset.scale ?? 1})`;
+                frame.appendChild(image);
+                button.appendChild(frame);
+                const badge = document.createElement('span');
+                badge.className = 'incident-marker-level';
+                badge.textContent = level == null ? '?' : String(level);
+                badge.setAttribute('aria-hidden', 'true');
+                button.appendChild(badge);
+            } else {
+                button.textContent = level == null ? '?' : String(level);
+                button.style.background = color;
+            }
+            button.style.color = level == null || level >= 5 ? '#fff' : 'var(--risk-badge-ink, #142033)';
+            button.setAttribute('aria-label', `${incident.tipoNombre || incident.tipo}, gravedad ${level ?? 'por evaluar'}`);
+            button.addEventListener('click', () => callbacks.current.onSelect?.(incident));
+            const marker = new mapboxgl.Marker({ element: button }).setLngLat([incident.longitud, incident.latitud]).addTo(map);
+            // Mapbox assigns role="img" even to custom buttons during construction.
+            button.setAttribute('role', 'button');
+            markers.current.push(marker);
+        }
+    }, [loaded, incidentes, events, editor]);
+    useEffect(() => { const map = mapRef.current; if (!loaded || !map)
+        return; if (ruta?.geometria.coordinates.length) {
+        const bounds = new mapboxgl.LngLatBounds();
+        ruta.geometria.coordinates.forEach(c => bounds.extend([c[0], c[1]]));
+        map.fitBounds(bounds, { padding: 60, maxZoom: 16, duration: 700 });
+    } }, [loaded, ruta]);
+    useEffect(() => { const map = mapRef.current; if (!loaded || !map || !posicion)
+        return; positionMarker.current?.remove(); positionMarker.current = new mapboxgl.Marker({ color: brandColor(container.current), draggable: editor }).setLngLat([posicion.longitud, posicion.latitud]).addTo(map); if (editor) {
+        positionMarker.current.on('dragend', () => { const coords = positionMarker.current?.getLngLat(); if (coords) {
+            const accepted = callbacks.current.onPosition?.({ latitud: coords.lat, longitud: coords.lng });
+            if (accepted === false)
+                positionMarker.current?.setLngLat([posicion.longitud, posicion.latitud]);
+        } });
+        map.easeTo({ center: [posicion.longitud, posicion.latitud], duration: 300 });
+    } }, [loaded, posicion, editor]);
+    return <><div className="map-container" ref={container}/>{!online && ruta && <OfflineRoute ruta={ruta}/>}{!token && <div className="map-fallback" style={{ position: 'absolute', inset: 0 }}><MapPin size={38} color="var(--brand)"/><h3 style={{ marginTop: 15 }}>El mapa requiere Mapbox</h3><p>Configura NEXT_PUBLIC_MAPBOX_TOKEN para visualizar el mapa. Los reportes siguen disponibles en la lista.</p></div>}{!editor && <><div className="map-controls"><label><input type="checkbox" checked={risk} onChange={e => setRisk(e.target.checked)}/>Riesgo por tramo</label><label><input type="checkbox" checked={events} onChange={e => setEvents(e.target.checked)}/>Incidentes</label><label><input type="checkbox" checked={zones} onChange={e => setZones(e.target.checked)} disabled={!events}/>Zonas de incidentes</label></div><RiskLegend /></>}{(error || roadError && !editor) && <div className="map-message notice notice-warning">{error || `La capa vial no está disponible: ${roadError}`}</div>}</>;
 }

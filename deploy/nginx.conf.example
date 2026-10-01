@@ -1,0 +1,53 @@
+# Example for nginx running on the Docker host. Obtain real TLS certificates
+# before enabling this site; no certificates or private keys are included.
+server {
+    listen 80;
+    server_name civigo.online www.civigo.online;
+    return 308 https://civigo.online$request_uri;
+}
+
+server {
+    listen 443 ssl;
+    server_name www.civigo.online;
+    ssl_certificate /etc/letsencrypt/live/civigo.online/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/civigo.online/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    return 308 https://civigo.online$request_uri;
+}
+
+server {
+    listen 443 ssl;
+    server_name civigo.online;
+    ssl_certificate /etc/letsencrypt/live/civigo.online/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/civigo.online/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    client_max_body_size 16m;
+
+    # Preserve /api and overwrite untrusted incoming forwarding headers.
+    # Routing API requests directly avoids trusting browser-controlled XFF
+    # preserved by the Next.js development/rewrites proxy.
+    location /api/ {
+        proxy_pass http://127.0.0.1:4000;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Host $host;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-For $remote_addr;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header Connection "";
+        proxy_read_timeout 90s;
+        proxy_buffering off;
+    }
+
+    location / {
+        proxy_pass http://127.0.0.1:3000;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Host $host;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-For $remote_addr;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header Connection "";
+        proxy_buffering off;
+    }
+}

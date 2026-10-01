@@ -1,535 +1,473 @@
 const express = require("express");
-const router = express.Router();
-
-const { PrismaClient } = require("@prisma/client");
-
-const prisma = new PrismaClient();
-
-
-// Calcular distancia entre coordenadas
-
-function distancia(lat1, lon1, lat2, lon2){
-
-    const R = 6371000;
-
-    const rad = Math.PI / 180;
-
-    const dLat = (lat2 - lat1) * rad;
-    const dLon = (lon2 - lon1) * rad;
-
-
-    const a =
-    Math.sin(dLat/2) *
-    Math.sin(dLat/2) +
-
-    Math.cos(lat1 * rad) *
-    Math.cos(lat2 * rad) *
-
-    Math.sin(dLon/2) *
-    Math.sin(dLon/2);
-
-
-    return R * 2 * Math.atan2(
-        Math.sqrt(a),
-        Math.sqrt(1-a)
-    );
-
-}
-
-
-// Limitar riesgo máximo a 5
-
-function limitarRiesgo(valor){
-
-    if(valor >= 5){
-        return 5;
-    }
-
-    if(valor <= 0){
-        return 0;
-    }
-
-    return valor;
-
-}
-
-
-
-// Riesgo inicial según tipo
-
-function riesgoInicial(tipo){
-
-    const riesgos = {
-
-        "Incendio":5,
-
-        "Derrumbe":5,
-
-        "Humo o fuga de gas":5,
-
-        "Accidente vehicular":4,
-
-        "Robo":4,
-
-        "Intento de robo":3,
-
-        "Persona desaparecida":3,
-
-        "Pelea o disturbio":3,
-
-        "Persona sospechosa":2,
-
-        "Mala iluminación":2,
-
-        "Semáforo dañado":2,
-
-        "Calle bloqueada":2,
-
-        "Inundación":4,
-
-        "Bache":1,
-
-        "Basura acumulada":1,
-
-        "Animal peligroso":2,
-
-        "Otro":1
-
-    };
-
-
-    return riesgos[tipo] || 1;
-
-}
-
-
-
-// Obtener reportes
-
-router.get("/", async(req,res)=>{
-
-    try{
-
-        const reportes =
-        await prisma.report.findMany({
-
-            orderBy:{
-                fechaCreacion:"desc"
-            }
-
-        });
-
-
-        res.json(reportes);
-
-
-    }catch(error){
-
-        console.log(error);
-
-        res.status(500).json({
-
-            error:"Error obteniendo reportes"
-
-        });
-
-    }
-
-});
-
-
-
-
-
-// Crear reporte
-
-router.post("/", async(req,res)=>{
-
-try{
-
-
+const prisma = require("../lib/db");
+const { auth, requirePhone } = require("../lib/auth");
 const {
-
-usuarioId,
-tipo,
-descripcion,
-latitud,
-longitud,
-imagen
-
-}=req.body;
-
-
-
-
-// Buscar incidente cercano
-
-const incidentes =
-await prisma.incident.findMany({
-
-where:{
-tipo:tipo,
-estado:"ACTIVO"
-}
-
-});
-
-
-
-let incidenteEncontrado = null;
-
-
-
-for(const incidente of incidentes){
-
-
-const metros =
-distancia(
-
-latitud,
-longitud,
-
-incidente.latitud,
-incidente.longitud
-
+  asyncRoute,
+  HttpError,
+  text,
+  id,
+  coordinates,
+  distance,
+  inCoverage,
+  slug,
+} = require("../lib/http");
+const { config, DISTRICTS } = require("../lib/catalog");
+const { evaluateReport } = require("../lib/providers");
+const { report, incident } = require("../lib/projections");
+const {
+  transaction,
+  alertAgents,
+  rewardValidated,
+  chatOpen,
+} = require("../lib/workflows");
+const router = express.Router();
+const includes = {
+  adjuntos: true,
+  usuario: true,
+  incidente: {
+    include: { tipoCatalogo: { include: { categoria: true } }, votos: true },
+  },
+};
+router.get(
+  "/mine",
+  auth,
+  asyncRoute(async (req, res) =>
+    res.json(
+      (
+        await prisma.report.findMany({
+          where: { usuarioId: req.user.id },
+          include: includes,
+          orderBy: { fechaCreacion: "desc" },
+          take: 200,
+        })
+      ).map((r) => report(r, true)),
+    ),
+  ),
 );
-
-
-
-if(metros <= 100){
-
-    incidenteEncontrado = incidente;
-
-    break;
-
-}
-
-
-}
-
-
-
-
-
-// Si existe incidente aumenta contador
-
-if(incidenteEncontrado){
-
-
-const nuevoNivel =
-limitarRiesgo(
-    incidenteEncontrado.nivelRiesgo + 1
+router.get(
+  "/",
+  auth,
+  asyncRoute(async (req, res) =>
+    res.json(
+      (
+        await prisma.report.findMany({
+          where: { usuarioId: req.user.id },
+          include: includes,
+          orderBy: { fechaCreacion: "desc" },
+          take: 200,
+        })
+      ).map((r) => report(r, true)),
+    ),
+  ),
 );
-
-
-
-await prisma.incident.update({
-
-where:{
-id:incidenteEncontrado.id
-},
-
-
-data:{
-
-
-totalReportes:{
-increment:1
-},
-
-
-nivelRiesgo:
-nuevoNivel
-
-
-
-}
-
-});
-
-
-
-incidenteEncontrado.nivelRiesgo =
-nuevoNivel;
-
-
-
-incidenteEncontrado.totalReportes += 1;
-
-
-
-}
-
-
-
-
-
-// Si no existe crea incidente nuevo
-
-else{
-
-
-incidenteEncontrado =
-await prisma.incident.create({
-
-data:{
-
-
-tipo,
-
-latitud,
-
-longitud,
-
-
-nivelRiesgo:
-riesgoInicial(tipo),
-
-
-totalReportes:1,
-
-
-estado:"ACTIVO"
-
-
-}
-
-
-});
-
-
-}
-
-
-
-
-
-
-// Crear reporte asociado
-
-
-const nuevoReporte =
-
-await prisma.report.create({
-
-data:{
-
-
-usuarioId,
-
-
-incidenteId:
-incidenteEncontrado.id,
-
-
-tipo,
-
-
-descripcion,
-
-
-latitud,
-
-
-longitud,
-
-
-imagen,
-
-
-nivelRiesgo:
-incidenteEncontrado.nivelRiesgo
-
-
-}
-
-});
-
-
-
-
-
-
-res.json({
-
-mensaje:"Reporte creado",
-
-
-reporte:nuevoReporte,
-
-
-incidente:incidenteEncontrado
-
-
-});
-
-
-
-
-
-}
-
-catch(error){
-
-
-console.log(error);
-
-
-res.status(500).json({
-
-error:"Error creando reporte"
-
-});
-
-
-}
-
-
-});
-
-
-
-
-
-
-// Confirmar incidente
-
-router.put("/:id/confirmar", async(req,res)=>{
-
-try{
-
-
-const id = Number(req.params.id);
-
-
-
-const reporte =
-
-await prisma.report.findUnique({
-
-where:{
-id:id
-}
-
-});
-
-
-
-if(!reporte){
-
-return res.status(404).json({
-
-error:"Reporte no encontrado"
-
-});
-
-}
-
-
-
-const incidente =
-
-await prisma.incident.findUnique({
-
-where:{
-id:reporte.incidenteId
-}
-
-});
-
-
-
-if(!incidente){
-
-return res.status(404).json({
-
-error:"Incidente no encontrado"
-
-});
-
-}
-
-
-
-
-const nuevoNivel =
-
-limitarRiesgo(
-incidente.nivelRiesgo + 1
+router.post(
+  "/",
+  auth,
+  requirePhone,
+  asyncRoute(async (req, res) => {
+    const b = req.body;
+    const p = coordinates(b.latitud, b.longitud);
+    if (!inCoverage(p))
+      throw new HttpError(
+        422,
+        "No tenemos información disponible fuera de la cobertura inicial de Ica.",
+        "OUT_OF_COVERAGE",
+      );
+    let type = await prisma.incidentType.findFirst({
+      where: {
+        activo: true,
+        OR: [{ slug: slug(b.tipo) }, { nombre: String(b.tipo || "") }],
+      },
+    });
+    if (!type)
+      throw new HttpError(400, "Selecciona un tipo de incidente válido.");
+    const descripcion = text(b.descripcion ?? "", "Descripción", 2000, 0);
+    const fechaEvento = b.fechaEvento ? new Date(b.fechaEvento) : new Date();
+    if (
+      Number.isNaN(+fechaEvento) ||
+      fechaEvento > Date.now() + 60000 ||
+      fechaEvento < Date.now() - 7 * 86400000
+    )
+      throw new HttpError(
+        400,
+        "La fecha debe estar dentro de la última semana.",
+      );
+    if (!type.ubicacionRemota && fechaEvento < Date.now() - 3 * 3600000)
+      throw new HttpError(
+        400,
+        "Este tipo debe reportarse como una situación actual.",
+      );
+    const rules = await config();
+    let gps = { latitud: null, longitud: null };
+    if (!type.ubicacionRemota) {
+      gps = coordinates(b.gpsLatitud, b.gpsLongitud);
+      if (distance(gps, p) > 50)
+        throw new HttpError(
+          400,
+          "Solo puedes corregir la ubicación GPS hasta 50 metros.",
+        );
+    } else if (b.gpsLatitud !== undefined && b.gpsLongitud !== undefined) {
+      gps = coordinates(b.gpsLatitud, b.gpsLongitud);
+    }
+    const normalizeName = (v) =>
+      String(v || "")
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .toLowerCase()
+        .replace(/^distrito de /, "");
+    const detected = require("../lib/roads").districtFor(p);
+    const canonical =
+      DISTRICTS.find((d) => normalizeName(d) === normalizeName(detected)) ||
+      null;
+    const supplied = b.distrito || null;
+    if (supplied && !DISTRICTS.includes(supplied))
+      throw new HttpError(400, "Distrito inválido.");
+    if (canonical && supplied && canonical !== supplied)
+      throw new HttpError(
+        400,
+        "El distrito no coincide con la ubicación del reporte.",
+      );
+    const distrito = canonical || supplied;
+    const ids = b.adjuntosIds || [];
+    if (
+      !Array.isArray(ids) ||
+      ids.length > 3 ||
+      new Set(ids).size !== ids.length ||
+      ids.some((v) => typeof v !== "string")
+    )
+      throw new HttpError(400, "Adjunta como máximo tres archivos.");
+    const attachments = await prisma.attachment.findMany({
+      where: {
+        id: { in: ids },
+        usuarioId: req.user.id,
+        reporteId: null,
+        tipo: "PUBLICO",
+      },
+    });
+    if (attachments.length !== ids.length)
+      throw new HttpError(
+        400,
+        "Uno de los archivos no es válido o ya fue usado.",
+      );
+    if (
+      type.fotoObligatoria &&
+      !attachments.some((a) => a.mimeType.startsWith("image/"))
+    )
+      throw new HttpError(
+        400,
+        "Este incidente requiere al menos una fotografía.",
+      );
+    const recent = await prisma.report.count({
+      where: {
+        usuarioId: req.user.id,
+        fechaCreacion: { gte: new Date(Date.now() - 60000) },
+      },
+    });
+    if (recent >= 3)
+      throw new HttpError(
+        429,
+        "Espera un momento antes de publicar otro reporte.",
+      );
+    const evaluation = await evaluateReport({ descripcion, fechaEvento }, type);
+    if (evaluation?.tipoPropuesto) {
+      const proposal = evaluation.tipoPropuesto;
+      const category = await prisma.category.findUnique({
+        where: { slug: proposal.categoriaSlug },
+      });
+      const proposedSlug = slug(proposal.nombre);
+      if (category && proposedSlug && proposedSlug !== "otro") {
+        const existing = await prisma.incidentType.findUnique({
+          where: { slug: proposedSlug },
+        });
+        if (!existing) {
+          type = await prisma.incidentType.create({
+            data: {
+              nombre: proposal.nombre,
+              slug: proposedSlug,
+              categoriaId: category.id,
+              fotoObligatoria: type.fotoObligatoria,
+            },
+          });
+          await prisma.auditLog.create({
+            data: {
+              accion: "PROPONER_TIPO_IA",
+              entidad: "TIPO",
+              entidadId: String(type.id),
+              datos: {
+                nombre: proposal.nombre,
+                categoria: proposal.categoriaSlug,
+              },
+            },
+          });
+        }
+      }
+    }
+    const result = await transaction(async (db) => {
+      const cutoff = new Date(Date.now() - rules.agrupacionHoras * 3600000);
+      let nearby = [];
+      if (!type.individual)
+        nearby = await db.incident.findMany({
+          where: {
+            tipoId: type.id,
+            estado: { in: ["ACTIVO", "VALIDADO", "PENDIENTE"] },
+            OR: [
+              { fechaPublicacion: { gte: cutoff } },
+              { fechaPublicacion: null, fechaCreacion: { gte: cutoff } },
+            ],
+          },
+          orderBy: { fechaCreacion: "asc" },
+        });
+      let current = nearby.find(
+        (i) => distance(p, i) <= rules.agrupacionMetros,
+      );
+      const newIncident = !current;
+      if (
+        current &&
+        (await db.report.findFirst({
+          where: { incidenteId: current.id, usuarioId: req.user.id },
+        }))
+      )
+        throw new HttpError(
+          409,
+          "Ya aportaste un reporte a este incidente. Puedes añadir pruebas o participar en su chat.",
+        );
+      if (!current)
+        current = await db.incident.create({
+          data: {
+            tipo: type.nombre,
+            tipoId: type.id,
+            descripcion,
+            ...p,
+            distrito,
+            nivelRiesgo: evaluation?.gravedad ?? null,
+            estado: evaluation || type.emergencia ? "ACTIVO" : "PENDIENTE",
+            publicado: !!evaluation || type.emergencia,
+            fechaPublicacion: evaluation || type.emergencia ? new Date() : null,
+            evaluacion: evaluation ? "IA" : "PENDIENTE",
+            individual: type.individual,
+            historico: type.historico,
+            emergencia: type.emergencia,
+            persistente: type.persistente,
+            fechaEvento,
+          },
+        });
+      else {
+        const data = { totalReportes: { increment: 1 } };
+        if (current.evaluacion !== "AGENTE" && evaluation)
+          data.nivelRiesgo = Math.max(
+            current.nivelRiesgo || 0,
+            evaluation.gravedad,
+          );
+        if (evaluation && !current.publicado) {
+          data.publicado = true;
+          data.fechaPublicacion = current.fechaPublicacion || new Date();
+          data.estado = "ACTIVO";
+          data.evaluacion = "IA";
+        }
+        current = await db.incident.update({ where: { id: current.id }, data });
+      }
+      const created = await db.report.create({
+        data: {
+          usuarioId: req.user.id,
+          tipo: type.nombre,
+          tipoId: type.id,
+          descripcion,
+          ...p,
+          gpsLatitud: gps.latitud,
+          gpsLongitud: gps.longitud,
+          nivelRiesgo: evaluation?.gravedad ?? null,
+          incidenteId: current.id,
+          fechaEvento,
+          estado: current.estado === "VALIDADO" ? "VALIDADO" : "PENDIENTE",
+        },
+      });
+      for (const a of attachments) {
+        const connected = await db.attachment.updateMany({
+          where: { id: a.id, usuarioId: req.user.id, reporteId: null },
+          data: {
+            reporteId: created.id,
+            ...(type.individual ? { privado: true, tipo: "EVIDENCIA" } : {}),
+          },
+        });
+        if (!connected.count)
+          throw new HttpError(409, "El archivo ya fue usado en otro reporte.");
+      }
+      if (!newIncident) {
+        if (
+          gps.latitud !== null &&
+          distance(gps, current) <= rules.confirmacionMetros
+        )
+          await db.vote.upsert({
+            where: {
+              usuarioId_incidenteId_tipo: {
+                usuarioId: req.user.id,
+                incidenteId: current.id,
+                tipo: "CONFIRMAR",
+              },
+            },
+            update: {},
+            create: {
+              usuarioId: req.user.id,
+              incidenteId: current.id,
+              tipo: "CONFIRMAR",
+              latitud: gps.latitud,
+              longitud: gps.longitud,
+            },
+          });
+        if (current.evaluacion !== "AGENTE") {
+          const votes = await db.vote.count({
+            where: { incidenteId: current.id, tipo: "CONFIRMAR" },
+          });
+          const validacion = Math.max(
+            current.validacion,
+            Math.min(1, 0.5 + (0.5 * votes) / rules.confirmaciones),
+          );
+          current = await db.incident.update({
+            where: { id: current.id },
+            data: {
+              validacion,
+              ...(validacion === 1 && current.publicado
+                ? { estado: "VALIDADO" }
+                : {}),
+            },
+          });
+        }
+        if (current.validacion >= 1 && current.publicado)
+          await rewardValidated(db, current.id);
+      }
+      if (!evaluation)
+        await alertAgents(
+          db,
+          current,
+          "Evaluación pendiente",
+          type.emergencia
+            ? "Emergencia publicada por evaluar. Revisa el incidente con urgencia."
+            : "Reporte esperando evaluación de IA o personal autorizado.",
+        );
+      if (evaluation?.posibleFalso)
+        await alertAgents(
+          db,
+          current,
+          "Posible reporte falso",
+          evaluation.motivo ||
+            "La IA solicitó revisión humana; no se ha sancionado al autor.",
+        );
+      if (newIncident && type.persistente) {
+        const old = await db.incident.findMany({
+          where: {
+            id: { not: current.id },
+            tipoId: type.id,
+            estado: { in: ["ACTIVO", "VALIDADO"] },
+          },
+        });
+        if (old.some((i) => distance(i, p) <= 50))
+          await alertAgents(
+            db,
+            current,
+            "Posible problema persistente duplicado",
+            "Nuevo reporte fuera de la ventana de agrupación. Revisar presencialmente.",
+          );
+      }
+      return { reporte: created, incidente: current };
+    });
+    res.status(201).json({
+      reporte: report(
+        await prisma.report.findUnique({
+          where: { id: result.reporte.id },
+          include: includes,
+        }),
+        true,
+      ),
+      incidente: incident(result.incidente),
+    });
+  }),
 );
-
-
-
-
-
-const actualizado =
-
-await prisma.incident.update({
-
-where:{
-id:incidente.id
-},
-
-
-data:{
-
-
-totalReportes:{
-increment:1
-},
-
-
-nivelRiesgo:
-nuevoNivel,
-
-
-estado:
-
-incidente.totalReportes + 1 >= 3
-
-?
-
-"CONFIRMADO"
-
-:
-
-incidente.estado
-
-
-
-}
-
-});
-
-
-
-res.json(actualizado);
-
-
-
-}
-
-
-catch(error){
-
-console.log(error);
-
-
-
-res.status(500).json({
-
-error:"Error confirmando incidente"
-
-});
-
-
-}
-
-
-});
-
-
-
-
-
+router.post(
+  "/:id/evidence",
+  auth,
+  requirePhone,
+  asyncRoute(async (req, res) => {
+    const r = await prisma.report.findFirst({
+      where: { id: id(req.params.id), usuarioId: req.user.id },
+      include: { incidente: true },
+    });
+    if (!r) throw new HttpError(404, "Reporte no encontrado.");
+    if (r.incidente?.individual && !chatOpen(r.incidente))
+      throw new HttpError(
+        409,
+        "El plazo de siete días finalizó. Solicita revisión.",
+      );
+    const ids = req.body.adjuntosIds;
+    if (!Array.isArray(ids) || !ids.length || ids.length > 3)
+      throw new HttpError(400, "Selecciona hasta tres pruebas privadas.");
+    await transaction(async (db) => {
+      const current = await db.incident.findUnique({
+        where: { id: r.incidente.id },
+      });
+      if (current?.individual && !chatOpen(current))
+        throw new HttpError(
+          409,
+          "El plazo de siete días finalizó. Solicita revisión.",
+        );
+      const count = await db.attachment.count({
+        where: { reporteId: r.id },
+      });
+      if (count + ids.length > 3)
+        throw new HttpError(400, "El máximo es tres pruebas por reporte.");
+      const changed = await db.attachment.updateMany({
+        where: {
+          id: { in: ids },
+          usuarioId: req.user.id,
+          reporteId: null,
+          privado: true,
+          tipo: "EVIDENCIA",
+        },
+        data: { reporteId: r.id },
+      });
+      if (changed.count !== ids.length)
+        throw new HttpError(400, "Pruebas inválidas.");
+      if (current?.estado === "VALIDADO" && current.validacion >= 1)
+        await rewardValidated(db, current.id);
+      await alertAgents(
+        db,
+        r.incidente,
+        "Pruebas para revisar",
+        "El autor añadió pruebas privadas al reporte.",
+      );
+    });
+    res.json(
+      report(
+        await prisma.report.findUnique({
+          where: { id: r.id },
+          include: includes,
+        }),
+        true,
+      ),
+    );
+  }),
+);
+router.post(
+  "/:id/appeal",
+  auth,
+  asyncRoute(async (req, res) => {
+    const r = await prisma.report.findFirst({
+      where: { id: id(req.params.id), usuarioId: req.user.id },
+    });
+    if (!r) throw new HttpError(404, "Reporte no encontrado.");
+    if (
+      await prisma.appeal.findFirst({
+        where: { reporteId: r.id, estado: "PENDIENTE" },
+      })
+    )
+      throw new HttpError(409, "Ya existe una revisión pendiente.");
+    const row = await prisma.appeal.create({
+      data: {
+        reporteId: r.id,
+        usuarioId: req.user.id,
+        motivo: text(req.body.motivo, "Motivo", 2000, 10),
+      },
+    });
+    res.status(201).json(row);
+  }),
+);
 module.exports = router;

@@ -1,20 +1,15 @@
-export default function ChatBot() {
-    return (
-        <button
-        className="fixed 
-        bottom-8 
-        right-8
-        w-20
-        h-20
-        rounded-full
-        bg-blue-600
-        text-white
-        text-3xl
-        shadow-lg
-        hover-scale-110
-        transition"
-        >
-            ?
-        </button>
-    );
-    }
+'use client';
+import Link from 'next/link';
+import {MessageCircle,X,Send} from 'lucide-react';
+import {useState,useRef,useEffect} from 'react';
+import {useAuth} from './AuthProvider';
+import {post,errorMessage} from '@/lib/api';
+const preguntas=['¿Cómo hago un reporte?','¿Cómo calculo una ruta?','¿Qué significan los puntos de riesgo?','¿Qué incidentes hay ahora?'];
+export default function ChatBot(){ const {usuario}=useAuth(); return <AccountChatBot key={usuario?.id ?? 'publico'} />; }
+function AccountChatBot(){
+ const alive=useRef(true), request=useRef<AbortController|null>(null);
+ useEffect(()=>{alive.current=true;return()=>{alive.current=false;request.current?.abort();};},[]);
+ const [open,setOpen]=useState(false),[input,setInput]=useState(''),[messages,setMessages]=useState<{pregunta:string;respuesta:string}[]>([]),[error,setError]=useState(''),[busy,setBusy]=useState(false);
+ const ask=async(question:string)=>{if(!question.trim()||busy)return;setBusy(true);setError('');const controller=new AbortController();request.current=controller;try{const data=await post<{respuesta:string;modo:string;ia:boolean}>('/chatbot',{mensaje:question},{signal:controller.signal});if(!alive.current||controller.signal.aborted)return;setMessages(previous=>[...previous,{pregunta:question,respuesta:data.respuesta}].slice(-5));setInput('');}catch(e){if(alive.current&&!controller.signal.aborted)setError(errorMessage(e));}finally{if(alive.current&&!controller.signal.aborted)setBusy(false);}};
+ return <><button className="chatbot-launcher" onClick={()=>setOpen(!open)} aria-label={open?'Cerrar ayuda':'Abrir ayuda de CiviGo'}>{open?<X size={20}/>:<MessageCircle size={22}/>}</button>{open&&<aside className="chatbot-box" aria-label="Ayuda de CiviGo"><div className="card-header"><h3>Tu guía de CiviGo</h3><button className="icon-btn" aria-label="Cerrar ayuda" onClick={()=>setOpen(false)}><X size={17}/></button></div><p className="muted" style={{fontSize:11}}>Guía automática con las reglas del proyecto. La asistencia conversacional con IA requiere configurar un proveedor.</p><div className="chat-list" style={{maxHeight:280}}>{messages.length===0?preguntas.map(p=><button className="btn btn-secondary btn-small" key={p} disabled={busy} onClick={()=>ask(p)}>{p}</button>):messages.map((m,i)=><div key={i}><p style={{fontSize:11,fontWeight:700,margin:'12px 0 6px'}}>{m.pregunta}</p><p className="notice" style={{fontSize:12}}>{m.respuesta}</p></div>)}</div>{error&&<div className="notice notice-error" role="alert">{error}</div>}<form onSubmit={e=>{e.preventDefault();void ask(input);}}><div className="field"><label htmlFor="assistant-question">Escribe tu consulta</label><input id="assistant-question" value={input} onChange={e=>setInput(e.target.value)} maxLength={1000} required placeholder="Cómo reportar, rutas, incidentes…"/></div><div className="actions"><button className="btn btn-primary btn-small" disabled={busy||!input.trim()}><Send size={12}/>{busy?'Consultando…':'Enviar'}</button><Link href="/mapa" className="btn btn-secondary btn-small">Ir al mapa</Link></div></form></aside>}</>;
+}

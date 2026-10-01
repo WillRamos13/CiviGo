@@ -1,0 +1,63 @@
+name: Verificaciones
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_PASSWORD: civigo-test-only
+          POSTGRES_DB: civigo_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      DATABASE_URL: postgresql://postgres:civigo-test-only@127.0.0.1:5432/civigo_test?connection_limit=5
+      TEST_DATABASE_URL: postgresql://postgres:civigo-test-only@127.0.0.1:5432/civigo_test?connection_limit=5
+      ENABLE_JOBS: "false"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: npm ci
+        working-directory: backend
+      - run: npx prisma generate && npx prisma migrate deploy && npm run check && npm test
+        working-directory: backend
+      - run: npm ci
+        working-directory: frontend
+      - run: npm run lint && npx tsc --noEmit && npm test && npm run build
+        working-directory: frontend
+      - name: Validar Compose y construir imágenes sin publicarlas
+        env:
+          BACKEND_ENV_FILE: backend/.env.example
+        run: |
+          docker compose config --quiet
+          docker build -t civigo-api:ci -f backend/Dockerfile .
+          docker build -t civigo-web:ci -f frontend/Dockerfile --build-arg BACKEND_URL=http://127.0.0.1:4000 .
+      - name: Comprobar API, volumen y reescritura de la web en contenedores
+        run: |
+          docker run -d --name civigo-ci-api --network host -v civigo-ci-uploads:/app/uploads -e DATABASE_URL -e ENABLE_JOBS=false -e FRONTEND_URL=http://localhost:3000 civigo-api:ci
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:4000/api/ready > /dev/null; then break; fi
+            if [ "$attempt" -eq 30 ]; then docker logs civigo-ci-api; exit 1; fi
+            sleep 2
+          done
+          docker exec civigo-ci-api node -e "const fs=require('node:fs');fs.accessSync('/app/uploads',fs.constants.W_OK);fs.writeFileSync('/app/uploads/volume-probe','ci-only');fs.unlinkSync('/app/uploads/volume-probe')"
+          docker run -d --name civigo-ci-web --network host civigo-web:ci
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:3000/ > /dev/null; then break; fi
+            if [ "$attempt" -eq 30 ]; then docker logs civigo-ci-web; exit 1; fi
+            sleep 2
+          done
+          curl --fail --silent http://127.0.0.1:3000/api/ready
+          curl --fail --silent http://127.0.0.1:3000/api/catalog > /dev/null
+      - name: Limpiar contenedores de verificación
+        if: always()
+        run: |
+          docker rm -f civigo-ci-web civigo-ci-api || true
+          docker volume rm civigo-ci-uploads || true

@@ -7,44 +7,365 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+model User {
+  id                 Int             @id @default(autoincrement())
+  nombreUsuario      String          @unique
+  nombres            String          @default("")
+  apellidos          String          @default("")
+  fechaNacimiento    DateTime?
+  correo             String          @unique
+  telefono           String          @unique
+  password           String
+  reputacion         Int?
+  faltas             Int             @default(0)
+  rol                String          @default("USUARIO")
+  tipoAgente         String?
+  distrito           String?
+  permisos           String[]        @default([])
+  telefonoVerificado Boolean         @default(false)
+  correoVerificado   Boolean         @default(false)
+  bloqueado          Boolean         @default(false)
+  premium            Boolean         @default(false)
+  ocultarAnuncios    Boolean         @default(false)
+  monedas            Float           @default(0)
+  fechaCreacion      DateTime        @default(now())
+  reportes           Report[]
+  sesiones           Session[]
+  verificaciones     Verification[]
+  adjuntos           Attachment[]
+  votos              Vote[]
+  mensajes           ChatMessage[]
+  notificaciones     Notification[]
+  puntos             PointEvent[]
+  canjes             Redemption[]
+  flags              Flag[]
+  apelaciones        Appeal[]
+  recuperaciones     Recovery[]
+  revisiones         Review[]
+  anuncios           AdImpression[]
+  favoritos          RouteFavorite[]
+  historial          RouteHistory[]
+}
+
+model Session {
+  id        String   @id
+  usuarioId Int
+  usuario   User     @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([usuarioId])
+}
+
+model Verification {
+  id         Int      @id @default(autoincrement())
+  usuarioId  Int
+  usuario    User     @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  tipo       String
+  destino    String
+  codigoHash String
+  intentos   Int      @default(0)
+  expiresAt  DateTime
+  usado      Boolean  @default(false)
+  creadoEn   DateTime @default(now())
+
+  @@index([usuarioId, tipo])
+}
+
+model Category {
+  id     Int            @id @default(autoincrement())
+  nombre String
+  slug   String         @unique
+  orden  Int            @default(0)
+  tipos  IncidentType[]
+}
+
+model IncidentType {
+  id              Int        @id @default(autoincrement())
+  nombre          String
+  slug            String     @unique
+  categoriaId     Int
+  categoria       Category   @relation(fields: [categoriaId], references: [id])
+  emergencia      Boolean    @default(false)
+  historico       Boolean    @default(false)
+  fotoObligatoria Boolean    @default(true)
+  individual      Boolean    @default(false)
+  ubicacionRemota Boolean    @default(false)
+  persistente     Boolean    @default(false)
+  activo          Boolean    @default(true)
+  reportes        Report[]
+  incidentes      Incident[]
+}
+
 model Report {
-  id             Int       @id @default(autoincrement())
-  usuarioId      Int
-  usuario        User      @relation(fields: [usuarioId], references: [id])
-  tipo           String
-  descripcion    String
-  latitud        Float
-  longitud       Float
-  nivelRiesgo    Int       @default(1)
-  estado         String    @default("Reportado")
-  confirmaciones Int       @default(0)
-  imagen         String?
-  incidenteId    Int?
-  incidente      Incident? @relation("ReportesIncidente", fields: [incidenteId], references: [id])
-  fechaEvento    DateTime  @default(now())
-  fechaCreacion  DateTime  @default(now())
+  id                  Int           @id @default(autoincrement())
+  usuarioId           Int
+  usuario             User          @relation(fields: [usuarioId], references: [id])
+  tipo                String
+  tipoId              Int?
+  tipoCatalogo        IncidentType? @relation(fields: [tipoId], references: [id])
+  descripcion         String
+  latitud             Float
+  longitud            Float
+  gpsLatitud          Float?
+  gpsLongitud         Float?
+  nivelRiesgo         Int?
+  estado              String        @default("PENDIENTE")
+  confirmaciones      Int           @default(0)
+  imagen              String?
+  incidenteId         Int?
+  incidente           Incident?     @relation("ReportesIncidente", fields: [incidenteId], references: [id])
+  fechaEvento         DateTime      @default(now())
+  fechaCreacion       DateTime      @default(now())
+  recordatorioEnviado Boolean       @default(false)
+  adjuntos            Attachment[]
+  apelaciones         Appeal[]
+
+  @@index([usuarioId, fechaCreacion])
 }
 
 model Incident {
-  id            Int      @id @default(autoincrement())
-  tipo          String
-  latitud       Float
-  longitud      Float
-  nivelRiesgo   Int      @default(1)
-  estado        String   @default("ACTIVO")
-  totalReportes Int      @default(1)
-  fechaCreacion DateTime @default(now())
-  reportes      Report[] @relation("ReportesIncidente")
+  id                 Int           @id @default(autoincrement())
+  tipo               String
+  tipoId             Int?
+  tipoCatalogo       IncidentType? @relation(fields: [tipoId], references: [id])
+  descripcion        String        @default("")
+  latitud            Float
+  longitud           Float
+  distrito           String?
+  nivelRiesgo        Int?
+  estado             String        @default("PENDIENTE")
+  totalReportes      Int           @default(1)
+  validacion         Float         @default(0.5)
+  publicado          Boolean       @default(false)
+  evaluacion         String        @default("PENDIENTE")
+  individual         Boolean       @default(false)
+  historico          Boolean       @default(false)
+  emergencia         Boolean       @default(false)
+  persistente        Boolean       @default(false)
+  fuente             String        @default("CIUDADANO")
+  motivoRetiro       String?
+  fechaEvento        DateTime      @default(now())
+  fechaPublicacion   DateTime?
+  fechaCreacion      DateTime      @default(now())
+  fechaActualizacion DateTime      @updatedAt
+  reportes           Report[]      @relation("ReportesIncidente")
+  votos              Vote[]
+  mensajes           ChatMessage[]
+  flags              Flag[]
+  revisiones         Review[]
+
+  @@index([publicado, estado, fechaCreacion])
+  @@index([tipoId, fechaCreacion])
 }
 
-model User {
+model Attachment {
+  id        String   @id
+  usuarioId Int
+  usuario   User     @relation(fields: [usuarioId], references: [id])
+  reporteId Int?
+  reporte   Report?  @relation(fields: [reporteId], references: [id])
+  nombre    String
+  mimeType  String
+  size      Int
+  path      String
+  privado   Boolean  @default(false)
+  tipo      String   @default("PUBLICO")
+  creadoEn  DateTime @default(now())
+}
+
+model Vote {
+  id          Int      @id @default(autoincrement())
+  usuarioId   Int
+  usuario     User     @relation(fields: [usuarioId], references: [id])
+  incidenteId Int
+  incidente   Incident @relation(fields: [incidenteId], references: [id])
+  tipo        String
+  latitud     Float
+  longitud    Float
+  creadoEn    DateTime @default(now())
+
+  @@unique([usuarioId, incidenteId, tipo])
+}
+
+model ChatMessage {
+  id          Int      @id @default(autoincrement())
+  usuarioId   Int
+  usuario     User     @relation(fields: [usuarioId], references: [id])
+  incidenteId Int
+  incidente   Incident @relation(fields: [incidenteId], references: [id])
+  mensaje     String
+  creadoEn    DateTime @default(now())
+
+  @@index([incidenteId, creadoEn])
+}
+
+model Notification {
+  id          Int      @id @default(autoincrement())
+  usuarioId   Int
+  usuario     User     @relation(fields: [usuarioId], references: [id])
+  titulo      String
+  mensaje     String
+  tipo        String   @default("INFO")
+  incidenteId Int?
+  leida       Boolean  @default(false)
+  creadoEn    DateTime @default(now())
+
+  @@index([usuarioId, creadoEn])
+}
+
+model Flag {
+  id          Int      @id @default(autoincrement())
+  usuarioId   Int
+  usuario     User     @relation(fields: [usuarioId], references: [id])
+  incidenteId Int
+  incidente   Incident @relation(fields: [incidenteId], references: [id])
+  tipo        String
+  motivo      String
+  estado      String   @default("PENDIENTE")
+  creadoEn    DateTime @default(now())
+
+  @@unique([usuarioId, incidenteId, tipo])
+}
+
+model Review {
+  id          Int      @id @default(autoincrement())
+  usuarioId   Int
+  usuario     User     @relation(fields: [usuarioId], references: [id])
+  incidenteId Int
+  incidente   Incident @relation(fields: [incidenteId], references: [id])
+  accion      String
+  motivo      String
+  datos       Json?
+  creadoEn    DateTime @default(now())
+}
+
+model Appeal {
+  id        Int      @id @default(autoincrement())
+  usuarioId Int
+  usuario   User     @relation(fields: [usuarioId], references: [id])
+  reporteId Int
+  reporte   Report   @relation(fields: [reporteId], references: [id])
+  motivo    String
+  estado    String   @default("PENDIENTE")
+  respuesta String?
+  creadoEn  DateTime @default(now())
+}
+
+model Recovery {
   id            Int      @id @default(autoincrement())
-  nombreUsuario String   @unique
-  correo        String   @unique
-  telefono      String   @unique
-  password      String
-  reputacion    Int      @default(100)
-  rol           String   @default("USUARIO")
-  fechaCreacion DateTime @default(now())
-  reportes      Report[]
+  usuarioId     Int
+  usuario       User     @relation(fields: [usuarioId], references: [id])
+  telefonoNuevo String
+  adjuntoId     String?
+  motivo        String
+  estado        String   @default("PENDIENTE")
+  creadoEn      DateTime @default(now())
+}
+
+model PointEvent {
+  id        Int      @id @default(autoincrement())
+  usuarioId Int
+  usuario   User     @relation(fields: [usuarioId], references: [id])
+  clave     String   @unique
+  tipo      String
+  puntos    Float
+  creadoEn  DateTime @default(now())
+
+  @@index([usuarioId, creadoEn])
+}
+
+model RankingSettlement {
+  id       String   @id
+  datos    Json
+  creadoEn DateTime @default(now())
+}
+
+model Reward {
+  id           Int          @id @default(autoincrement())
+  nombre       String
+  descripcion  String
+  costoMonedas Float
+  stock        Int          @default(0)
+  activo       Boolean      @default(true)
+  demo         Boolean      @default(true)
+  canjes       Redemption[]
+}
+
+model Redemption {
+  id           Int      @id @default(autoincrement())
+  usuarioId    Int
+  usuario      User     @relation(fields: [usuarioId], references: [id])
+  recompensaId Int
+  recompensa   Reward   @relation(fields: [recompensaId], references: [id])
+  costoMonedas Float
+  estado       String   @default("SOLICITADO_DEMO")
+  creadoEn     DateTime @default(now())
+}
+
+model Business {
+  id          Int            @id @default(autoincrement())
+  nombre      String
+  descripcion String
+  direccion   String
+  horario     String         @default("")
+  sitioWeb    String?
+  telefono    String?
+  latitud     Float
+  longitud    Float
+  activo      Boolean        @default(true)
+  demo        Boolean        @default(true)
+  impresiones AdImpression[]
+}
+
+model AdImpression {
+  id          Int      @id @default(autoincrement())
+  usuarioId   Int
+  usuario     User     @relation(fields: [usuarioId], references: [id])
+  negocioId   Int
+  negocio     Business @relation(fields: [negocioId], references: [id])
+  recorridoId String
+  creadoEn    DateTime @default(now())
+
+  @@unique([usuarioId, negocioId, recorridoId])
+}
+
+model RouteFavorite {
+  id        Int      @id @default(autoincrement())
+  usuarioId Int
+  usuario   User     @relation(fields: [usuarioId], references: [id])
+  nombre    String
+  modo      String
+  origen    Json
+  destino   Json
+  datos     Json
+  tags      String[] @default([])
+  creadoEn  DateTime @default(now())
+}
+
+model RouteHistory {
+  id        Int      @id @default(autoincrement())
+  usuarioId Int
+  usuario   User     @relation(fields: [usuarioId], references: [id])
+  modo      String
+  origen    Json
+  destino   Json
+  datos     Json
+  creadoEn  DateTime @default(now())
+}
+
+model AuditLog {
+  id        Int      @id @default(autoincrement())
+  usuarioId Int?
+  accion    String
+  entidad   String
+  entidadId String?
+  datos     Json?
+  creadoEn  DateTime @default(now())
+}
+
+model AppConfig {
+  clave         String   @id
+  valor         Json
+  actualizadoEn DateTime @updatedAt
 }
