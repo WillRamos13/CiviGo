@@ -1,0 +1,32 @@
+# CiviGo
+
+Proyecto académico de seguridad y movilidad ciudadana para la provincia de Ica. Web Next.js, API Express, Prisma y PostgreSQL de Supabase.
+
+Despliegue público previsto: **frontend en Vercel, backend Node.js en Railway, base en Supabase y dominio civigo.online en GoDaddy**. Pendiente de configurar en los proveedores.
+
+## Documentación
+
+- [Especificación funcional](docs/especificacion-funcional.md): acuerdos del producto.
+- [Registro de avance](docs/progreso-desarrollo.md): implementación, pruebas y pendientes.
+- [Informe de entrega](docs/entrega-desarrollo.md): funcionalidades, correcciones y revisión recomendada.
+- [Operación y preparación de despliegue](docs/operacion-y-despliegue.md): configuración, comandos y servicios.
+
+## Desarrollo
+
+Instalar dependencias con `npm ci` en `backend` y `frontend`. Configurar `backend/.env` y `frontend/.env.local` a partir de sus ejemplos. Preparar la base con `npm run db:generate`, `npm run db:migrate` y `npm run db:seed` en backend.
+
+Desde la raíz:
+
+```powershell
+node scripts/dev.js
+```
+
+Abrir http://localhost:3000. La API se encuentra en http://127.0.0.1:4000. El modo `--local` prepara una base local de desarrollo; la documentación explica sus límites y las cuentas demo opcionales.
+
+## Verificación
+
+Backend: `npm run check` y `npm test`. Las pruebas HTTP requieren `TEST_DATABASE_URL` de una base de prueba. Frontend: `npm run lint`, `npx tsc --noEmit` y `npm run build`.
+
+Los Dockerfiles y Compose son preparativos. No se ha desplegado ni publicado a producción. SMS, correo e IA requieren sus proveedores y credenciales. Los pagos, negocios y canjes se muestran como demostración.
+
+La red vial utiliza datos de © OpenStreetMap contributors, ODbL 1.0.
