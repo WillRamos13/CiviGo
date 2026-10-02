@@ -6,9 +6,17 @@ const { services } = require("./lib/providers");
 const { trustProxy, originGuard, rateLimits } = require("./lib/security");
 const app = express();
 app.disable("x-powered-by");
-app.set("trust proxy", trustProxy(process.env.TRUST_PROXY));
+let proxySetting = false;
+try {
+  proxySetting = trustProxy(process.env.TRUST_PROXY);
+} catch (error) {
+  // Un valor inválido no debe tumbar el servicio; se ignoran las cabeceras.
+  console.warn(error.message + " Se ignora TRUST_PROXY.");
+}
+app.set("trust proxy", proxySetting);
 const allowed = (
-  process.env.FRONTEND_URL || "http://localhost:3000,http://127.0.0.1:3000"
+  process.env.FRONTEND_URL ||
+  "https://civigo-rho.vercel.app,http://localhost:3000,http://127.0.0.1:3000"
 )
   .split(",")
   .map((v) => v.trim())
@@ -103,12 +111,13 @@ function start() {
   )
     throw new Error("No puede activarse DEMO_VERIFICATION en producción.");
   if (process.env.NODE_ENV === "production" && !process.env.FRONTEND_URL)
-    throw new Error("Configura FRONTEND_URL antes de iniciar en producción.");
+    console.warn("FRONTEND_URL no configurado; se usan los orígenes por defecto.");
   const port = Number(process.env.PORT) || 4000;
   // Railway y otras plataformas solo alcanzan el proceso por la interfaz pública.
-  const host =
-    process.env.API_HOST ||
-    (process.env.NODE_ENV === "production" ? "0.0.0.0" : "127.0.0.1");
+  const deployed =
+    process.env.NODE_ENV === "production" ||
+    !!process.env.RAILWAY_ENVIRONMENT_NAME;
+  const host = process.env.API_HOST || (deployed ? "0.0.0.0" : "127.0.0.1");
   const server = app.listen(port, host, () =>
     console.log("API CiviGo escuchando en puerto " + port),
   );
