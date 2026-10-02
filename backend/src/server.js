@@ -83,7 +83,9 @@ app.use((error, req, res, next) => {
   }
   if (status >= 500) {
     message =
-      status === 503 ? message : "El servicio no pudo completar la solicitud.";
+      status === 503 && error instanceof HttpError
+        ? message
+        : "El servicio no pudo completar la solicitud.";
     console.error(
       "Error de API:",
       error.code || error.name,
@@ -103,7 +105,10 @@ function start() {
   if (process.env.NODE_ENV === "production" && !process.env.FRONTEND_URL)
     throw new Error("Configura FRONTEND_URL antes de iniciar en producción.");
   const port = Number(process.env.PORT) || 4000;
-  const host = process.env.API_HOST || "127.0.0.1";
+  // Railway y otras plataformas solo alcanzan el proceso por la interfaz pública.
+  const host =
+    process.env.API_HOST ||
+    (process.env.NODE_ENV === "production" ? "0.0.0.0" : "127.0.0.1");
   const server = app.listen(port, host, () =>
     console.log("API CiviGo escuchando en puerto " + port),
   );

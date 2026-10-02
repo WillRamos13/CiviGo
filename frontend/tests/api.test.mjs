@@ -2,6 +2,51 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {loadTs} from './helpers/ts-module.mjs';
 const {api, ApiError} = loadTs('lib/api.ts');
+async function expectResponseError(status, payload, message) {
+    const original = globalThis.fetch;
+    globalThis.fetch = async () => ({ok: false, status, json: async () => payload});
+    try {
+        await assert.rejects(api('/synthetic'), error => {
+            assert.ok(error instanceof ApiError);
+            assert.equal(error.status, status);
+            assert.equal(error.code, payload?.code);
+            assert.equal(error.message, message);
+            return true;
+        });
+    }
+    finally { globalThis.fetch = original; }
+}
+
+const rawPrismaError = 'PrismaClientInitializationError: database connection failed with password=SYNTHETIC_SECRET_DO_NOT_DISPLAY';
+const serviceUnavailableMessage = 'El servicio de CiviGo no está disponible en este momento. Inténtalo de nuevo.';
+
+for (const status of [500, 502, 503]) {
+    test(`HTTP ${status} hides raw Prisma details from both error payload fields`, async () => {
+        await expectResponseError(status, {error: rawPrismaError, code: 'INTERNAL_ERROR'}, serviceUnavailableMessage);
+        await expectResponseError(status, {mensaje: rawPrismaError}, serviceUnavailableMessage);
+    });
+}
+
+for (const [code, message] of [
+    ['PHONE_PROVIDER_MISSING', 'La verificación telefónica no está disponible en este momento. Inténtalo de nuevo más tarde.'],
+    ['ROADS_UNAVAILABLE', 'Los datos de calles no están disponibles en este momento. Inténtalo de nuevo más tarde.'],
+]) {
+    test(`HTTP 503 ${code} uses a fixed readable message without exposing the payload`, async () => {
+        await expectResponseError(503, {error: rawPrismaError, mensaje: rawPrismaError, code}, message);
+        await expectResponseError(500, {error: rawPrismaError, code}, serviceUnavailableMessage);
+    });
+}
+
+test('HTTP 400 keeps ordinary validation messages and error codes', async () => {
+    await expectResponseError(400, {error: 'Canal inválido.', code: 'INVALID_CHANNEL'}, 'Canal inválido.');
+    await expectResponseError(400, {mensaje: 'Completa los campos requeridos.'}, 'Completa los campos requeridos.');
+});
+
+test('HTTP 403 ACCOUNT_BLOCKED keeps the account message and code', async () => {
+    const message = 'Tu cuenta está bloqueada. Puedes solicitar revisión desde Mis reportes.';
+    await expectResponseError(403, {error: message, code: 'ACCOUNT_BLOCKED'}, message);
+});
+
 test('caller abort remains cancellation instead of a misleading network outage', async () => {
     const original = globalThis.fetch, controller = new AbortController();
     globalThis.fetch = async () => { controller.abort(); throw new DOMException('cancelled', 'AbortError'); };

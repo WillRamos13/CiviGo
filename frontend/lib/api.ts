@@ -16,8 +16,18 @@ export async function api<T>(path: string, options: RequestInit = {}): Promise<T
     }
     const data = await response.json().catch(() => null);
     if (options.signal?.aborted) throw new DOMException('Solicitud cancelada.', 'AbortError');
-    if (!response.ok)
-        throw new ApiError(data?.error || data?.mensaje || (response.status>=500?'El servicio de CiviGo no está disponible en este momento. Inténtalo de nuevo.':'No se pudo completar la solicitud.'), response.status, data?.code);
+    if (!response.ok) {
+        let message = 'No se pudo completar la solicitud.';
+        if (response.status >= 500) {
+            message = 'El servicio de CiviGo no está disponible en este momento. Inténtalo de nuevo.';
+            if (response.status === 503 && data?.code === 'PHONE_PROVIDER_MISSING')
+                message = 'La verificación telefónica no está disponible en este momento. Inténtalo de nuevo más tarde.';
+            else if (response.status === 503 && data?.code === 'ROADS_UNAVAILABLE')
+                message = 'Los datos de calles no están disponibles en este momento. Inténtalo de nuevo más tarde.';
+        }
+        else message = data?.error || data?.mensaje || message;
+        throw new ApiError(message, response.status, data?.code);
+    }
     return data as T;
 }
 export const post = <T>(path: string, body: unknown = {}, options: RequestInit = {}) => api<T>(path, { ...options, method: 'POST', body: JSON.stringify(body) });

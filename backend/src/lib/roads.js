@@ -1,6 +1,7 @@
 "use strict";
 const fs = require("node:fs");
 const path = require("node:path");
+const { HttpError } = require("./http");
 const { distanceMeters, projectToLine } = require("./risk");
 let cached;
 const coverageCache = new WeakMap();
@@ -142,11 +143,10 @@ function getRoads() {
   const filename =
     process.env.ROADS_FILE || path.join(__dirname, "../../data/ica-roads.json");
   if (!fs.existsSync(filename))
-    throw Object.assign(
-      new Error(
-        "No hay datos de calles disponibles. Ejecuta npm run roads:import en el backend.",
-      ),
-      { status: 503, code: "ROADS_UNAVAILABLE" },
+    throw new HttpError(
+      503,
+      "No hay datos de calles disponibles. Ejecuta npm run roads:import en el backend.",
+      "ROADS_UNAVAILABLE",
     );
   cached = parseRoads(JSON.parse(fs.readFileSync(filename, "utf8")));
   return cached;
