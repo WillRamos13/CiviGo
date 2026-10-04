@@ -15,11 +15,14 @@ const keys = [
 async function isolated(work) {
   const saved = Object.fromEntries(keys.map((key) => [key, process.env[key]]));
   const previousFetch = global.fetch;
+  const previousWarn = console.warn;
+  console.warn = () => {};
   keys.forEach((key) => delete process.env[key]);
   try {
     await work();
   } finally {
     global.fetch = previousFetch;
+    console.warn = previousWarn;
     for (const key of keys) {
       if (saved[key] === undefined) delete process.env[key];
       else process.env[key] = saved[key];
@@ -462,4 +465,365 @@ test("Sol permite presupuesto acotado para reportes y fallback por incomplete si
     assert.deepEqual(await ai.evaluateReport(input, fire), evaluation);
     assert.equal(requests.at(-1).max_output_tokens, 600);
     assert.equal(requests.at(-1).reasoning, undefined);
+  }));
+
+test("Diagnóstico HTTP usa una sola línea y códigos conocidos sin filtrar clave, entrada, cuerpo, URL ni headers", () =>
+  isolated(async () => {
+    const secret = "fixture-api-key-private";
+    const prompt = "fixture-user-message-private";
+    const rawBody = "fixture-provider-body-private";
+    const warnings = [];
+    console.warn = (...args) => warnings.push(args);
+    process.env.OPENAI_API_KEY = secret;
+    function latest() {
+      const args = warnings.at(-1);
+      assert.equal(args.length, 1);
+      assert.ok(args[0].startsWith("[CiviGo IA] "));
+      assert.ok(!args[0].includes("\n"));
+      for (const privateValue of [
+        secret,
+        prompt,
+        rawBody,
+        "api.openai.com",
+        "gpt-4.1-mini",
+        "fixture-header-private",
+      ])
+        assert.ok(!args[0].includes(privateValue));
+      const metadata = JSON.parse(args[0].slice("[CiviGo IA] ".length));
+      assert.ok(
+        Object.keys(metadata).every((key) =>
+          ["proveedor", "servicio", "motivo", "estado", "codigo"].includes(key),
+        ),
+      );
+      return metadata;
+    }
+    const scenarios = [
+      [400, "HTTP_400"],
+      [401, "HTTP_401"],
+      [403, "HTTP_403"],
+      [404, "HTTP_404"],
+      [429, "HTTP_429"],
+      [500, "HTTP_5XX"],
+      [503, "HTTP_5XX"],
+      [418, "HTTP_ERROR"],
+    ];
+    for (const [status, reason] of scenarios) {
+      const before = warnings.length;
+      global.fetch = async () => ({
+        ok: false,
+        status,
+        headers: {
+          Authorization: secret,
+          "x-request-id": "fixture-header-private",
+        },
+        json: async () => ({
+          error: {
+            message: rawBody,
+            code: "unknown_" + rawBody,
+            param: prompt,
+          },
+          key: secret,
+        }),
+      });
+      assert.equal(await ai.assist(prompt, {}), null);
+      assert.equal(warnings.length, before + 1);
+      assert.deepEqual(latest(), {
+        proveedor: "openai",
+        servicio: "chat",
+        motivo: reason,
+        estado: status,
+      });
+    }
+    const knownCodes = [
+      "credit_balance_exhausted",
+      "insufficient_quota",
+      "organization_spend_limit_exceeded",
+      "project_spend_limit_exceeded",
+      "organization_usage_limit_exceeded",
+      "invalid_api_key",
+      "ip_not_authorized",
+      "model_not_found",
+      "permission_denied",
+      "rate_limit_exceeded",
+      "slow_down",
+      "server_is_overloaded",
+    ];
+    for (const code of knownCodes) {
+      global.fetch = async () => ({
+        ok: false,
+        status: 429,
+        json: async () => ({ error: { code, message: rawBody } }),
+      });
+      assert.equal(await ai.assist(prompt, {}), null);
+      assert.deepEqual(latest(), {
+        proveedor: "openai",
+        servicio: "chat",
+        motivo: "HTTP_429",
+        estado: 429,
+        codigo: code,
+      });
+    }
+    for (const code of [
+      secret,
+      "invalid_api_key\n" + rawBody,
+      { value: "insufficient_quota", secret },
+      null,
+    ]) {
+      global.fetch = async () => ({
+        ok: false,
+        status: 429,
+        json: async () => ({ error: { code, message: rawBody } }),
+      });
+      assert.equal(await ai.assist(prompt, {}), null);
+      assert.equal(latest().codigo, undefined);
+    }
+    // Un HTTP 429 cuyo cuerpo no se puede leer no prueba agotamiento de crédito.
+    global.fetch = async () => ({
+      ok: false,
+      status: 429,
+      json: async () => {
+        throw new Error(rawBody);
+      },
+    });
+    assert.equal(await ai.assist(prompt, {}), null);
+    assert.deepEqual(latest(), {
+      proveedor: "openai",
+      servicio: "chat",
+      motivo: "HTTP_429",
+      estado: 429,
+    });
+    global.fetch = async () => ({
+      ok: false,
+      status: rawBody,
+      json: async () => ({ error: { code: secret } }),
+    });
+    assert.equal(await ai.assist(prompt, {}), null);
+    assert.deepEqual(latest(), {
+      proveedor: "openai",
+      servicio: "chat",
+      motivo: "HTTP_ERROR",
+    });
+    global.fetch = async () => ({
+      ok: false,
+      status: 401,
+      json: async () => ({
+        error: { code: "invalid_api_key", message: rawBody },
+      }),
+    });
+    assert.equal(await ai.evaluateReport({ descripcion: prompt }, fire), null);
+    assert.deepEqual(latest(), {
+      proveedor: "openai",
+      servicio: "reportes",
+      motivo: "HTTP_401",
+      estado: 401,
+      codigo: "invalid_api_key",
+    });
+  }));
+
+test("Diagnóstico distingue timeout, red y contratos rotos sin publicar los datos fallidos", () =>
+  isolated(async () => {
+    process.env.AI_API_KEY = "fixture-private-api-key";
+    const privateText = "fixture-provider-output-or-error-private";
+    const warnings = [];
+    console.warn = (...args) => warnings.push(args);
+    const metadata = () => {
+      const warning = warnings.at(-1)[0];
+      assert.ok(!warning.includes(privateText));
+      assert.ok(!warning.includes(process.env.AI_API_KEY));
+      return JSON.parse(warning.slice("[CiviGo IA] ".length));
+    };
+    const cases = [
+      [
+        "TIMEOUT",
+        async () => {
+          throw new DOMException(privateText, "TimeoutError");
+        },
+      ],
+      [
+        "NETWORK",
+        async () => {
+          throw new TypeError(privateText);
+        },
+      ],
+      [
+        "TIMEOUT",
+        async () => ({
+          ok: true,
+          status: 200,
+          json: async () => {
+            throw new DOMException(privateText, "TimeoutError");
+          },
+        }),
+      ],
+      [
+        "INVALID_JSON",
+        async () => ({
+          ok: true,
+          status: 200,
+          json: async () => {
+            throw new SyntaxError(privateText);
+          },
+        }),
+      ],
+      [
+        "INCOMPLETE",
+        async () => ({
+          ok: true,
+          status: 200,
+          json: async () => ({
+            ...completed(privateText),
+            status: "incomplete",
+            incomplete_details: { reason: privateText },
+          }),
+        }),
+      ],
+      [
+        "RESPONSE_FAILED",
+        async () => ({
+          ok: true,
+          status: 200,
+          json: async () => ({
+            status: "failed",
+            error: { code: privateText, message: privateText },
+          }),
+        }),
+      ],
+      [
+        "INVALID_RESPONSE",
+        async () => ({
+          ok: true,
+          status: 200,
+          json: async () => ({
+            status: privateText,
+            output: [],
+            body: privateText,
+          }),
+        }),
+      ],
+      [
+        "INVALID_RESPONSE",
+        async () => ({
+          ok: true,
+          status: 200,
+          json: async () => ({
+            status: "completed",
+            output: [
+              {
+                type: "message",
+                role: "assistant",
+                content: { secret: privateText },
+              },
+            ],
+          }),
+        }),
+      ],
+      [
+        "REFUSAL",
+        async () => ({
+          ok: true,
+          status: 200,
+          json: async () => ({
+            status: "completed",
+            output: [
+              {
+                type: "message",
+                role: "assistant",
+                content: [{ type: "refusal", refusal: privateText }],
+              },
+            ],
+          }),
+        }),
+      ],
+      [
+        "EMPTY_OUTPUT",
+        async () => ({
+          ok: true,
+          status: 200,
+          json: async () => ({ status: "completed", output: [] }),
+        }),
+      ],
+      [
+        "OUTPUT_TOO_LONG",
+        async () => ({
+          ok: true,
+          status: 200,
+          json: async () => completed(privateText.repeat(500)),
+        }),
+      ],
+    ];
+    for (const [reason, mock] of cases) {
+      const before = warnings.length;
+      global.fetch = mock;
+      assert.equal(await ai.assist("Ayuda", {}), null);
+      assert.equal(warnings.length, before + 1);
+      assert.equal(metadata().motivo, reason);
+    }
+    global.fetch = async () => ({
+      ok: true,
+      status: 200,
+      json: async () => completed(privateText),
+    });
+    const before = warnings.length;
+    assert.equal(
+      await ai.evaluateReport({ descripcion: privateText }, fire),
+      null,
+    );
+    assert.equal(warnings.length, before + 1);
+    assert.equal(metadata().servicio, "reportes");
+    assert.equal(metadata().motivo, "INVALID_JSON");
+    global.fetch = async () => ({
+      ok: true,
+      status: 200,
+      json: async () =>
+        completed(
+          JSON.stringify({ ...evaluation, gravedad: 6, secret: privateText }),
+        ),
+    });
+    assert.equal(
+      await ai.evaluateReport({ descripcion: privateText }, fire),
+      null,
+    );
+    assert.equal(metadata().motivo, "INVALID_EVALUATION");
+  }));
+
+test("Configuración ausente o inválida es silenciosa y un fallo del logger no rompe el fallback", () =>
+  isolated(async () => {
+    let calls = 0;
+    const warnings = [];
+    console.warn = (...args) => warnings.push(args);
+    global.fetch = async () => {
+      calls++;
+      throw new Error("No debe abrir red");
+    };
+    assert.equal(await ai.assist("Hola", {}), null);
+    assert.equal(await ai.evaluateReport(input, fire), null);
+    process.env.AI_API_KEY = "fixture-private-api-key";
+    process.env.AI_BASE_URL = "https://host-no-autorizado.example";
+    assert.equal(await ai.assist("Hola", {}), null);
+    assert.equal(await ai.evaluateReport(input, fire), null);
+    assert.equal(calls, 0);
+    assert.equal(warnings.length, 0);
+    delete process.env.AI_BASE_URL;
+    // Un fallo al preparar la señal tampoco se etiqueta como fallo de red.
+    const previousTimeout = AbortSignal.timeout;
+    try {
+      AbortSignal.timeout = () => {
+        throw new Error("fixture-private-setup-error");
+      };
+      assert.equal(await ai.assist("Hola", {}), null);
+    } finally {
+      AbortSignal.timeout = previousTimeout;
+    }
+    assert.equal(calls, 0);
+    assert.equal(warnings.length, 0);
+    console.warn = () => {
+      throw new Error("fixture-private-logger-error");
+    };
+    global.fetch = async () => ({
+      ok: false,
+      status: 503,
+      json: async () => ({ error: { code: "server_is_overloaded" } }),
+    });
+    assert.equal(await ai.assist("Hola", {}), null);
+    assert.equal(await ai.evaluateReport(input, fire), null);
   }));

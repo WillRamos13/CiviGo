@@ -75,6 +75,8 @@ test("Chatbot HTTP usa memoria corta, contexto público, guía honesta y cuota s
     let providerDown = false;
     let providerCalls = 0;
     let payload;
+    const warnings = [];
+    t.mock.method(console, "warn", (...args) => warnings.push(args));
     t.mock.method(global, "fetch", async (url, options) => {
       assert.equal(url, "https://api.openai.com/v1/responses");
       providerCalls++;
@@ -83,7 +85,12 @@ test("Chatbot HTTP usa memoria corta, contexto público, guía honesta y cuota s
         return {
           ok: false,
           status: 429,
-          json: async () => ({ error: "fixture-error-openai-privado" }),
+          json: async () => ({
+            error: {
+              code: "credit_balance_exhausted",
+              message: "fixture-error-openai-privado",
+            },
+          }),
         };
       return {
         ok: true,
@@ -214,6 +221,15 @@ test("Chatbot HTTP usa memoria corta, contexto público, guía honesta y cuota s
         assert.match(result.body.aviso, /IA no está disponible/);
         assert.match(result.body.respuesta, /teléfono verificado/);
         assert.ok(!JSON.stringify(result.body).includes("fixture-error"));
+        assert.ok(
+          !JSON.stringify(result.body).includes("credit_balance_exhausted"),
+        );
+        assert.equal(warnings.length, 1);
+        const diagnostic = JSON.stringify(warnings[0]);
+        assert.ok(diagnostic.includes("[CiviGo IA]"));
+        assert.ok(diagnostic.includes("credit_balance_exhausted"));
+        assert.ok(!diagnostic.includes("fixture-error"));
+        assert.ok(!diagnostic.includes("fixture-openai-key"));
         providerDown = false;
       },
     );

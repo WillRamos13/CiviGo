@@ -14,6 +14,14 @@ También se corrigió un límite que podía eludirse enviando reportes simultán
 
 Validación de esta actualización: **149 pruebas de backend aprobadas, 0 fallos y 0 omitidas** con base local aislada; sintaxis y diff correctos. Las llamadas a proveedores se simularon, sin gasto real ni cambios de infraestructura.
 
+## Diagnóstico de fallos del asistente
+
+Al probar el chatbot en el despliegue, la guía aparecía con el aviso de IA no disponible. El adaptador ocultaba la causa al devolver `null` para todos los errores. Ahora los logs privados del backend distinguen fallos HTTP, timeout, conectividad y respuestas no utilizables mediante `[CiviGo IA]` y campos controlados. Los códigos del proveedor se aceptan únicamente desde una lista cerrada; no se imprime su mensaje, claves ni contenido de usuarios.
+
+La guía y la revisión humana siguen disponibles cuando falla OpenAI. El diagnóstico no convierte la presencia de una clave en disponibilidad confirmada ni repite llamadas automáticamente. Se añadieron pruebas de errores simulados y de separación entre el registro privado y la respuesta HTTP pública. La causa concreta de la cuenta de producción sigue pendiente de comprobar con el nuevo registro; no se hizo una llamada real al proveedor.
+
+Validación de esta corrección: **152 pruebas de backend aprobadas, 0 fallos y 0 omitidas** con PostgreSQL local aislado; sintaxis y diff correctos. La revisión independiente no encontró filtraciones ni alteraciones de los fallbacks. No se modificó el frontend ni se desplegó el cambio.
+
 ## Funcionalidades implementadas
 
 - OpenAI Responses compartido por chatbot y evaluación inicial de reportes. Salida estructurada con validación estricta, tiempo de espera configurable y fallback a guía/revisión humana. Compatible con `OPENAI_API_KEY` y el alias anterior `AI_API_KEY`.

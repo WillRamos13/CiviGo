@@ -127,6 +127,33 @@ El primer comando informa los requisitos sin hacer llamadas externas ni imprimir
 
 En **Administración → Integraciones**, solo los administradores pueden consultar el mismo diagnóstico mediante `/api/admin/integrations`. Muestra nombres de variables y estado de presencia/formato; no prueba conexión, saldo, permiso real, WhatsApp habilitado, remitente verificado ni existencia/privacidad del bucket. `GET /api/health` confirma el proceso; `GET /api/ready` comprueba PostgreSQL, no los proveedores de pago.
 
+### Si el chatbot muestra la guía porque la IA no está disponible
+
+El aviso confirma que la petición al proveedor no produjo una respuesta válida. Por sí solo no identifica un problema de clave, permisos, saldo o tiempo de espera. No hace falta cambiar `BACKEND_URL` ni el token de Mapbox para diagnosticarlo.
+
+Después de publicar esta versión del backend, enviar una sola consulta de prueba desde CiviGo y abrir los **logs de ejecución del servicio en Railway**. Buscar `[CiviGo IA]`, por ejemplo:
+
+```text
+[CiviGo IA] {"proveedor":"openai","servicio":"chat","motivo":"HTTP_429","estado":429,"codigo":"credit_balance_exhausted"}
+```
+
+El ejemplo ilustra un saldo agotado; no afirma que esa sea la causa del despliegue actual. El registro usa motivos fijos, estado HTTP y únicamente códigos conocidos del proveedor. No incluye claves, conversaciones, descripciones, encabezados ni el mensaje remoto. El detalle queda en los logs del backend; la respuesta pública conserva la guía.
+
+| Dato del registro | Qué revisar |
+|---|---|
+| `HTTP_401` / `invalid_api_key` | Que la clave siga activa y corresponda al proyecto configurado. Un 401 genérico no demuestra por sí solo una clave incorrecta. |
+| `ip_not_authorized` | Restricciones de IP del proyecto u organización. |
+| `HTTP_403` / `permission_denied` | Permiso de escritura para Responses y acceso de la cuenta/proyecto al recurso; 403 también puede indicar una restricción regional. |
+| `HTTP_404` / `model_not_found` | Nombre exacto del modelo y su disponibilidad para el proyecto. Un 404 sin código no identifica el recurso. |
+| `credit_balance_exhausted` | Saldo de créditos de la API en OpenAI. |
+| `insufficient_quota` | Facturación, saldo y límites de la organización/proyecto; este código general no permite distinguirlos. |
+| `project_spend_limit_exceeded`, `organization_spend_limit_exceeded`, `organization_usage_limit_exceeded` | El límite correspondiente en OpenAI. |
+| `rate_limit_exceeded` / `slow_down` | Frecuencia de solicitudes; esperar antes de probar de nuevo. Un 429 genérico no significa necesariamente saldo agotado. |
+| `TIMEOUT` / `NETWORK` / `HTTP_5XX` | Latencia, conectividad o disponibilidad del proveedor. |
+| `HTTP_400`, `INVALID_JSON`, `INVALID_RESPONSE`, `INCOMPLETE`, `RESPONSE_FAILED`, `REFUSAL`, `EMPTY_OUTPUT`, `OUTPUT_TOO_LONG`, `INVALID_EVALUATION` | Petición o respuesta no utilizable; revisar el adaptador y sus límites sin publicar datos privados. |
+
+CiviGo no repite las solicitudes automáticamente para intentar recuperar estos fallos. Facturación, saldo y permisos requieren resolver la causa antes de volver a probar. [Códigos de error de OpenAI](https://developers.openai.com/api/docs/guides/error-codes).
+
 Antes de considerar activados los servicios, comprobar en el entorno previsto:
 
 - Registro, sesión, rutas y visualización del mapa desde el dominio final.

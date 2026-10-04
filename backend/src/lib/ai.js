@@ -16,6 +16,72 @@ const CATEGORIES = [
   "busqueda",
   "otros",
 ];
+const PROVIDER_ERROR_CODES = new Set([
+  "credit_balance_exhausted",
+  "insufficient_quota",
+  "organization_spend_limit_exceeded",
+  "project_spend_limit_exceeded",
+  "organization_usage_limit_exceeded",
+  "invalid_api_key",
+  "ip_not_authorized",
+  "model_not_found",
+  "permission_denied",
+  "rate_limit_exceeded",
+  "slow_down",
+  "server_is_overloaded",
+]);
+const FAILURE_REASONS = new Set([
+  "HTTP_400",
+  "HTTP_401",
+  "HTTP_403",
+  "HTTP_404",
+  "HTTP_429",
+  "HTTP_5XX",
+  "HTTP_ERROR",
+  "TIMEOUT",
+  "NETWORK",
+  "INVALID_JSON",
+  "INVALID_RESPONSE",
+  "INCOMPLETE",
+  "RESPONSE_FAILED",
+  "REFUSAL",
+  "EMPTY_OUTPUT",
+  "OUTPUT_TOO_LONG",
+  "INVALID_EVALUATION",
+]);
+
+function providerFailure(purpose, reason, status, code) {
+  const diagnostic = {
+    proveedor: "openai",
+    servicio: purpose === "reportes" ? "reportes" : "chat",
+    motivo: FAILURE_REASONS.has(reason) ? reason : "INVALID_RESPONSE",
+    ...(Number.isInteger(status) && status >= 100 && status <= 599
+      ? { estado: status }
+      : {}),
+    ...(PROVIDER_ERROR_CODES.has(code) ? { codigo: code } : {}),
+  };
+  try {
+    // Solo etiquetas locales y códigos conocidos; nunca mensajes del proveedor,
+    // cuerpos, entradas, URL, modelo ni variables del servidor.
+    console.warn("[CiviGo IA] " + JSON.stringify(diagnostic));
+  } catch {
+    // Un problema de logs tampoco puede romper la guía o la revisión humana.
+  }
+  return null;
+}
+
+function httpFailureReason(status) {
+  if ([400, 401, 403, 404, 429].includes(status)) return "HTTP_" + status;
+  return status >= 500 && status <= 599 ? "HTTP_5XX" : "HTTP_ERROR";
+}
+
+function timedOut(error, signal) {
+  return (
+    signal?.aborted ||
+    error?.name === "TimeoutError" ||
+    error?.name === "AbortError"
+  );
+}
 
 function validModel(model) {
   return (
@@ -123,15 +189,19 @@ function conversationHistory(value) {
 async function responseText(purpose, instructions, input, format) {
   const config = aiConfig(purpose);
   if (!config.key || !config.valid) return null;
+  let response;
+  let signal;
+  let attempted = false;
   try {
-    const response = await fetch(RESPONSES_URL, {
+    signal = AbortSignal.timeout(config.timeout);
+    const options = {
       method: "POST",
       redirect: "error",
       headers: {
         "Content-Type": "application/json",
         Authorization: "Bearer " + config.key,
       },
-      signal: AbortSignal.timeout(config.timeout),
+      signal,
       body: JSON.stringify({
         model: config.model,
         instructions,
@@ -141,25 +211,73 @@ async function responseText(purpose, instructions, input, format) {
         ...(config.reasoning ? { reasoning: config.reasoning } : {}),
         ...(format ? { text: { format } } : {}),
       }),
-    });
-    if (!response.ok) return null;
-    const data = await response.json();
-    if (data.status !== "completed" || !Array.isArray(data.output)) return null;
+    };
+    attempted = true;
+    response = await fetch(RESPONSES_URL, options);
+    if (!response.ok) {
+      let code;
+      try {
+        const errorData = await response.json();
+        if (PROVIDER_ERROR_CODES.has(errorData?.error?.code))
+          code = errorData.error.code;
+      } catch {
+        // El estado HTTP sigue siendo útil si el error no tiene JSON válido.
+      }
+      return providerFailure(
+        purpose,
+        httpFailureReason(response.status),
+        response.status,
+        code,
+      );
+    }
+    let data;
+    try {
+      data = await response.json();
+    } catch (error) {
+      return providerFailure(
+        purpose,
+        timedOut(error, signal) ? "TIMEOUT" : "INVALID_JSON",
+        response.status,
+      );
+    }
+    if (data?.status === "incomplete")
+      return providerFailure(purpose, "INCOMPLETE", response.status);
+    if (data?.status === "failed")
+      return providerFailure(
+        purpose,
+        "RESPONSE_FAILED",
+        response.status,
+        data?.error?.code,
+      );
+    if (data?.status !== "completed" || !Array.isArray(data.output))
+      return providerFailure(purpose, "INVALID_RESPONSE", response.status);
     const output = [];
     for (const item of data.output) {
-      if (item.type !== "message" || item.role !== "assistant") continue;
-      for (const part of item.content || []) {
-        if (part.type === "refusal") return null;
-        if (part.type === "output_text" && typeof part.text === "string")
+      if (item?.type !== "message" || item.role !== "assistant") continue;
+      if (!Array.isArray(item.content))
+        return providerFailure(purpose, "INVALID_RESPONSE", response.status);
+      for (const part of item.content) {
+        if (part?.type === "refusal")
+          return providerFailure(purpose, "REFUSAL", response.status);
+        if (part?.type === "output_text" && typeof part.text === "string")
           output.push(part.text);
       }
     }
     const content = output.join("\n").trim();
-    return content && content.length <= 10000 ? content : null;
-  } catch {
+    if (!content)
+      return providerFailure(purpose, "EMPTY_OUTPUT", response.status);
+    if (content.length > 10000)
+      return providerFailure(purpose, "OUTPUT_TOO_LONG", response.status);
+    return content;
+  } catch (error) {
     // La revisión humana y la guía local son el fallback. Nunca se devuelve
     // el cuerpo de error del proveedor, que puede contener datos sensibles.
-    return null;
+    if (!attempted) return null;
+    return providerFailure(
+      purpose,
+      timedOut(error, signal) ? "TIMEOUT" : "NETWORK",
+      response?.status,
+    );
   }
 }
 
@@ -267,9 +385,12 @@ async function evaluateReport(report, type) {
   );
   if (!content) return null;
   try {
-    return validEvaluation(JSON.parse(content), type);
+    return (
+      validEvaluation(JSON.parse(content), type) ||
+      providerFailure("reportes", "INVALID_EVALUATION")
+    );
   } catch {
-    return null;
+    return providerFailure("reportes", "INVALID_JSON");
   }
 }
 
