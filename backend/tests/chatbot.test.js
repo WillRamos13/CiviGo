@@ -7,6 +7,9 @@ test("Chatbot HTTP usa memoria corta, contexto público, guía honesta y cuota s
     "AI_API_KEY",
     "OPENAI_API_KEY",
     "AI_MODEL",
+    "AI_REPORT_MODEL",
+    "AI_CHAT_MODEL",
+    "AI_REPORT_MAX_OUTPUT_TOKENS",
     "AI_BASE_URL",
     "AI_TIMEOUT_MS",
   ];
@@ -212,6 +215,26 @@ test("Chatbot HTTP usa memoria corta, contexto público, guía honesta y cuota s
         assert.match(result.body.respuesta, /teléfono verificado/);
         assert.ok(!JSON.stringify(result.body).includes("fixture-error"));
         providerDown = false;
+      },
+    );
+    await t.test(
+      "un modelo de chat inválido no se anuncia como fallo de reportes y viceversa",
+      async () => {
+        const before = providerCalls;
+        process.env.AI_CHAT_MODEL = "modelo\ninválido";
+        const guide = await ask({ mensaje: "¿Cómo reporto?" });
+        assert.equal(guide.status, 200);
+        assert.equal(guide.body.modo, "guia");
+        assert.equal(guide.body.aviso, undefined);
+        assert.equal(providerCalls, before);
+        delete process.env.AI_CHAT_MODEL;
+        process.env.AI_REPORT_MODEL = "modelo\ninválido";
+        const workingChat = await ask({ mensaje: "Hola" });
+        assert.equal(workingChat.status, 200);
+        assert.equal(workingChat.body.modo, "ia");
+        assert.equal(workingChat.body.aviso, undefined);
+        assert.equal(payload.model, "gpt-4.1-mini");
+        delete process.env.AI_REPORT_MODEL;
       },
     );
     await t.test(

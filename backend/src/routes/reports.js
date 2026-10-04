@@ -13,6 +13,7 @@ const {
 } = require("../lib/http");
 const { config, DISTRICTS } = require("../lib/catalog");
 const { evaluateReport } = require("../lib/providers");
+const { counter } = require("../lib/security");
 const { report, incident } = require("../lib/projections");
 const {
   transaction,
@@ -21,6 +22,7 @@ const {
   chatOpen,
 } = require("../lib/workflows");
 const router = express.Router();
+const reportQuota = counter();
 const includes = {
   adjuntos: true,
   usuario: true,
@@ -168,6 +170,9 @@ router.post(
         429,
         "Espera un momento antes de publicar otro reporte.",
       );
+    // Reserva la cuota antes de esperar a la IA: las peticiones concurrentes
+    // aún no figuran en el conteo de reportes persistidos.
+    reportQuota("user:" + req.user.id, 3, res);
     const evaluation = await evaluateReport({ descripcion, fechaEvento }, type);
     if (evaluation?.tipoPropuesto) {
       const proposal = evaluation.tipoPropuesto;

@@ -5,6 +5,9 @@ const keys = [
   "AI_API_KEY",
   "OPENAI_API_KEY",
   "AI_MODEL",
+  "AI_REPORT_MODEL",
+  "AI_CHAT_MODEL",
+  "AI_REPORT_MAX_OUTPUT_TOKENS",
   "AI_BASE_URL",
   "AI_TIMEOUT_MS",
 ];
@@ -165,6 +168,7 @@ test("Historial rechaza instrucciones privilegiadas, texto excesivo y mensajes v
 test("Evaluación usa esquema estricto y valida gravedad, booleanos y tipos nuevos", () =>
   isolated(async () => {
     process.env.OPENAI_API_KEY = "fixture-openai-alias";
+    process.env.AI_REPORT_MODEL = "gpt-4.1-mini";
     process.env.AI_BASE_URL = "https://api.openai.com/v1/chat/completions";
     let content = JSON.stringify(evaluation);
     global.fetch = async (url, options) => {
@@ -265,4 +269,197 @@ test("Timeout, rate limit, rechazo, salida truncada y errores OpenAI activan fal
       throw new DOMException("Tiempo agotado", "TimeoutError");
     };
     assert.equal(await ai.evaluateReport(input, fire), null);
+  }));
+
+test("Nuevas instalaciones usan Sol para evaluar y Mini para chat, con presupuestos y timeouts por modelo", (t) =>
+  isolated(async () => {
+    process.env.OPENAI_API_KEY = "fixture-openai-token";
+    const requests = [];
+    const timeouts = [];
+    const timeout = AbortSignal.timeout;
+    t.mock.method(AbortSignal, "timeout", (ms) => {
+      timeouts.push(ms);
+      return timeout(ms);
+    });
+    global.fetch = async (url, options) => {
+      const request = JSON.parse(options.body);
+      requests.push(request);
+      return {
+        ok: true,
+        json: async () =>
+          completed(
+            request.text?.format
+              ? JSON.stringify(evaluation)
+              : "Guía de prueba",
+          ),
+      };
+    };
+    const state = ai.aiStatus();
+    assert.equal(state.modelo, "gpt-6.1-sol");
+    assert.equal(state.modeloReportes, "gpt-6.1-sol");
+    assert.equal(state.modeloChat, "gpt-4.1-mini");
+    assert.equal(state.reportesConfigurado, true);
+    assert.equal(state.chatConfigurado, true);
+    assert.equal(state.configuracionValida, true);
+    assert.deepEqual(await ai.evaluateReport(input, fire), evaluation);
+    assert.equal(await ai.assist("Hola", {}), "Guía de prueba");
+    assert.equal(requests[0].model, "gpt-6.1-sol");
+    assert.equal(requests[0].max_output_tokens, 4096);
+    assert.deepEqual(requests[0].reasoning, { effort: "low" });
+    assert.equal(requests[1].model, "gpt-4.1-mini");
+    assert.equal(requests[1].max_output_tokens, 700);
+    assert.equal(requests[1].reasoning, undefined);
+    assert.deepEqual(timeouts, [30000, 15000]);
+    process.env.AI_TIMEOUT_MS = "60000";
+    await ai.assist("Hola", {});
+    assert.equal(timeouts.at(-1), 30000);
+    process.env.AI_TIMEOUT_MS = "10";
+    await ai.evaluateReport(input, fire);
+    assert.equal(timeouts.at(-1), 1000);
+    process.env.AI_TIMEOUT_MS = "inválido";
+    await ai.evaluateReport(input, fire);
+    assert.equal(timeouts.at(-1), 30000);
+  }));
+
+test("Modelos específicos prevalecen AI_MODEL y el modelo legado explícito conserva ambas cargas", () =>
+  isolated(async () => {
+    process.env.AI_API_KEY = "fixture-openai-token";
+    const requests = [];
+    global.fetch = async (url, options) => {
+      const request = JSON.parse(options.body);
+      requests.push(request);
+      return {
+        ok: true,
+        json: async () =>
+          completed(
+            request.text?.format
+              ? JSON.stringify(evaluation)
+              : "Guía de prueba",
+          ),
+      };
+    };
+    process.env.AI_MODEL = "gpt-4.1-mini";
+    await ai.evaluateReport(input, fire);
+    await ai.assist("Hola", {});
+    assert.deepEqual(
+      requests.map((request) => request.model),
+      ["gpt-4.1-mini", "gpt-4.1-mini"],
+    );
+    assert.deepEqual(
+      requests.map((request) => request.max_output_tokens),
+      [600, 700],
+    );
+    assert.ok(requests.every((request) => request.reasoning === undefined));
+    process.env.AI_REPORT_MODEL = "gpt-6-sol";
+    process.env.AI_CHAT_MODEL = "gpt-4.1-nano";
+    await ai.evaluateReport(input, fire);
+    await ai.assist("Hola", {});
+    assert.equal(requests[2].model, "gpt-6-sol");
+    assert.deepEqual(requests[2].reasoning, { effort: "low" });
+    assert.equal(requests[2].max_output_tokens, 4096);
+    assert.equal(requests[3].model, "gpt-4.1-nano");
+    assert.equal(requests[3].reasoning, undefined);
+    assert.equal(ai.aiStatus().modeloReportes, "gpt-6-sol");
+    assert.equal(ai.aiStatus().modeloChat, "gpt-4.1-nano");
+    // Un fallback legado inválido no contamina modelos específicos válidos.
+    process.env.AI_MODEL = "modelo\ninválido";
+    assert.equal(ai.aiStatus().configuracionValida, true);
+    delete process.env.AI_REPORT_MODEL;
+    assert.equal(await ai.evaluateReport(input, fire), null);
+    assert.equal(await ai.assist("Hola", {}), "Guía de prueba");
+  }));
+
+test("Una configuración de modelo inválida no rompe la otra carga ni filtra claves pegadas por error", () =>
+  isolated(async () => {
+    process.env.OPENAI_API_KEY = "fixture-openai-token";
+    const models = [];
+    global.fetch = async (url, options) => {
+      const request = JSON.parse(options.body);
+      models.push(request.model);
+      return {
+        ok: true,
+        json: async () =>
+          completed(
+            request.text?.format
+              ? JSON.stringify(evaluation)
+              : "Guía de prueba",
+          ),
+      };
+    };
+    process.env.AI_REPORT_MODEL = "modelo\ninválido";
+    assert.equal(await ai.evaluateReport(input, fire), null);
+    assert.equal(await ai.assist("Hola", {}), "Guía de prueba");
+    let state = ai.aiStatus();
+    assert.equal(state.modeloReportes, null);
+    assert.equal(state.reportesConfigurado, false);
+    assert.equal(state.chatConfigurado, true);
+    assert.equal(state.configurado, true);
+    assert.equal(state.configuracionValida, false);
+    delete process.env.AI_REPORT_MODEL;
+    process.env.AI_CHAT_MODEL = "modelo\ninválido";
+    assert.deepEqual(await ai.evaluateReport(input, fire), evaluation);
+    assert.equal(await ai.assist("Hola", {}), null);
+    assert.deepEqual(models, ["gpt-4.1-mini", "gpt-6.1-sol"]);
+    state = ai.aiStatus();
+    assert.equal(state.reportesConfigurado, true);
+    assert.equal(state.chatConfigurado, false);
+    assert.equal(state.modeloChat, null);
+    for (const secret of [
+      process.env.OPENAI_API_KEY,
+      "sk-ficticio-credencial",
+      "sb_secret_ficticio",
+    ]) {
+      process.env.AI_REPORT_MODEL = secret;
+      assert.equal(await ai.evaluateReport(input, fire), null);
+      assert.equal(ai.aiStatus().modeloReportes, null);
+      assert.ok(!JSON.stringify(ai.aiStatus()).includes(secret));
+    }
+  }));
+
+test("Sol permite presupuesto acotado para reportes y fallback por incomplete sin degradar Mini", () =>
+  isolated(async () => {
+    process.env.AI_API_KEY = "fixture-openai-token";
+    const requests = [];
+    let incomplete = false;
+    global.fetch = async (url, options) => {
+      const request = JSON.parse(options.body);
+      requests.push(request);
+      return {
+        ok: true,
+        json: async () => ({
+          ...completed(
+            request.text?.format
+              ? JSON.stringify(evaluation)
+              : "Guía de prueba",
+          ),
+          ...(incomplete
+            ? {
+                status: "incomplete",
+                incomplete_details: { reason: "max_output_tokens" },
+              }
+            : {}),
+        }),
+      };
+    };
+    process.env.AI_REPORT_MAX_OUTPUT_TOKENS = "8192";
+    assert.deepEqual(await ai.evaluateReport(input, fire), evaluation);
+    assert.equal(requests[0].max_output_tokens, 8192);
+    incomplete = true;
+    assert.equal(await ai.evaluateReport(input, fire), null);
+    incomplete = false;
+    for (const invalid of ["1000000", "600", "inválido", "1.5"]) {
+      process.env.AI_REPORT_MAX_OUTPUT_TOKENS = invalid;
+      const before = requests.length;
+      assert.equal(await ai.evaluateReport(input, fire), null);
+      assert.equal(requests.length, before);
+      assert.equal(ai.aiStatus().reportesConfiguracionValida, false);
+      assert.equal(ai.aiStatus().chatConfiguracionValida, true);
+    }
+    assert.equal(await ai.assist("Hola", {}), "Guía de prueba");
+    assert.equal(requests.at(-1).max_output_tokens, 700);
+    assert.equal(requests.at(-1).reasoning, undefined);
+    process.env.AI_REPORT_MODEL = "gpt-4.1-mini";
+    assert.deepEqual(await ai.evaluateReport(input, fire), evaluation);
+    assert.equal(requests.at(-1).max_output_tokens, 600);
+    assert.equal(requests.at(-1).reasoning, undefined);
   }));

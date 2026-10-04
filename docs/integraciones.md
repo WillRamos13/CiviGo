@@ -8,7 +8,7 @@ El stack del proyecto es **frontend Next.js en Vercel, API Express en Railway, P
 |---|---|---|---|
 | Supabase PostgreSQL | Usuarios, sesiones, catálogo, reportes, incidentes y reglas mediante Prisma. | Railway: `DATABASE_URL`. | Conexión PostgreSQL válida y migraciones aplicadas. |
 | Supabase Storage | Fotos, videos, pruebas e identidad con descargas autorizadas por la API. | Railway: `STORAGE_PROVIDER`, `SUPABASE_URL`, clave privada y nombre del bucket. | Bucket privado existente y credencial privada del backend. |
-| OpenAI Responses | Chatbot y evaluación inicial del texto de reportes. | Railway: `OPENAI_API_KEY`, opcionalmente `AI_MODEL` y `AI_TIMEOUT_MS`. | Cuenta de API, clave, acceso al modelo y facturación/cuota disponibles. |
+| OpenAI Responses | Chatbot y evaluación inicial del texto de reportes, con modelos separados. | Railway: `OPENAI_API_KEY`, opcionalmente `AI_REPORT_MODEL`, `AI_CHAT_MODEL` y `AI_TIMEOUT_MS`. | Cuenta de API, clave, acceso a los modelos y facturación/cuota disponibles. |
 | Twilio Verify | Código de verificación por SMS o WhatsApp. | Railway: `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_VERIFY_SERVICE_SID`. | Cuenta y servicio Verify; configurar los canales en Twilio. WhatsApp necesita remitente propio. |
 | Resend | Verificación del correo y recordatorio de pruebas. | Railway: `RESEND_API_KEY`, `EMAIL_FROM`. | Cuenta, dominio remitente verificado y registros DNS correspondientes. |
 | Mapbox | Mapa base y representación visual de calles, reportes y recorridos. | Vercel: `NEXT_PUBLIC_MAPBOX_TOKEN`. | Token público `pk.` con permisos del mapa y restricciones de URL compatibles. |
@@ -45,8 +45,11 @@ En el servicio del backend, abrir **Variables** y agregar los nombres y valores 
 | `FRONTEND_URL` | `https://civigo.online,https://www.civigo.online,https://civigo-rho.vercel.app`. Agregar solo los orígenes de previsualización autorizados que se necesiten. Sin rutas ni barra final. |
 | `COOKIE_SAME_SITE` | `lax` para las solicitudes `/api` del mismo origen mediante Vercel. |
 | `OPENAI_API_KEY` | Clave privada del proyecto de OpenAI. |
-| `AI_MODEL` | Opcional; valor inicial del adaptador: `gpt-4.1-mini`. |
-| `AI_TIMEOUT_MS` | Opcional; `15000` por defecto. El adaptador admite entre 1000 y 30000 milisegundos. |
+| `AI_REPORT_MODEL` | Opcional; `gpt-6.1-sol` por defecto para evaluar reportes. Tiene prioridad sobre `AI_MODEL`. |
+| `AI_CHAT_MODEL` | Opcional; `gpt-4.1-mini` por defecto para el chatbot. Tiene prioridad sobre `AI_MODEL`. |
+| `AI_MODEL` | Alternativa compatible para ambos servicios cuando falta su variable específica. Si ya tiene `gpt-4.1-mini`, definir `AI_REPORT_MODEL=gpt-6.1-sol` para actualizar la evaluación. |
+| `AI_REPORT_MAX_OUTPUT_TOKENS` | Opcional para reportes con Sol; `4096` por defecto, entero entre 1024 y 16384. Incluye razonamiento y respuesta. |
+| `AI_TIMEOUT_MS` | Opcional; por defecto 30000 con Sol y 15000 con otros modelos. Admite entre 1000 y 30000 milisegundos. |
 | `TWILIO_ACCOUNT_SID` | Account SID de la cuenta; formato `AC` seguido de 32 caracteres hexadecimales. |
 | `TWILIO_AUTH_TOKEN` | Auth Token privado de esa cuenta. |
 | `TWILIO_VERIFY_SERVICE_SID` | SID del servicio Verify; formato `VA` seguido de 32 caracteres hexadecimales. |
@@ -69,14 +72,18 @@ Conservar el puerto asignado por Railway y su dominio público HTTPS. El código
 ## Activar OpenAI
 
 1. Crear o usar un proyecto en la plataforma de OpenAI y configurar su facturación y acceso al modelo elegido. Una suscripción de ChatGPT no es una credencial de API para este backend.
-2. Crear una clave privada del proyecto y guardarla como `OPENAI_API_KEY` en Railway. Puede dejarse el modelo inicial `gpt-4.1-mini`.
+2. Crear una clave privada del proyecto y guardarla como `OPENAI_API_KEY` en Railway. Esa misma clave sirve para ambos modelos: `AI_REPORT_MODEL=gpt-6.1-sol` y `AI_CHAT_MODEL=gpt-4.1-mini`. El código nuevo debe estar desplegado para reconocer las variables específicas.
 3. Tras aplicar el cambio, comprobar la configuración y realizar una conversación de prueba desde CiviGo. Si la clave o cuota falla, el chatbot identifica su respuesta como **guía de CiviGo**, sin simular una respuesta de IA.
 
 El backend utiliza `POST https://api.openai.com/v1/responses`, salida estructurada para evaluar reportes y un historial breve para el chatbot. Cada petición admite hasta diez mensajes previos; el frontend conserva turnos en memoria, sin guardarlos en localStorage ni crear conversaciones alojadas. El contexto del chatbot incluye una muestra de incidentes públicos y reglas; no incluye autores, sesiones, documentos o pruebas privadas. El texto escrito por el usuario sí se envía al proveedor. La evaluación inicial envía tipo, descripción y fechas; actualmente no analiza imágenes o videos adjuntos.
 
+La evaluación usa un modelo de razonamiento más avanzado que el del chatbot. Con `gpt-6.1-sol` se solicita esfuerzo `low` y se acota la salida total a 4096 tokens, incluidos los de razonamiento. Este presupuesto inicial está comprobado con respuestas simuladas; falta calibrarlo con reportes reales y acceso al proveedor. Si se agota antes de completar el resultado, el reporte pasa al flujo de revisión humana, sin repetir llamadas automáticamente. El modelo admite imágenes, pero el adaptador aún no las envía: cambiar de modelo no activa el análisis de pruebas adjuntas. [Modelo gpt-6.1-sol](https://developers.openai.com/api/docs/models/gpt-6.1-sol), [presupuesto de razonamiento](https://developers.openai.com/api/docs/guides/reasoning).
+
 Las solicitudes incluyen `store: false`, que desactiva el almacenamiento de las respuestas como estado de aplicación. **No equivale a Zero Data Retention ni elimina por sí solo los registros de seguridad del proveedor**; esos controles requieren condiciones y aprobación adicionales de OpenAI. Revisar el aviso de privacidad antes de abrir la participación pública. [Responses](https://developers.openai.com/api/docs/guides/migrate-to-responses), [controles de datos de OpenAI](https://developers.openai.com/api/docs/guides/your-data).
 
 Un timeout, límite o respuesta inválida devuelve la evaluación a los flujos existentes de revisión humana. Las emergencias acordadas pueden publicarse por evaluar; los demás tipos esperan validación. La evaluación de un agente prevalece. El chatbot explica funciones y datos disponibles: no publica reportes, contacta agentes, cambia cuentas ni garantiza seguridad de las rutas.
+
+Antes de llamar al evaluador se reservan como máximo tres solicitudes por minuto y usuario, incluso si llegan simultáneamente. Esa reserva funciona por proceso; se mantiene también el límite de reportes recientes en PostgreSQL. No sustituye la revisión del consumo y saldo de la cuenta de OpenAI.
 
 ## Activar SMS y WhatsApp con Twilio
 

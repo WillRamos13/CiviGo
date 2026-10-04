@@ -4,6 +4,16 @@
 
 Se revisaron los adaptadores existentes y se completó su integración conservando Next.js, Express, Prisma, la sesión de CiviGo y el despliegue previsto en Vercel/Railway/Supabase. El código está preparado para configurar los proveedores. No se crearon cuentas, buckets, credenciales ni despliegues externos; las pruebas no enviaron mensajes ni utilizaron claves reales.
 
+## Actualización de modelos
+
+Después de aclarar que la evaluación requiere un modelo más avanzado, se separaron las funciones: `AI_REPORT_MODEL=gpt-6.1-sol` para reportes y `AI_CHAT_MODEL=gpt-4.1-mini` para consultas del asistente. Son los nuevos valores por defecto; `AI_MODEL` explícito conserva compatibilidad cuando no hay una variable específica. Una sola `OPENAI_API_KEY` permite configurar ambos. El backend debe actualizarse antes de usar las variables nuevas.
+
+Sol usa esfuerzo de razonamiento bajo, 30 segundos de espera por defecto y 4096 tokens totales inicialmente; para reportes, el presupuesto es configurable entre 1024 y 16384. Una salida incompleta conserva el fallback humano. Las configuraciones se validan por función: un modelo inválido no desactiva el otro, y el diagnóstico administrativo no presenta ambos listos cuando uno falla. Se mantiene la limitación real: la evaluación recibe texto, tipo y fechas; el análisis de fotos y videos sigue pendiente.
+
+También se corrigió un límite que podía eludirse enviando reportes simultáneos: se reservan tres evaluaciones por minuto y usuario antes de llamar al proveedor. La cuota en memoria se aplica por proceso; se conserva el conteo en PostgreSQL como respaldo para reportes ya guardados. La nueva prueba HTTP comprueba concurrencia, separación entre usuarios y rechazo antes de contactar al proveedor.
+
+Validación de esta actualización: **149 pruebas de backend aprobadas, 0 fallos y 0 omitidas** con base local aislada; sintaxis y diff correctos. Las llamadas a proveedores se simularon, sin gasto real ni cambios de infraestructura.
+
 ## Funcionalidades implementadas
 
 - OpenAI Responses compartido por chatbot y evaluación inicial de reportes. Salida estructurada con validación estricta, tiempo de espera configurable y fallback a guía/revisión humana. Compatible con `OPENAI_API_KEY` y el alias anterior `AI_API_KEY`.

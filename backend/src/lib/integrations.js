@@ -11,13 +11,14 @@ function integrationChecklist(env = process.env, state = services()) {
       {
         id: "ia",
         nombre: "OpenAI",
-        configurado: !!state.ia?.configurado,
+        configurado:
+          !!state.ia?.configurado && state.ia?.configuracionValida !== false,
         variablesPendientes:
           env.OPENAI_API_KEY?.trim() || env.AI_API_KEY?.trim()
             ? []
             : ["OPENAI_API_KEY"],
         indicacion:
-          "Configura la clave privada en Railway. El chatbot y la evaluación usan la misma integración; AI_MODEL permite elegir el modelo.",
+          "Configura la clave privada en Railway. AI_REPORT_MODEL elige el modelo para evaluar reportes (gpt-6.1-sol por defecto); AI_CHAT_MODEL elige el del chatbot (gpt-4.1-mini por defecto). AI_MODEL sigue como alternativa compatible para ambos.",
       },
       {
         id: "telefono",

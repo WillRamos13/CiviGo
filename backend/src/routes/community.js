@@ -254,7 +254,7 @@ router.post(
       notices.push(
         "No se pudo consultar la información actual; las instrucciones generales pueden usar las reglas predeterminadas.",
       );
-    if (!ai && aiStatus().configurado)
+    if (!ai && aiStatus().chatConfigurado)
       notices.push(
         "El asistente de IA no está disponible en este momento. Te mostramos la guía de CiviGo.",
       );

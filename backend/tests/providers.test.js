@@ -7,6 +7,9 @@ const keys = [
   "AI_API_KEY",
   "OPENAI_API_KEY",
   "AI_MODEL",
+  "AI_REPORT_MODEL",
+  "AI_CHAT_MODEL",
+  "AI_REPORT_MAX_OUTPUT_TOKENS",
   "AI_BASE_URL",
   "AI_TIMEOUT_MS",
   "TWILIO_ACCOUNT_SID",
@@ -72,6 +75,9 @@ test("El adaptador IA valida gravedad, tipos propuestos y respuestas dañadas", 
       assert.equal(request.store, false);
       assert.equal(url, "https://api.openai.com/v1/responses");
       assert.equal(request.text?.format?.type, "json_schema");
+      assert.equal(request.model, "gpt-6.1-sol");
+      assert.equal(request.max_output_tokens, 4096);
+      assert.deepEqual(request.reasoning, { effort: "low" });
       return {
         ok: true,
         json: async () => ({

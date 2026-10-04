@@ -34,8 +34,11 @@ Para una base local: `npm run db:local`. Las cuentas de demostración requieren 
 | ENABLE_JOBS | `false` desactiva la tarea periódica. Por defecto revisa plazos cada cinco minutos. |
 | DEMO_VERIFICATION | `true` permite códigos locales de demostración. El servidor rechaza esta opción en producción. |
 | OPENAI_API_KEY | Clave privada preferida para OpenAI Responses; `AI_API_KEY` es un alias de compatibilidad. |
-| AI_MODEL | Modelo elegido por el propietario; `gpt-4.1-mini` por defecto. |
-| AI_TIMEOUT_MS | Timeout de IA en milisegundos: 15000 por defecto, entre 1000 y 30000. |
+| AI_REPORT_MODEL | Modelo de evaluación de reportes; `gpt-6.1-sol` por defecto. Prevalece sobre AI_MODEL. |
+| AI_CHAT_MODEL | Modelo del chatbot; `gpt-4.1-mini` por defecto. Prevalece sobre AI_MODEL. |
+| AI_MODEL | Alternativa compatible para ambos cuando no hay una variable específica. |
+| AI_REPORT_MAX_OUTPUT_TOKENS | Presupuesto total para evaluar reportes con Sol: 4096 por defecto, entero entre 1024 y 16384; incluye razonamiento. |
+| AI_TIMEOUT_MS | Timeout de IA: 30000 por defecto con Sol y 15000 con otros modelos; entre 1000 y 30000. |
 | AI_BASE_URL | Opcional por compatibilidad. Solo endpoints oficiales admitidos; el adaptador utiliza Responses y no envía claves a otros hosts. |
 | TWILIO_ACCOUNT_SID / TWILIO_AUTH_TOKEN / TWILIO_VERIFY_SERVICE_SID | Credenciales de Twilio Verify para SMS/WhatsApp. |
 | RESEND_API_KEY / EMAIL_FROM | Envío de correo con Resend, incluyendo verificación y recordatorios. |

@@ -60,3 +60,23 @@ test("configuración presente pero inválida produce una orientación sin mostra
   assert.match(report.proveedores[0].aviso, /configuración no es válida/);
   assert.equal(JSON.stringify(report).includes("private-fixture"), false);
 });
+
+test("un modelo inválido no presenta ambas funciones de OpenAI como configuradas", () => {
+  const report = integrationChecklist(
+    { OPENAI_API_KEY: "private-fixture" },
+    {
+      ia: {
+        configurado: true,
+        configuracionValida: false,
+        chatConfigurado: true,
+        reportesConfigurado: false,
+      },
+    },
+  );
+  const provider = report.proveedores.find((item) => item.id === "ia");
+  assert.equal(provider.configurado, false);
+  assert.match(provider.aviso, /configuración no es válida/);
+  assert.match(provider.indicacion, /AI_REPORT_MODEL/);
+  assert.match(provider.indicacion, /AI_CHAT_MODEL/);
+  assert.equal(JSON.stringify(report).includes("private-fixture"), false);
+});
