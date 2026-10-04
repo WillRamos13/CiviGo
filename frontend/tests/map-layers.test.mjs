@@ -93,10 +93,22 @@ test('zooming out reduces the footprint and intensity instead of covering the en
     const radius = INCIDENT_AREA_PAINT['heatmap-radius'];
     const intensity = INCIDENT_AREA_PAINT['heatmap-intensity'];
     assert.ok(cameraValue(radius, 9) <= 6);
-    assert.ok(cameraValue(radius, 12) <= 12);
+    assert.ok(cameraValue(radius, 12) <= 16);
     assert.ok(cameraValue(radius, 9) < cameraValue(radius, 12));
     assert.ok(cameraValue(radius, 12) < cameraValue(radius, 15));
     assert.ok(cameraValue(intensity, 9) < cameraValue(intensity, 15));
+});
+
+test('nearby zones extend past incident icons while the distant view stays opaque and compact', () => {
+    const radius = INCIDENT_AREA_PAINT['heatmap-radius'];
+    const opacity = INCIDENT_AREA_PAINT['heatmap-opacity'];
+    // A visible incident button is 44 px wide: its halo must extend past it.
+    assert.ok(cameraValue(radius, INCIDENT_MARKER_MIN_ZOOM) >= 40);
+    assert.ok(cameraValue(radius, 16) >= 50);
+    assert.ok(cameraValue(radius, 22) <= 72);
+    assert.ok(cameraValue(opacity, 10) >= .85);
+    assert.ok(cameraValue(opacity, 12) >= .8);
+    assert.ok(cameraValue(opacity, 12) > cameraValue(opacity, 16));
 });
 
 test('incident icons follow the initial zoom and threshold crossings without retaining listeners', () => {

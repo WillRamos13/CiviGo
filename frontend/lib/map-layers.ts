@@ -30,11 +30,11 @@ export function bindIncidentMarkerZoom(map: Pick<Map, 'getContainer' | 'getZoom'
 // and the 50 m rules for reporting and confirmation.
 export const INCIDENT_AREA_PAINT: NonNullable<HeatmapLayerSpecification['paint']> = {
     'heatmap-weight': 1,
-    'heatmap-intensity': ['interpolate', ['linear'], ['zoom'], 0, .35, 9, .55, 12, .8, 15, 1, 18, 1.3, 22, 1.5],
+    'heatmap-intensity': ['interpolate', ['linear'], ['zoom'], 0, .35, 9, .9, 12, 1.15, 14, 1.5, 16, 1.7, 18, 1.8, 22, 2],
     // Shrink screen-space kernels as the camera moves away. Nearby incidents
     // still merge because their projected distance shrinks faster than this radius.
-    'heatmap-radius': ['interpolate', ['linear'], ['zoom'], 0, 1, 8, 3, 10, 6, 12, 12, 14, 24, 16, 40, 18, 50, 22, 64],
-    'heatmap-opacity': ['interpolate', ['linear'], ['zoom'], 9, .78, 12, .66, 15, .5, 18, .32, 22, .25],
+    'heatmap-radius': ['interpolate', ['linear'], ['zoom'], 0, 1, 8, 3, 10, 6, 12, 16, 13, 28, 14, 44, 16, 56, 18, 64, 22, 72],
+    'heatmap-opacity': ['interpolate', ['linear'], ['zoom'], 9, .9, 12, .85, 14, .65, 16, .45, 18, .34, 22, .25],
     'heatmap-color': ['interpolate', ['linear'], ['heatmap-density'],
         0, 'rgba(250,204,21,0)', .08, 'rgba(250,204,21,0.65)',
         .2, '#facc15', .4, '#f97316', .65, '#ef4444', 1, '#dc2626'],
