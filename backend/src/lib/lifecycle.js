@@ -20,12 +20,17 @@ async function processLifecycle(now = new Date(), db = prisma) {
     const days =
       (now - (r.incidente.fechaPublicacion || r.incidente.fechaCreacion)) /
       86400000;
-    const i = r.incidente;
-    if (days >= 1 && !r.recordatorioEnviado && services().correo.configurado) {
+    if (
+      days >= 1 &&
+      days < 7 &&
+      !r.recordatorioEnviado &&
+      services().correo.configurado
+    ) {
       const sent = await sendEmail(
         r.usuario.correo,
         "Aporta pruebas para tu reporte de CiviGo",
         "<p>Tienes un reporte pendiente de validación. Entra a CiviGo y adjunta pruebas privadas antes de siete días desde la publicación. Solo personal autorizado puede revisarlas.</p>",
+        { idempotencyKey: "report-proof-reminder/" + r.id },
       );
       if (sent) {
         await db.report.update({

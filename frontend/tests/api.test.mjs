@@ -30,6 +30,11 @@ for (const status of [500, 502, 503]) {
 for (const [code, message] of [
     ['PHONE_PROVIDER_MISSING', 'La verificación telefónica no está disponible en este momento. Inténtalo de nuevo más tarde.'],
     ['ROADS_UNAVAILABLE', 'Los datos de calles no están disponibles en este momento. Inténtalo de nuevo más tarde.'],
+    ['PHONE_CHANNEL_UNAVAILABLE', 'Ese canal de verificación todavía no está habilitado. Prueba otro canal.'],
+    ['EMAIL_PROVIDER_MISSING', 'El correo de verificación no está disponible en este momento. Inténtalo de nuevo más tarde.'],
+    ['EMAIL_PROVIDER_INVALID_RESPONSE', 'El correo de verificación no está disponible en este momento. Inténtalo de nuevo más tarde.'],
+    ['STORAGE_PRIVATE_BUCKET_REQUIRED', 'No se pudo acceder al archivo. Inténtalo de nuevo más tarde o comunícalo al administrador.'],
+    ['STORAGE_CONFIG', 'No se pudo acceder al archivo. Inténtalo de nuevo más tarde o comunícalo al administrador.'],
 ]) {
     test(`HTTP 503 ${code} uses a fixed readable message without exposing the payload`, async () => {
         await expectResponseError(503, {error: rawPrismaError, mensaje: rawPrismaError, code}, message);

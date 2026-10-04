@@ -12,6 +12,7 @@ const {
 const { ownUser } = require("../lib/projections");
 const { hashPassword, verifyPassword } = require("../lib/password");
 const providers = require("../lib/providers");
+const { validatePhoneChannel } = require("../lib/contact-providers");
 const { transaction } = require("../lib/workflows");
 const router = express.Router();
 function phone(value) {
@@ -28,7 +29,7 @@ function email(value) {
   const v = String(value || "")
     .trim()
     .toLowerCase();
-  if (v.length > 254 || !/^\S+@\S+\.\S+$/.test(v))
+  if (v.length > 254 || !/^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/.test(v))
     throw new HttpError(400, "Correo inválido.");
   return v;
 }
@@ -148,7 +149,7 @@ router.patch(
 );
 async function createVerification(user, tipo, destino) {
   const codigo = crypto.randomInt(100000, 1000000).toString();
-  await transaction(async (db) => {
+  const verification = await transaction(async (db) => {
     const recent = await db.verification.findFirst({
       where: {
         usuarioId: user.id,
@@ -161,7 +162,24 @@ async function createVerification(user, tipo, destino) {
         429,
         "Espera un minuto antes de solicitar otro código.",
       );
-    await db.verification.create({
+    const hourly = await db.verification.count({
+      where: {
+        usuarioId: user.id,
+        tipo,
+        creadoEn: { gte: new Date(Date.now() - 3600000) },
+      },
+    });
+    if (hourly >= 5)
+      throw new HttpError(
+        429,
+        "Se alcanzó el límite de cinco códigos por hora. Inténtalo después.",
+        "VERIFICATION_RATE_LIMITED",
+      );
+    await db.verification.updateMany({
+      where: { usuarioId: user.id, tipo, usado: false },
+      data: { usado: true },
+    });
+    return db.verification.create({
       data: {
         usuarioId: user.id,
         tipo,
@@ -171,35 +189,71 @@ async function createVerification(user, tipo, destino) {
       },
     });
   });
-  return codigo;
+  return { codigo, verification };
 }
-async function consumeCode(user, tipo, codigo) {
+async function pendingVerification(user, tipo, destino) {
   const v = await prisma.verification.findFirst({
     where: { usuarioId: user.id, tipo, usado: false },
     orderBy: { creadoEn: "desc" },
   });
   if (!v || v.expiresAt < new Date() || v.intentos >= 5)
     throw new HttpError(400, "Código vencido o demasiados intentos.");
+  if (v.destino !== destino)
+    throw new HttpError(409, "El destino cambió. Solicita un código nuevo.");
   const result = await prisma.verification.updateMany({
-    where: { id: v.id, usado: false, intentos: { lt: 5 } },
+    where: {
+      id: v.id,
+      usado: false,
+      expiresAt: { gte: new Date() },
+      intentos: { lt: 5 },
+    },
     data: { intentos: { increment: 1 } },
   });
-  if (!result.count || v.codigoHash !== hashToken(codigo))
-    throw new HttpError(400, "Código incorrecto.");
-  const consumed = await prisma.verification.updateMany({
-    where: { id: v.id, usado: false, expiresAt: { gte: new Date() } },
-    data: { usado: true },
-  });
-  if (!consumed.count)
-    throw new HttpError(409, "Este código ya fue utilizado.");
+  if (!result.count)
+    throw new HttpError(400, "Código vencido o demasiados intentos.");
   return v;
+}
+async function checkLocalCode(user, tipo, codigo, destino) {
+  const v = await pendingVerification(user, tipo, destino);
+  if (v.codigoHash !== hashToken(codigo))
+    throw new HttpError(400, "Código incorrecto.");
+  return v;
+}
+async function finishVerification(user, verification, field, verifiedField) {
+  await transaction(async (db) => {
+    const consumed = await db.verification.updateMany({
+      where: {
+        id: verification.id,
+        usado: false,
+        expiresAt: { gte: new Date() },
+      },
+      data: { usado: true },
+    });
+    if (!consumed.count)
+      throw new HttpError(
+        409,
+        "Este código venció o ya fue utilizado. Solicita uno nuevo.",
+      );
+    const changed = await db.user.updateMany({
+      where: { id: user.id, [field]: verification.destino },
+      data: { [verifiedField]: true },
+    });
+    if (!changed.count)
+      throw new HttpError(
+        409,
+        "El destino cambió durante la verificación. Solicita un código nuevo.",
+      );
+  });
 }
 router.post(
   "/phone/request",
   auth,
   asyncRoute(async (req, res) => {
+    const canal = validatePhoneChannel(req.body.canal || "sms");
+    if (req.user.telefonoVerificado)
+      return res.json({ mensaje: "Tu teléfono ya está verificado." });
     if (demoEnabled()) {
-      const codigo = await createVerification(
+      const { codigo } = await createVerification(
         req.user,
         "TELEFONO",
         req.user.telefono,
@@ -211,11 +265,15 @@ router.post(
       });
     }
     if (!providers.services().telefono.configurado)
-      await providers.requestPhone(req.user.telefono, req.body.canal || "sms");
+      throw new HttpError(
+        503,
+        "Verificación telefónica no configurada. Hace falta un proveedor SMS o WhatsApp.",
+        "PHONE_PROVIDER_MISSING",
+      );
     // La fila limita solicitudes; el código enviado y su validación siguen
     // siendo responsabilidad de Twilio Verify.
     await createVerification(req.user, "TELEFONO", req.user.telefono);
-    await providers.requestPhone(req.user.telefono, req.body.canal || "sms");
+    await providers.requestPhone(req.user.telefono, canal);
     res.json({ modo: "proveedor", mensaje: "Código solicitado al proveedor." });
   }),
 );
@@ -224,21 +282,33 @@ router.post(
   auth,
   asyncRoute(async (req, res) => {
     const codigo = text(req.body.codigo, "Código", 10, 4);
+    if (!/^\d{4,10}$/.test(codigo))
+      throw new HttpError(400, "Código inválido.");
+    if (req.user.telefonoVerificado)
+      return res.json({ usuario: ownUser(req.user) });
+    let verification;
     if (demoEnabled()) {
-      const consumed = await consumeCode(req.user, "TELEFONO", codigo);
-      if (consumed.destino !== req.user.telefono)
-        throw new HttpError(
-          409,
-          "El teléfono cambió. Solicita un código nuevo.",
-        );
-    } else if (!(await providers.checkPhone(req.user.telefono, codigo)))
-      throw new HttpError(400, "Código incorrecto.");
-    const changed = await prisma.user.updateMany({
-      where: { id: req.user.id, telefono: req.user.telefono },
-      data: { telefonoVerificado: true },
-    });
-    if (!changed.count)
-      throw new HttpError(409, "El teléfono cambió durante la verificación.");
+      verification = await checkLocalCode(
+        req.user,
+        "TELEFONO",
+        codigo,
+        req.user.telefono,
+      );
+    } else {
+      verification = await pendingVerification(
+        req.user,
+        "TELEFONO",
+        req.user.telefono,
+      );
+      if (!(await providers.checkPhone(req.user.telefono, codigo)))
+        throw new HttpError(400, "Código incorrecto.");
+    }
+    await finishVerification(
+      req.user,
+      verification,
+      "telefono",
+      "telefonoVerificado",
+    );
     const usuario = await prisma.user.findUnique({
       where: { id: req.user.id },
     });
@@ -249,9 +319,15 @@ router.post(
   "/email/request",
   auth,
   asyncRoute(async (req, res) => {
+    if (req.user.correoVerificado)
+      return res.json({ mensaje: "Tu correo ya está verificado." });
     if (!demoEnabled() && !providers.services().correo.configurado)
-      throw new HttpError(503, "El proveedor de correo no está configurado.");
-    const codigo = await createVerification(
+      throw new HttpError(
+        503,
+        "El proveedor de correo no está configurado.",
+        "EMAIL_PROVIDER_MISSING",
+      );
+    const { codigo, verification } = await createVerification(
       req.user,
       "CORREO",
       req.user.correo,
@@ -269,6 +345,10 @@ router.post(
         "<p>Tu código es <strong>" +
           codigo +
           "</strong>. Vence en diez minutos.</p>",
+        {
+          idempotencyKey: "email-verification/" + verification.id,
+          throwOnError: true,
+        },
       ))
     )
       throw new HttpError(
@@ -282,14 +362,24 @@ router.post(
   "/email/verify",
   auth,
   asyncRoute(async (req, res) => {
-    await consumeCode(
+    if (req.user.correoVerificado)
+      return res.json({ usuario: ownUser(req.user) });
+    const codigo = text(req.body.codigo, "Código", 6, 6);
+    if (!/^\d{6}$/.test(codigo)) throw new HttpError(400, "Código inválido.");
+    const verification = await checkLocalCode(
       req.user,
       "CORREO",
-      text(req.body.codigo, "Código", 6, 6),
+      codigo,
+      req.user.correo,
     );
-    const usuario = await prisma.user.update({
+    await finishVerification(
+      req.user,
+      verification,
+      "correo",
+      "correoVerificado",
+    );
+    const usuario = await prisma.user.findUnique({
       where: { id: req.user.id },
-      data: { correoVerificado: true },
     });
     res.json({ usuario: ownUser(usuario) });
   }),

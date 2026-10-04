@@ -22,6 +22,13 @@ const result = spawnSync(
     "--test-concurrency=1",
     path.join(__dirname, "../tests/*.test.js"),
   ],
-  { stdio: "inherit", env: { ...process.env, TEST_DATABASE_URL: connection } },
+  {
+    stdio: "inherit",
+    env: {
+      ...process.env,
+      ...require("../tests/helpers/provider-environment").providerEnvironment,
+      TEST_DATABASE_URL: connection,
+    },
+  },
 );
 process.exitCode = result.status ?? 1;

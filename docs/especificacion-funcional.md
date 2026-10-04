@@ -358,7 +358,7 @@ El propietario aceptó por el momento la propuesta presentada:
 ## 10. Asistente e información externa
 
 - El chatbot debe ayudar a usar CiviGo, consultar incidentes, preparar reportes y orientar sobre rutas.
-- Los proveedores de IA y verificación telefónica todavía no están elegidos.
+- OpenAI fue elegido para el chatbot y la evaluación inicial de texto. Twilio Verify y Resend tienen adaptadores preparados; todavía falta crear/configurar sus cuentas y comprobar envíos reales. La activación se describe en [integraciones.md](integraciones.md).
 - Se prevé incorporar antecedentes de DATACRIM y otras fuentes públicas; todavía no hay archivos ni enlaces concretos seleccionados.
 - Mantener diferenciados los antecedentes importados, los reportes ciudadanos y las decisiones de agentes. No presentar como actual un evento histórico importado.
 - La precisión geográfica disponible debe determinar si un dato puede asignarse a un tramo; no convertir automáticamente una estadística distrital en un punto exacto.

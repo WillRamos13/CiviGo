@@ -6,6 +6,7 @@ const path = require("node:path");
 const connection = process.env.TEST_DATABASE_URL;
 const enabled = !!connection;
 if (enabled) {
+  require("./helpers/provider-environment").disableExternalProviders();
   const u = new URL(connection);
   if (
     !["127.0.0.1", "localhost"].includes(u.hostname) &&
@@ -22,7 +23,6 @@ if (enabled) {
   process.env.NODE_ENV = "test";
   process.env.ENABLE_JOBS = "false";
   process.env.UPLOAD_DIR = path.join(__dirname, "../.test-uploads");
-  delete process.env.AI_API_KEY;
 }
 test(
   "Integración HTTP real: cuentas, archivos, reportes, votos, revisión, premios y anuncios",

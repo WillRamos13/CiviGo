@@ -3,6 +3,7 @@ const assert = require("node:assert/strict");
 const crypto = require("node:crypto");
 const connection = process.env.TEST_DATABASE_URL;
 if (connection) {
+  require("./helpers/provider-environment").disableExternalProviders();
   const url = new URL(connection);
   if (!["localhost", "127.0.0.1"].includes(url.hostname))
     throw new Error(
@@ -12,7 +13,6 @@ if (connection) {
   process.env.NODE_ENV = "test";
   process.env.DEMO_VERIFICATION = "true";
   process.env.ENABLE_JOBS = "false";
-  delete process.env.AI_API_KEY;
   delete process.env.TRUST_PROXY;
 }
 test(
@@ -513,6 +513,27 @@ test(
       await t.test(
         "Solicitudes de verificación concurrentes comparten enfriamiento y los cambios de perfil respetan la validación inicial",
         async () => {
+          const before = await prisma.verification.count({
+            where: { usuarioId: actors[6].id, tipo: "TELEFONO" },
+          });
+          const verifiedRequests = await Promise.all([
+            request("/users/phone/request", actors[6], {}),
+            request("/users/phone/request", actors[6], {}),
+          ]);
+          assert.deepEqual(
+            verifiedRequests.map((r) => r.status),
+            [200, 200],
+          );
+          assert.equal(
+            await prisma.verification.count({
+              where: { usuarioId: actors[6].id, tipo: "TELEFONO" },
+            }),
+            before,
+          );
+          await prisma.user.update({
+            where: { id: actors[6].id },
+            data: { telefonoVerificado: false },
+          });
           const attempts = await Promise.all([
             request("/users/phone/request", actors[6], {}),
             request("/users/phone/request", actors[6], {}),

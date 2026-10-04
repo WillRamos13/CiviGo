@@ -5,8 +5,10 @@ const keys = [
   "NODE_ENV",
   "DEMO_VERIFICATION",
   "AI_API_KEY",
+  "OPENAI_API_KEY",
   "AI_MODEL",
   "AI_BASE_URL",
+  "AI_TIMEOUT_MS",
   "TWILIO_ACCOUNT_SID",
   "TWILIO_AUTH_TOKEN",
   "TWILIO_VERIFY_SERVICE_SID",
@@ -68,10 +70,20 @@ test("El adaptador IA valida gravedad, tipos propuestos y respuestas dañadas", 
     global.fetch = async (url, options) => {
       const request = JSON.parse(options.body);
       assert.equal(request.store, false);
-      assert.equal(request.response_format?.type, "json_object");
+      assert.equal(url, "https://api.openai.com/v1/responses");
+      assert.equal(request.text?.format?.type, "json_schema");
       return {
         ok: true,
-        json: async () => ({ choices: [{ message: { content } }] }),
+        json: async () => ({
+          status: "completed",
+          output: [
+            {
+              type: "message",
+              role: "assistant",
+              content: [{ type: "output_text", text: content }],
+            },
+          ],
+        }),
       };
     };
     const input = {
@@ -82,6 +94,7 @@ test("El adaptador IA valida gravedad, tipos propuestos y respuestas dañadas", 
       gravedad: 4,
       posibleFalso: true,
       motivo: "Revisar",
+      emergenciaActiva: false,
       tipoPropuesto: {
         nombre: "Estructura dañada",
         categoriaSlug: "infraestructura",
@@ -132,9 +145,9 @@ test("El adaptador IA valida gravedad, tipos propuestos y respuestas dañadas", 
 
 test("SMS/WhatsApp y correo usan los contratos de sus proveedores sin exponer credenciales", () =>
   isolated(async () => {
-    process.env.TWILIO_ACCOUNT_SID = "fixture-account";
+    process.env.TWILIO_ACCOUNT_SID = "AC" + "a".repeat(32);
     process.env.TWILIO_AUTH_TOKEN = "fixture-token";
-    process.env.TWILIO_VERIFY_SERVICE_SID = "fixture-service";
+    process.env.TWILIO_VERIFY_SERVICE_SID = "VA" + "b".repeat(32);
     let status = "pending";
     global.fetch = async (url, options) => {
       assert.ok(url.startsWith("https://verify.twilio.com/"));

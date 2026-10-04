@@ -19,6 +19,7 @@ test("Registro HTTP y errores internos sin base de datos ni proveedores", async 
       `missing-registration-roads-${process.pid}.json`,
     ),
     AI_API_KEY: "",
+    OPENAI_API_KEY: "",
     TWILIO_ACCOUNT_SID: "",
     TWILIO_AUTH_TOKEN: "",
     TWILIO_VERIFY_SERVICE_SID: "",
@@ -164,6 +165,25 @@ test("Registro HTTP y errores internos sin base de datos ni proveedores", async 
         const { response, body } = await register(withoutNickname);
         assert.equal(response.status, 400);
         assert.deepEqual(body, { error: "Nickname inválido." });
+        assert.equal(create.mock.callCount(), 0);
+        assert.equal(session.mock.callCount(), 0);
+      },
+    );
+
+    await t.test(
+      "los correos incompatibles con el proveedor se rechazan antes de crear la cuenta",
+      async (context) => {
+        const { create, session } = mockSuccessfulRegistration(context);
+        for (const correo of [
+          "a@@example.com",
+          "a<b@example.com",
+          "a>b@example.com",
+        ]) {
+          const { response, body } = await register({ ...input, correo });
+          assert.equal(response.status, 400);
+          assert.deepEqual(body, { error: "Correo inválido." });
+          assert.equal(response.headers.get("set-cookie"), null);
+        }
         assert.equal(create.mock.callCount(), 0);
         assert.equal(session.mock.callCount(), 0);
       },

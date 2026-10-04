@@ -6,6 +6,7 @@ const crypto = require("node:crypto");
 
 const connection = process.env.TEST_DATABASE_URL;
 if (connection) {
+  require("./helpers/provider-environment").disableExternalProviders();
   const url = new URL(connection);
   if (
     !["localhost", "127.0.0.1"].includes(url.hostname) &&
@@ -20,7 +21,6 @@ if (connection) {
   process.env.NODE_ENV = "test";
   process.env.DEMO_VERIFICATION = "true";
   process.env.ENABLE_JOBS = "false";
-  delete process.env.AI_API_KEY;
 }
 
 test(
@@ -135,6 +135,25 @@ test(
         "Acceso administrativo, roles, distrito, permisos y perfiles privados",
         async () => {
           assert.equal((await request("/admin")).status, 401);
+          assert.equal((await request("/admin/integrations")).status, 401);
+          for (const actor of [citizen, agent]) {
+            assert.equal(
+              (await request("/admin/integrations", { cookie: actor.cookie }))
+                .status,
+              403,
+            );
+          }
+          const integrations = await request("/admin/integrations", {
+            cookie: admin.cookie,
+          });
+          assert.equal(integrations.status, 200);
+          assert.equal(integrations.json.alcance, "configuracion");
+          assert.equal(integrations.json.conexionesProbadas, false);
+          assert.deepEqual(
+            integrations.json.proveedores.map((p) => p.id),
+            ["ia", "telefono", "correo", "almacenamiento"],
+          );
+          assert.equal(integrations.json.proveedores[0].configurado, false);
           assert.equal(
             (await request("/admin/users", { cookie: citizen.cookie })).status,
             403,

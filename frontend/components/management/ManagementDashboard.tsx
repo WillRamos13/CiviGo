@@ -14,6 +14,7 @@ import RecoveriesPanel from "./RecoveriesPanel";
 import RankingAdminPanel from "./RankingAdminPanel";
 import HistoricalImportPanel from "./HistoricalImportPanel";
 import AuditPanel from "./AuditPanel";
+import IntegrationsPanel from "./IntegrationsPanel";
 
 type Tab =
   | "incidentes"
@@ -26,7 +27,8 @@ type Tab =
   | "recuperaciones"
   | "configuracion"
   | "historicos"
-  | "actividad";
+  | "actividad"
+  | "integraciones";
 const tabs: {
   id: Tab;
   label: string;
@@ -44,6 +46,7 @@ const tabs: {
   { id: "historicos", label: "Antecedentes", adminOnly: true },
   { id: "configuracion", label: "Configuración", adminOnly: true },
   { id: "actividad", label: "Actividad y plazos", adminOnly: true },
+  { id: "integraciones", label: "Integraciones", adminOnly: true },
 ];
 interface Overview {
   estadisticas: Record<string, number>;
@@ -188,6 +191,7 @@ function DashboardContent() {
           {admin && active === "historicos" && <HistoricalImportPanel />}
           {admin && active === "configuracion" && <ConfigPanel />}
           {admin && active === "actividad" && <AuditPanel />}
+          {admin && active === "integraciones" && <IntegrationsPanel />}
         </>
       )}
     </div>

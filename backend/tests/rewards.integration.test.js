@@ -5,6 +5,7 @@ const test = require("node:test"),
   path = require("node:path");
 const connection = process.env.TEST_DATABASE_URL;
 if (connection) {
+  require("./helpers/provider-environment").disableExternalProviders();
   const url = new URL(connection);
   if (
     !["localhost", "127.0.0.1"].includes(url.hostname) &&
@@ -17,7 +18,6 @@ if (connection) {
   process.env.NODE_ENV = "test";
   process.env.DEMO_VERIFICATION = "true";
   process.env.UPLOAD_DIR = path.join(__dirname, "../.test-uploads");
-  delete process.env.AI_API_KEY;
 }
 test(
   "Los aportes validados conservan gravedad y premios, y las pruebas públicas o posteriores se premian una sola vez",

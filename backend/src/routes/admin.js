@@ -28,6 +28,10 @@ const adminOnly = (req, res, next) =>
   req.user.rol === "ADMIN"
     ? next()
     : next(new HttpError(403, "Solo administradores."));
+router.get("/integrations", adminOnly, (req, res) => {
+  res.setHeader("Cache-Control", "no-store");
+  res.json(require("../lib/integrations").integrationChecklist());
+});
 async function audit(db, user, accion, entidad, entidadId, datos = {}) {
   return db.auditLog.create({
     data: {

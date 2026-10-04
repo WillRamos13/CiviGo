@@ -92,3 +92,68 @@ test("Una publicación reciente conserva los siete días aunque el reporte se ha
   });
   assert.equal(f.calls.length, 0);
 });
+
+test("Los recordatorios aceptados conservan la clave idempotente si falla el marcado local", async () => {
+  const keys = ["RESEND_API_KEY", "EMAIL_FROM"];
+  const saved = Object.fromEntries(keys.map((key) => [key, process.env[key]]));
+  const previousFetch = global.fetch;
+  const f = fixture({});
+  f.incident.fechaPublicacion = new Date(+f.now - 2 * 86400000);
+  f.db.report.findMany = async () => [
+    {
+      id: 9002,
+      recordatorioEnviado: false,
+      usuario: { correo: "fixture@tests.civigo.local" },
+      incidente: f.incident,
+      adjuntos: [],
+    },
+  ];
+  let failed = true;
+  f.db.report.update = async (args) => {
+    assert.equal(args.data.recordatorioEnviado, true);
+    if (failed) throw new Error("Fixture de escritura local fallida");
+    f.calls.push(["report", args]);
+  };
+  const emails = [];
+  process.env.RESEND_API_KEY = "fixture-only-not-a-key";
+  process.env.EMAIL_FROM = "fixture@tests.civigo.local";
+  global.fetch = async (url, options) => {
+    assert.equal(url, "https://api.resend.com/emails");
+    emails.push(options);
+    return { ok: true, json: async () => ({ id: "fixture-mail-id" }) };
+  };
+  try {
+    await assert.rejects(processLifecycle(f.now, f.db), /escritura local/);
+    failed = false;
+    assert.equal((await processLifecycle(f.now, f.db)).reminders, 1);
+    assert.equal(emails.length, 2);
+    assert.equal(
+      emails[0].headers["Idempotency-Key"],
+      "report-proof-reminder/9002",
+    );
+    assert.equal(
+      emails[1].headers["Idempotency-Key"],
+      emails[0].headers["Idempotency-Key"],
+    );
+    assert.equal(emails[1].body, emails[0].body);
+    assert.equal(f.calls.length, 1);
+    global.fetch = async () => ({ ok: true, json: async () => ({}) });
+    assert.equal((await processLifecycle(f.now, f.db)).reminders, 0);
+    assert.equal(
+      f.calls.length,
+      1,
+      "Respuesta sin id no marca un envío inexistente",
+    );
+    f.incident.fechaPublicacion = new Date(+f.now - 8 * 86400000);
+    f.db.report.update = async (args) => f.calls.push(["report", args]);
+    global.fetch = () =>
+      assert.fail("No debe recordar aportar pruebas cuando el plazo ya venció");
+    await processLifecycle(f.now, f.db);
+  } finally {
+    global.fetch = previousFetch;
+    for (const key of keys) {
+      if (saved[key] === undefined) delete process.env[key];
+      else process.env[key] = saved[key];
+    }
+  }
+});

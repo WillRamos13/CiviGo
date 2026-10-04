@@ -24,6 +24,12 @@ export async function api<T>(path: string, options: RequestInit = {}): Promise<T
                 message = 'La verificación telefónica no está disponible en este momento. Inténtalo de nuevo más tarde.';
             else if (response.status === 503 && data?.code === 'ROADS_UNAVAILABLE')
                 message = 'Los datos de calles no están disponibles en este momento. Inténtalo de nuevo más tarde.';
+            else if (response.status === 503 && data?.code === 'PHONE_CHANNEL_UNAVAILABLE')
+                message = 'Ese canal de verificación todavía no está habilitado. Prueba otro canal.';
+            else if (response.status === 503 && typeof data?.code === 'string' && data.code.startsWith('EMAIL_PROVIDER_'))
+                message = 'El correo de verificación no está disponible en este momento. Inténtalo de nuevo más tarde.';
+            else if (response.status === 503 && typeof data?.code === 'string' && data.code.startsWith('STORAGE_'))
+                message = 'No se pudo acceder al archivo. Inténtalo de nuevo más tarde o comunícalo al administrador.';
         }
         else message = data?.error || data?.mensaje || message;
         throw new ApiError(message, response.status, data?.code);

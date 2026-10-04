@@ -4,6 +4,7 @@ const assert = require("node:assert/strict");
 const crypto = require("node:crypto");
 const connection = process.env.TEST_DATABASE_URL;
 if (connection) {
+  require("./helpers/provider-environment").disableExternalProviders();
   const url = new URL(connection);
   if (
     !["127.0.0.1", "localhost"].includes(url.hostname) &&
