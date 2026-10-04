@@ -4,7 +4,7 @@ import mapboxgl from 'mapbox-gl';
 import { MapPin } from 'lucide-react';
 import { getImageProps } from 'next/image';
 import { getIncidentIcon } from '@/lib/incident-icons';
-import { EMPTY_MAP_DATA, MAP_STYLE, syncMapLayers, type MapLayerState } from '@/lib/map-layers';
+import { EMPTY_MAP_DATA, MAP_STYLE, bindIncidentMarkerZoom, syncMapLayers, type MapLayerState } from '@/lib/map-layers';
 import { api, errorMessage } from '@/lib/api';
 import type { Incidente, Ruta, Posicion } from '@/lib/types';
 import { RISK_COLORS } from '@/lib/types';
@@ -41,6 +41,7 @@ export default function MapView({ incidentes = [], ruta = null, onSelect, onPosi
             return;
         const map = new mapboxgl.Map({ container: container.current, accessToken: token, style: MAP_STYLE, center: [posicion?.longitud ?? -75.7286, posicion?.latitud ?? -14.0678], zoom: editor ? 17 : 13.3, attributionControl: true });
         mapRef.current = map;
+        const stopMarkerZoom = bindIncidentMarkerZoom(map);
         map.addControl(new mapboxgl.NavigationControl(), 'top-right');
         map.addControl(new mapboxgl.GeolocateControl({ positionOptions: { enableHighAccuracy: true }, trackUserLocation: !editor, showUserHeading: true }), 'top-right');
         map.on('style.load', () => {
@@ -53,7 +54,7 @@ export default function MapView({ incidentes = [], ruta = null, onSelect, onPosi
             setError('No se pudo cargar Mapbox. Revisa el token público y sus restricciones.'); });
         if (editor)
             map.on('click', e => callbacks.current.onPosition?.({ latitud: e.lngLat.lat, longitud: e.lngLat.lng }));
-        return () => { styleReady.current = false; markers.current.forEach(m => m.remove()); markers.current = []; positionMarker.current?.remove(); positionMarker.current = null; map.remove(); mapRef.current = null; };
+        return () => { stopMarkerZoom(); styleReady.current = false; markers.current.forEach(m => m.remove()); markers.current = []; positionMarker.current?.remove(); positionMarker.current = null; map.remove(); mapRef.current = null; };
         // The map is initialized once. Later coordinate changes update its marker.
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [token, editor]);

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { loadTs } from './helpers/ts-module.mjs';
-const { incidentAreaPoints, syncMapLayers, INCIDENT_AREA_PAINT } = loadTs('lib/map-layers.ts');
+const { incidentAreaPoints, syncMapLayers, bindIncidentMarkerZoom, INCIDENT_MARKER_MIN_ZOOM, INCIDENT_AREA_PAINT } = loadTs('lib/map-layers.ts');
 
 function fakeMap() {
     const sources = new Map(), layers = new Map();
@@ -82,9 +82,54 @@ function cameraValue(expression, zoom) {
 
 test('zooming out increases opacity and joins nearby visual footprints without changing incident weight', () => {
     const radius = INCIDENT_AREA_PAINT['heatmap-radius'], opacity = INCIDENT_AREA_PAINT['heatmap-opacity'];
-    const separation = zoom => .0076 / 360 * 512 * 2 ** zoom;
+    const separation = zoom => .003 / 360 * 512 * 2 ** zoom;
     assert.ok(separation(15) > 2 * cameraValue(radius, 15));
     assert.ok(separation(12) < 2 * cameraValue(radius, 12));
     assert.ok(cameraValue(opacity, 12) > cameraValue(opacity, 15));
     assert.equal(INCIDENT_AREA_PAINT['heatmap-weight'], 1);
+});
+
+test('zooming out reduces the footprint and intensity instead of covering the entire region', () => {
+    const radius = INCIDENT_AREA_PAINT['heatmap-radius'];
+    const intensity = INCIDENT_AREA_PAINT['heatmap-intensity'];
+    assert.ok(cameraValue(radius, 9) <= 6);
+    assert.ok(cameraValue(radius, 12) <= 12);
+    assert.ok(cameraValue(radius, 9) < cameraValue(radius, 12));
+    assert.ok(cameraValue(radius, 12) < cameraValue(radius, 15));
+    assert.ok(cameraValue(intensity, 9) < cameraValue(intensity, 15));
+});
+
+test('incident icons follow the initial zoom and threshold crossings without retaining listeners', () => {
+    let zoom = 10;
+    const classes = new Set(), listeners = new Map();
+    let changes = 0;
+    const container = { classList: {
+        toggle(name, visible) { changes++; if (visible) classes.add(name); else classes.delete(name); },
+        remove(name) { classes.delete(name); },
+    } };
+    const map = {
+        getContainer: () => container, getZoom: () => zoom,
+        on(event, listener) { listeners.set(event, listener); },
+        off(event, listener) { if (listeners.get(event) === listener) listeners.delete(event); },
+    };
+    const move = value => { zoom = value; listeners.get('zoom')?.(); };
+    const stop = bindIncidentMarkerZoom(map);
+    assert.equal(classes.has('incident-markers-visible'), false);
+    move(INCIDENT_MARKER_MIN_ZOOM - .01);
+    assert.equal(classes.has('incident-markers-visible'), false);
+    assert.equal(changes, 1);
+    move(INCIDENT_MARKER_MIN_ZOOM);
+    assert.equal(classes.has('incident-markers-visible'), true);
+    move(16);
+    assert.equal(changes, 2);
+    move(12);
+    assert.equal(classes.has('incident-markers-visible'), false);
+    stop();
+    assert.equal(listeners.size, 0);
+    move(18);
+    assert.equal(classes.has('incident-markers-visible'), false);
+    const stopNear = bindIncidentMarkerZoom(map);
+    assert.equal(classes.has('incident-markers-visible'), true);
+    stopNear();
+    assert.equal(classes.has('incident-markers-visible'), false);
 });

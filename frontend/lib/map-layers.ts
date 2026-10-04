@@ -5,13 +5,35 @@ import { RISK_COLORS } from './types';
 export const EMPTY_MAP_DATA: GeoJSON.FeatureCollection = { type: 'FeatureCollection', features: [] };
 // Keep the same cartography in both themes; the theme changes the surrounding UI.
 export const MAP_STYLE = 'mapbox://styles/mapbox/streets-v12';
+export const INCIDENT_MARKER_MIN_ZOOM = 14;
+
+// A container rule also applies to markers added by polling while zoomed out.
+// It hides only incident buttons, preserving the user's location marker.
+export function bindIncidentMarkerZoom(map: Pick<Map, 'getContainer' | 'getZoom' | 'on' | 'off'>) {
+    const container = map.getContainer();
+    let previous: boolean | undefined;
+    const update = () => {
+        const visible = map.getZoom() >= INCIDENT_MARKER_MIN_ZOOM;
+        if (visible === previous) return;
+        previous = visible;
+        container.classList.toggle('incident-markers-visible', visible);
+    };
+    update();
+    map.on('zoom', update);
+    return () => {
+        map.off('zoom', update);
+        container.classList.remove('incident-markers-visible');
+    };
+}
 
 // These are screen-space visual zones, separate from the street risk model
 // and the 50 m rules for reporting and confirmation.
 export const INCIDENT_AREA_PAINT: NonNullable<HeatmapLayerSpecification['paint']> = {
     'heatmap-weight': 1,
-    'heatmap-intensity': 2,
-    'heatmap-radius': ['interpolate', ['linear'], ['zoom'], 9, 92, 12, 72, 15, 52, 18, 36, 22, 28],
+    'heatmap-intensity': ['interpolate', ['linear'], ['zoom'], 0, .35, 9, .55, 12, .8, 15, 1, 18, 1.3, 22, 1.5],
+    // Shrink screen-space kernels as the camera moves away. Nearby incidents
+    // still merge because their projected distance shrinks faster than this radius.
+    'heatmap-radius': ['interpolate', ['linear'], ['zoom'], 0, 1, 8, 3, 10, 6, 12, 12, 14, 24, 16, 40, 18, 50, 22, 64],
     'heatmap-opacity': ['interpolate', ['linear'], ['zoom'], 9, .78, 12, .66, 15, .5, 18, .32, 22, .25],
     'heatmap-color': ['interpolate', ['linear'], ['heatmap-density'],
         0, 'rgba(250,204,21,0)', .08, 'rgba(250,204,21,0.65)',

@@ -716,6 +716,9 @@ textarea::placeholder {
   display: grid;
   place-items: center;
 }
+.map-container:not(.incident-markers-visible) .incident-marker {
+  display: none;
+}
 .incident-type-icon {
   display: inline-flex;
   align-items: center;
