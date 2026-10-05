@@ -28,11 +28,7 @@ for (const status of [500, 502, 503]) {
 }
 
 for (const [code, message] of [
-    ['PHONE_PROVIDER_MISSING', 'La verificación telefónica no está disponible en este momento. Inténtalo de nuevo más tarde.'],
     ['ROADS_UNAVAILABLE', 'Los datos de calles no están disponibles en este momento. Inténtalo de nuevo más tarde.'],
-    ['PHONE_CHANNEL_UNAVAILABLE', 'Ese canal de verificación todavía no está habilitado. Prueba otro canal.'],
-    ['EMAIL_PROVIDER_MISSING', 'El correo de verificación no está disponible en este momento. Inténtalo de nuevo más tarde.'],
-    ['EMAIL_PROVIDER_INVALID_RESPONSE', 'El correo de verificación no está disponible en este momento. Inténtalo de nuevo más tarde.'],
     ['EMAIL_GOOGLE_CONFIG', 'La verificación con Google no está disponible en este momento. Inténtalo de nuevo más tarde.'],
     ['EMAIL_GOOGLE_UNAVAILABLE', 'La verificación con Google no está disponible en este momento. Inténtalo de nuevo más tarde.'],
     ['STORAGE_PRIVATE_BUCKET_REQUIRED', 'No se pudo acceder al archivo. Inténtalo de nuevo más tarde o comunícalo al administrador.'],
@@ -45,7 +41,7 @@ for (const [code, message] of [
 }
 
 test('HTTP 400 keeps ordinary validation messages and error codes', async () => {
-    await expectResponseError(400, {error: 'Canal inválido.', code: 'INVALID_CHANNEL'}, 'Canal inválido.');
+    await expectResponseError(400, {error: 'Regístrate con un correo Gmail.', code: 'EMAIL_GMAIL_REQUIRED'}, 'Regístrate con un correo Gmail.');
     await expectResponseError(400, {mensaje: 'Completa los campos requeridos.'}, 'Completa los campos requeridos.');
 });
 

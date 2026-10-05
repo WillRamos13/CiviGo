@@ -2,6 +2,7 @@ const prisma = require("./db");
 const { config } = require("./catalog");
 const { HttpError } = require("./http");
 const { canReview } = require("./auth");
+const { canPublishIncident } = require("./publication");
 async function transaction(work) {
   for (let n = 0; n < 3; n++) {
     try {
@@ -50,7 +51,7 @@ async function refreshCredibility(db, usuarioId) {
 async function rewardValidated(db, incidenteId) {
   const rules = await config(db);
   const reports = await db.report.findMany({
-    where: { incidenteId },
+    where: { incidenteId, usuario: { correoVerificado: true } },
     orderBy: { fechaCreacion: "asc" },
     include: {
       adjuntos: {
@@ -60,7 +61,11 @@ async function rewardValidated(db, incidenteId) {
     },
   });
   const votes = await db.vote.findMany({
-    where: { incidenteId, tipo: "CONFIRMAR" },
+    where: {
+      incidenteId,
+      tipo: "CONFIRMAR",
+      usuario: { correoVerificado: true },
+    },
   });
   const keys = reports
     .flatMap((r) => ["reporte:" + r.id, "prueba:" + r.id])
@@ -284,6 +289,12 @@ async function reviewIncident(db, incident, user, input) {
     });
   }
   if (accion === "VALIDAR") {
+    if (!(await canPublishIncident(db, incident.id)))
+      throw new HttpError(
+        409,
+        "El autor debe verificar su correo con Google antes de publicar el reporte.",
+        "REPORT_EMAIL_REQUIRED",
+      );
     data = {
       estado: "VALIDADO",
       publicado: true,
@@ -299,7 +310,10 @@ async function reviewIncident(db, incident, user, input) {
   if (accion === "RESOLVER") {
     data = {
       estado: "RESUELTO",
-      publicado: incident.historico && incident.validacion >= 1,
+      publicado:
+        incident.historico &&
+        incident.validacion >= 1 &&
+        (await canPublishIncident(db, incident.id)),
       motivoRetiro: "Resuelto por personal autorizado",
     };
   }
@@ -309,6 +323,12 @@ async function reviewIncident(db, incident, user, input) {
         409,
         "Solo puede reabrirse un incidente resuelto o retirado.",
       );
+    if (!(await canPublishIncident(db, incident.id)))
+      throw new HttpError(
+        409,
+        "El autor debe verificar su correo con Google antes de publicar el reporte.",
+        "REPORT_EMAIL_REQUIRED",
+      );
     data = {
       estado: incident.validacion >= 1 ? "VALIDADO" : "ACTIVO",
       publicado: true,
@@ -317,7 +337,10 @@ async function reviewIncident(db, incident, user, input) {
       motivoRetiro: null,
     };
     await db.report.updateMany({
-      where: { incidenteId: incident.id },
+      where: {
+        incidenteId: incident.id,
+        usuario: { correoVerificado: true },
+      },
       data: {
         estado: incident.validacion >= 1 ? "VALIDADO" : "PENDIENTE",
         recordatorioEnviado: false,

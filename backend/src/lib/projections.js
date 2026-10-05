@@ -16,7 +16,6 @@ function ownUser(u) {
     apellidos: u.apellidos,
     correo: u.correo,
     telefono: u.telefono,
-    telefonoVerificado: u.telefonoVerificado,
     correoVerificado: u.correoVerificado,
     premium: u.premium,
     ocultarAnuncios: u.ocultarAnuncios,
@@ -62,21 +61,30 @@ function report(r, privateView = false) {
           ...r.incidente,
           pruebasRecibidas:
             r.incidente.pruebasRecibidas ??
-            (r.adjuntos || []).some((a) => a.tipo === "EVIDENCIA"),
+            (r.usuario?.correoVerificado === true &&
+              (r.adjuntos || []).some((a) => a.tipo === "EVIDENCIA")),
         })
       : undefined,
   };
 }
 function incident(i, privateView = false) {
+  const allReports = i.reportes || [];
+  const verifiedReports = allReports.filter(
+    (r) => r.usuario?.correoVerificado === true,
+  );
+  const visibleReports = privateView ? allReports : verifiedReports;
+  const votes = (i.votos || []).filter(
+    (v) => v.usuario?.correoVerificado === true,
+  );
   const risk = require("./risk").incidentRisk({
     ...i,
-    pruebasRecibidas:
-      i.pruebasRecibidas ??
-      (i.reportes || []).some((r) =>
-        (r.adjuntos || []).some((a) => a.tipo === "EVIDENCIA"),
-      ),
+    pruebasRecibidas: Array.isArray(i.reportes)
+      ? verifiedReports.some((r) =>
+          (r.adjuntos || []).some((a) => a.tipo === "EVIDENCIA"),
+        )
+      : (i.pruebasRecibidas ?? false),
   });
-  const adjuntos = (i.reportes || [])
+  const adjuntos = visibleReports
     .flatMap((r) => r.adjuntos || [])
     .filter((a) => privateView || !a.privado)
     .map(attachment);
@@ -86,17 +94,22 @@ function incident(i, privateView = false) {
     tipoId: i.tipoId,
     tipoSlug: i.tipoCatalogo?.slug,
     categoria: i.tipoCatalogo?.categoria?.nombre,
-    descripcion: i.descripcion,
+    descripcion:
+      !privateView && allReports.length !== verifiedReports.length
+        ? (verifiedReports[0]?.descripcion ?? "")
+        : i.descripcion,
     latitud: i.latitud,
     longitud: i.longitud,
     distrito: i.distrito,
     nivelRiesgo: i.nivelRiesgo,
     gravedad: i.nivelRiesgo,
     estado: i.estado,
-    totalReportes: i._count?.reportes ?? i.totalReportes,
-    confirmaciones: (i.votos || []).filter((v) => v.tipo === "CONFIRMAR")
-      .length,
-    resoluciones: (i.votos || []).filter((v) => v.tipo === "RESOLVER").length,
+    totalReportes:
+      !privateView && allReports.length
+        ? verifiedReports.length
+        : (i._count?.reportes ?? i.totalReportes),
+    confirmaciones: votes.filter((v) => v.tipo === "CONFIRMAR").length,
+    resoluciones: votes.filter((v) => v.tipo === "RESOLVER").length,
     validacion: i.validacion,
     pesoValidacion: i.validacion,
     aportePuntos: risk.pending ? null : risk.points,
@@ -116,7 +129,7 @@ function incident(i, privateView = false) {
     adjuntos,
     chatAbierto: require("./workflows").chatOpen(i),
     porEvaluar: i.nivelRiesgo == null || i.evaluacion === "PENDIENTE",
-    reportes: (i.reportes || []).map((r) =>
+    reportes: visibleReports.map((r) =>
       report({ ...r, incidente: undefined }, privateView),
     ),
     revisiones: privateView ? i.revisiones : undefined,

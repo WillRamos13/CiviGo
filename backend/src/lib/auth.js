@@ -45,7 +45,7 @@ const auth = asyncRoute(async (req, res, next) => {
     );
   next();
 });
-function requirePhone(req, res, next) {
+function requireEmail(req, res, next) {
   if (req.user?.bloqueado)
     return next(
       new HttpError(
@@ -53,12 +53,12 @@ function requirePhone(req, res, next) {
         "Tu cuenta está bloqueada. Puedes solicitar revisión de tus reportes.",
       ),
     );
-  if (!req.user?.telefonoVerificado)
+  if (!req.user?.correoVerificado)
     return next(
       new HttpError(
         403,
-        "Verifica tu teléfono para participar.",
-        "PHONE_REQUIRED",
+        "Verifica tu correo con Google para participar.",
+        "EMAIL_REQUIRED",
       ),
     );
   next();
@@ -96,19 +96,15 @@ async function createSession(user, res) {
     path: "/",
   });
 }
-const demoEnabled = () =>
-  process.env.DEMO_VERIFICATION === "true" &&
-  process.env.NODE_ENV !== "production";
 module.exports = {
   auth,
   optionalAuth,
-  requirePhone,
+  requireEmail,
   requirePermission,
   hasPermission,
   canReview,
   createSession,
   COOKIE,
   hashToken,
-  demoEnabled,
   loadUser,
 };

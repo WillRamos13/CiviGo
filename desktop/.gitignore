@@ -1,0 +1,8 @@
+node_modules/
+.npm-cache/
+dist/
+release/
+.local/
+.env
+desktop.config.json
+*.log

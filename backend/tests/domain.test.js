@@ -125,7 +125,12 @@ test("No se filtran contraseña, sesiones ni evidencia privada en proyecciones p
     id: 1,
     reportes: [
       {
-        usuario: { id: 1, nombreUsuario: "nick", correo: "privado" },
+        usuario: {
+          id: 1,
+          nombreUsuario: "nick",
+          correo: "privado",
+          correoVerificado: true,
+        },
         adjuntos: [
           { id: "publico", privado: false },
           { id: "privado", privado: true, path: "privado" },

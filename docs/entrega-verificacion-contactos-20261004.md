@@ -1,5 +1,7 @@
 # Entrega: WhatsApp manual y correo Google — 4 de octubre de 2026
 
+**Registro histórico reemplazado por la decisión posterior del propietario:** únicamente Gmail verificado, sin verificación telefónica, y administración de escritorio. Ver [entrega vigente](entrega-gmail-escritorio-20261004.md) y [configuración actual](verificacion-contactos.md). Los apartados inferiores describen la fase anterior.
+
 ## 1. Funcionalidades implementadas
 
 - Verificación del teléfono mediante un mensaje de WhatsApp enviado por el usuario desde su número registrado. Se genera un enlace al número de atención configurado y un código único de 24 caracteres, válido durante 24 horas.

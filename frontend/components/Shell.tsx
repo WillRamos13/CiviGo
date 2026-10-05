@@ -50,8 +50,7 @@ export default function Shell({ children }: { children: React.ReactNode }) {
     return () => window.removeEventListener("keydown", closeOnEscape);
   }, [open]);
   const role = usuario?.rol.toLowerCase();
-  const management =
-    role === "admin" || role === "administrador" || role === "agente";
+  const agent = role === "agente";
   return (
     <div className="app-shell">
       <a className="skip-link" href="#contenido-principal">
@@ -141,15 +140,15 @@ export default function Shell({ children }: { children: React.ReactNode }) {
                 {href === "/reportar" && <span className="nav-plus">+</span>}
               </Link>
             ))}
-            {management && (
+            {agent && (
               <Link
-                href={role === "agente" ? "/agente" : "/admin"}
-                className={`nav-item ${path.startsWith("/admin") || path === "/agente" ? "active" : ""}`}
-                aria-current={path.startsWith("/admin") || path === "/agente" ? "page" : undefined}
+                href="/agente"
+                className={`nav-item ${path === "/agente" ? "active" : ""}`}
+                aria-current={path === "/agente" ? "page" : undefined}
                 onClick={() => setOpen(false)}
               >
                 <Shield size={19} />
-                Panel de {role === "agente" ? "agente" : "administración"}
+                Panel de agente
               </Link>
             )}
           </nav>

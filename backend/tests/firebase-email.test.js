@@ -8,7 +8,7 @@ const {
 } = require("../src/lib/firebase-email");
 
 const projectId = "civigo-test";
-const correo = "usuario@example.com";
+const correo = "usuario@gmail.com";
 const nowSeconds = 1791115200;
 const created = new Date((nowSeconds - 60) * 1000 + 800);
 let api, privateKey, publicKey, otherPrivateKey, keyResolver;
@@ -114,19 +114,11 @@ test("RS256 proof is bound to project, UID and auth event, including refreshed t
   assert.match(proof.proofHash, /^[a-f0-9]{64}$/);
   assert.deepEqual(
     await verify(
-      await sign(claims({ email: " USUARIO@EXAMPLE.COM " })),
-      " usuario@EXAMPLE.com ",
+      await sign(claims({ email: " USUARIO@GMAIL.COM " })),
+      " usuario@GMAIL.com ",
       created,
     ),
     proof,
-  );
-  const workspaceEmail = "persona@empresa.com";
-  assert.ok(
-    await verify(
-      await sign(claims({ email: workspaceEmail })),
-      workspaceEmail,
-      created,
-    ),
   );
   const refreshed = await sign(
     claims({ iat: nowSeconds, exp: nowSeconds + 7200 }),
@@ -164,6 +156,26 @@ test("RS256 proof is bound to project, UID and auth event, including refreshed t
   assert.ok(
     await verify(oldestAllowed, correo, new Date((nowSeconds - 600) * 1000)),
   );
+});
+
+test("Gmail is required for both the destination and signed Google email, including matching Workspace accounts", async () => {
+  const verify = verifier();
+  for (const address of [
+    "persona@empresa.com",
+    "persona@googlemail.com",
+    "persona@gmail.com.attacker.invalid",
+    "persona@notgmail.com",
+  ]) {
+    await assert.rejects(
+      verify(await sign(claims({ email: address })), address, created),
+      expectError(400, "EMAIL_GOOGLE_EMAIL_MISMATCH", [address]),
+    );
+    await assert.rejects(
+      verify(await sign(claims({ email: address })), correo, created),
+      expectError(400, "EMAIL_GOOGLE_EMAIL_MISMATCH", [address]),
+    );
+  }
+  assert.ok(await verify(await sign(), correo, created));
 });
 
 test("signed Firebase tokens must match all identity, expiry and email claims", async (t) => {

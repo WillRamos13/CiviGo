@@ -80,7 +80,8 @@ test("Los reportes reservan cuota antes de la IA incluso con solicitudes concurr
       req.authLoaded = true;
       req.user = {
         id: Number(req.headers["x-fixture-user"]),
-        telefonoVerificado: true,
+        telefonoVerificado: false,
+        correoVerificado: true,
         bloqueado: false,
       };
       next();

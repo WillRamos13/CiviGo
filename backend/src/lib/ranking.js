@@ -42,7 +42,11 @@ async function ranking(mes = currentMonth(), db = prisma) {
     orderBy: { _sum: { puntos: "desc" } },
   });
   const users = await db.user.findMany({
-    where: { id: { in: grouped.map((p) => p.usuarioId) }, bloqueado: false },
+    where: {
+      id: { in: grouped.map((p) => p.usuarioId) },
+      bloqueado: false,
+      correoVerificado: true,
+    },
     select: { id: true, nombreUsuario: true, reputacion: true },
   });
   const map = new Map(users.map((u) => [u.id, u]));

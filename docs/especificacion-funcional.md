@@ -37,10 +37,10 @@ La arquitectura observada contiene frontend Next.js/React/TypeScript/Tailwind/Ma
 - Edad mínima: 12 años. El método para comprobarla queda pendiente.
 - El público ve el nickname; los nombres personales y documentos no se hacen públicos.
 - Un visitante puede consultar el mapa.
-- Para calcular rutas hay que crear una cuenta. No hace falta haber verificado todavía el teléfono.
-- Para participar —publicar reportes, confirmar o intervenir en chats— se requiere teléfono verificado.
-- Verificación telefónica mediante SMS o WhatsApp. Todavía no existe un proveedor contratado/elegido.
-- También se solicita verificación del correo. La exigencia exacta de correo verificado para cada acción está pendiente; el propietario dio prioridad al teléfono.
+- Para calcular rutas hay que crear una cuenta; no hace falta haber verificado todavía el correo.
+- Decisión vigente del 4 de octubre de 2026: para participar —publicar reportes, confirmar o intervenir en chats— se requiere Gmail verificado con Google.
+- Se retiró la verificación telefónica por SMS/WhatsApp. El teléfono se conserva como contacto privado, sin afectar permisos de participación.
+- Las cuentas de prueba solicitadas explícitamente por el propietario pueden prepararse con correo marcado como verificado; esto no representa un buzón Gmail ni una comprobación real de Google.
 - Cambios de datos de cuenta requieren validación. La recuperación/cambio de teléfono puede usar correo o revisión documental.
 - Solo administradores revisan documentos de identidad para recuperación o cambios de teléfono.
 - El usuario tiene historial de rutas, favoritos y consulta de recorridos previamente cargados.
@@ -49,6 +49,7 @@ La arquitectura observada contiene frontend Next.js/React/TypeScript/Tailwind/Ma
 
 **Acordado**
 
+- La administración se realiza desde una aplicación de escritorio Windows. El panel ADMIN y su ruta se retiran de la web pública; los agentes conservan su espacio de revisión limitado en la web.
 - Ciudadano: usuario registrado.
 - Agente: serenazgo, policía o colaborador de CiviGo, con insignia que distingue su tipo.
 - Agentes ordinarios: asignados por distrito.
@@ -170,7 +171,7 @@ Se muestran **por evaluar**, se avisa a un agente y no se inventa una gravedad a
 - Un agente autorizado puede resolverlo directamente.
 - Se permite reabrir un incidente resuelto.
 - Los usuarios pueden indicar que no encontraron el incidente, que está resuelto o que consideran que es falso, añadiendo un detalle del motivo.
-- Los chats utilizan nicknames. Para participar se requiere registro y teléfono verificado.
+- Los chats utilizan nicknames. Para participar se requiere registro y correo verificado con Google.
 - El chat comunitario se cierra al finalizar el incidente; los delitos individuales tienen la ventana especial de siete días.
 - No se realizará moderación general de conversaciones, pero sí control de spam.
 - Los reportes se conservan en la base con sus estados y decisiones; retirarlos del mapa no equivale a borrarlos.
@@ -358,7 +359,7 @@ El propietario aceptó por el momento la propuesta presentada:
 ## 10. Asistente e información externa
 
 - El chatbot debe ayudar a usar CiviGo, consultar incidentes, preparar reportes y orientar sobre rutas.
-- OpenAI fue elegido para el chatbot y la evaluación inicial de texto. Twilio Verify y Resend tienen adaptadores preparados; todavía falta crear/configurar sus cuentas y comprobar envíos reales. La activación se describe en [integraciones.md](integraciones.md).
+- OpenAI fue elegido para el chatbot y la evaluación inicial de texto. Firebase/Google acredita Gmail para participar; la verificación telefónica y Twilio se retiraron. Resend conserva recordatorios transaccionales. La activación se describe en [integraciones.md](integraciones.md).
 - Se prevé incorporar antecedentes de DATACRIM y otras fuentes públicas; todavía no hay archivos ni enlaces concretos seleccionados.
 - Mantener diferenciados los antecedentes importados, los reportes ciudadanos y las decisiones de agentes. No presentar como actual un evento histórico importado.
 - La precisión geográfica disponible debe determinar si un dato puede asignarse a un tramo; no convertir automáticamente una estadística distrital en un punto exacto.
@@ -367,7 +368,7 @@ El propietario aceptó por el momento la propuesta presentada:
 
 La revisión previa del repositorio encontró un prototipo: mapa, formulario y API de reportes/incidentes, registro básico y modelos Prisma. Los siguientes puntos son trabajos futuros, no funcionalidades ya verificadas:
 
-- Autenticación, verificación de teléfono/correo y permisos.
+- Autenticación, verificación de Gmail, permisos y administración de escritorio.
 - Formularios por categorías con las reglas de este documento.
 - Separación de delitos individuales e incidentes comunitarios.
 - Confirmaciones únicas por usuario, resolución, revisiones y chats.

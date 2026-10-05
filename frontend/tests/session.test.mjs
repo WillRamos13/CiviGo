@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {loadTs} from './helpers/ts-module.mjs';
-const {SessionController} = loadTs('lib/session.ts');
-const user = id => ({id, nickname: `usuario${id}`, rol: 'USUARIO', telefono: '', correo: '', premium: false, telefonoVerificado: true, correoVerificado: false, credibilidad: 100, monedas: 0});
+const {SessionController, canParticipate} = loadTs('lib/session.ts');
+const user = id => ({id, nickname: `usuario${id}`, rol: 'USUARIO', telefono: '', correo: '', premium: false, correoVerificado: true, credibilidad: 100, monedas: 0});
 const defer = () => { let resolve; const promise = new Promise(done => { resolve = done; }); return {promise, resolve}; };
 const tick = () => new Promise(done => setImmediate(done));
 function fixture(extra = {}) {
@@ -56,12 +56,13 @@ test('persisted revocation prevents cached identity from reappearing offline', a
     await f.controller.refresh();
     assert.equal(f.state().usuario, null); assert.equal(f.state().offline, true);
 });
-test('cached identity cannot grant role, verified phone, credibility or coins', async () => {
+test('cached identity cannot grant role, verified email, participation, credibility or coins', async () => {
     const f = fixture({networkAvailable: () => false});
     f.entries.set('civigo:offline-account', JSON.stringify({...user(1), rol: 'ADMIN', monedas: 900, credibilidad: 100}));
     await f.controller.refresh();
     assert.equal(f.state().usuario.rol, 'USUARIO');
-    assert.equal(f.state().usuario.telefonoVerificado, false);
+    assert.equal(f.state().usuario.correoVerificado, false);
+    assert.equal(canParticipate(f.state().usuario), false);
     assert.equal(f.state().usuario.credibilidad, null); assert.equal(f.state().usuario.monedas, 0);
 });
 test('authorization denial never falls back to a cached account', async () => {
@@ -82,5 +83,18 @@ test('offline consultation preserves the saved advertising preference', async ()
     const f = fixture({networkAvailable: () => online, loadUser: async () => ({...user(1), premium: true, ocultarAnuncios: true})});
     await f.controller.refresh(); online = false; await f.controller.refresh();
     assert.equal(f.state().usuario.ocultarAnuncios, true);
-    assert.equal(f.state().usuario.telefonoVerificado, false);
+    assert.equal(f.state().usuario.correoVerificado, false);
+});
+test('participation requires verified email and ignores legacy phone verification', () => {
+    assert.equal(canParticipate({...user(1), telefonoVerificado: false}), true);
+    assert.equal(canParticipate({...user(1), correoVerificado: false, telefonoVerificado: true}), false);
+    assert.equal(canParticipate({...user(1), telefonoVerificado: true, bloqueado: true}), false);
+    assert.equal(canParticipate(null), false);
+    assert.equal(canParticipate(undefined), false);
+});
+test('participation only accepts a confirmed boolean email verification', () => {
+    for (const correoVerificado of [undefined, null, false, 1, 'true']) {
+        assert.equal(canParticipate({...user(1), correoVerificado}), false);
+    }
+    assert.equal(canParticipate({...user(1), correo: 'demo@civigo.test'}), true);
 });

@@ -16,7 +16,6 @@ if (connection) {
   url.searchParams.set("statement_cache_size", "0");
   process.env.DATABASE_URL = url.toString();
   process.env.NODE_ENV = "test";
-  process.env.DEMO_VERIFICATION = "true";
   process.env.UPLOAD_DIR = path.join(__dirname, "../.test-uploads");
 }
 test(
@@ -52,7 +51,8 @@ test(
           password: await hashPassword(
             crypto.randomBytes(24).toString("base64url"),
           ),
-          telefonoVerificado: true,
+          telefonoVerificado: false,
+          correoVerificado: true,
         });
       await prisma.user.createMany({ data: values });
       const users = await prisma.user.findMany({

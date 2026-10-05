@@ -21,11 +21,15 @@ test("el diagnóstico enumera requisitos sin afirmar llamadas reales ni exponer 
   assert.equal(report.conexionesProbadas, false);
   assert.equal(JSON.stringify(report).includes(secret), false);
   assert.deepEqual(report.proveedores[0].variablesPendientes, []);
-  assert.deepEqual(report.proveedores[2].variablesPendientes, ["EMAIL_FROM"]);
-  assert.deepEqual(report.proveedores[3].variablesPendientes, [
-    "SUPABASE_URL",
-    "SUPABASE_SECRET_KEY",
-  ]);
+  assert.deepEqual(
+    report.proveedores.find((p) => p.id === "correo").variablesPendientes,
+    ["EMAIL_FROM"],
+  );
+  assert.deepEqual(
+    report.proveedores.find((p) => p.id === "almacenamiento")
+      .variablesPendientes,
+    ["SUPABASE_URL", "SUPABASE_SECRET_KEY"],
+  );
 });
 
 test("el diagnóstico reconoce los alias existentes y no exige claves del mapa en Railway", () => {
@@ -43,7 +47,11 @@ test("el diagnóstico reconoce los alias existentes y no exige claves del mapa e
     },
   );
   assert.deepEqual(report.proveedores[0].variablesPendientes, []);
-  assert.deepEqual(report.proveedores[3].variablesPendientes, []);
+  assert.deepEqual(
+    report.proveedores.find((p) => p.id === "almacenamiento")
+      .variablesPendientes,
+    [],
+  );
   assert.ok(report.frontend.variables.includes("NEXT_PUBLIC_MAPBOX_TOKEN"));
   assert.ok(
     report.proveedores.every(
@@ -61,44 +69,21 @@ test("configuración presente pero inválida produce una orientación sin mostra
   assert.equal(JSON.stringify(report).includes("private-fixture"), false);
 });
 
-test("WhatsApp manual y Google separan sus requisitos de Railway y Vercel", () => {
-  const state = {
-    telefono: { proveedor: "whatsapp-manual", configurado: false },
-    correoGoogle: { configurado: false },
-  };
-  const missing = integrationChecklist({}, state);
-  const phone = missing.proveedores.find((p) => p.id === "telefono");
-  assert.equal(phone.nombre, "WhatsApp con revisión manual");
-  assert.deepEqual(phone.variablesPendientes, ["WHATSAPP_VERIFICATION_NUMBER"]);
-  assert.match(phone.indicacion, /PHONE_VERIFICATION_PROVIDER=whatsapp-manual/);
+test("Google es la única verificación y Resend queda para recordatorios", () => {
+  const report = integrationChecklist(
+    {},
+    { correoGoogle: { configurado: false } },
+  );
+  assert.ok(!report.proveedores.some((p) => p.id === "telefono"));
   assert.deepEqual(
-    missing.proveedores.find((p) => p.id === "correoGoogle")
-      .variablesPendientes,
+    report.proveedores.find((p) => p.id === "correoGoogle").variablesPendientes,
     ["FIREBASE_PROJECT_ID"],
   );
-  assert.ok(
-    missing.frontend.variables.includes("NEXT_PUBLIC_FIREBASE_API_KEY"),
+  assert.match(
+    report.proveedores.find((p) => p.id === "correo").indicacion,
+    /recordatorios, no verifica/,
   );
-  assert.ok(
-    missing.proveedores.every(
-      (p) => !p.variablesPendientes.includes("NEXT_PUBLIC_FIREBASE_API_KEY"),
-    ),
-  );
-  const complete = integrationChecklist(
-    {
-      FIREBASE_PROJECT_ID: "civigo-fixture",
-      WHATSAPP_VERIFICATION_NUMBER: "+51900000009",
-    },
-    {
-      telefono: { proveedor: "whatsapp-manual", configurado: true },
-      correoGoogle: { configurado: true },
-    },
-  );
-  assert.deepEqual(
-    complete.proveedores.find((p) => p.id === "telefono").variablesPendientes,
-    [],
-  );
-  assert.equal(JSON.stringify(complete).includes("civigo-fixture"), false);
+  assert.ok(report.frontend.variables.includes("NEXT_PUBLIC_FIREBASE_API_KEY"));
 });
 
 test("un modelo inválido no presenta ambas funciones de OpenAI como configuradas", () => {

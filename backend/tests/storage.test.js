@@ -98,7 +98,8 @@ async function fixture(t, options = {}) {
   const owner = {
     id: 7,
     rol: "USUARIO",
-    telefonoVerificado: true,
+    telefonoVerificado: false,
+    correoVerificado: true,
     bloqueado: false,
     permisos: [],
   };
@@ -201,11 +202,17 @@ test("Supabase uploads persist opaque paths and public attachments retain backen
     "unpublished public media must not be cached as public",
   );
   assert.deepEqual(Buffer.from(await ownerFile.arrayBuffer()), photo);
-  record.reporte = { incidente: { publicado: true, distrito: "Ica" } };
+  record.reporte = {
+    incidente: { publicado: true, distrito: "Ica" },
+    usuario: { correoVerificado: true },
+  };
   const publicFile = await f.download(json.id);
   assert.equal(publicFile.status, 200);
   assert.equal(publicFile.headers.get("cache-control"), "public, max-age=300");
   assert.equal(publicFile.headers.get("apikey"), null);
+  record.reporte.usuario.correoVerificado = false;
+  assert.equal((await f.download(json.id)).status, 403);
+  assert.equal((await f.download(json.id, f.owner)).status, 200);
   const posted = f.remote.calls.find((c) => c.options.method === "POST");
   assert.equal(posted.options.headers.apikey, env.SUPABASE_SECRET_KEY);
   assert.equal(
@@ -222,7 +229,10 @@ test("Private evidence and identity preserve owner, district and administrator p
   const f = await fixture(t);
   const evidence = await f.upload({ type: "EVIDENCIA" });
   const record = f.records.get(evidence.json.id);
-  record.reporte = { incidente: { publicado: true, distrito: "Ica" } };
+  record.reporte = {
+    incidente: { publicado: true, distrito: "Ica" },
+    usuario: { correoVerificado: true },
+  };
   assert.equal(record.privado, true);
   assert.equal((await f.download(record.id)).status, 403);
   assert.equal(
@@ -265,7 +275,7 @@ test("Private evidence and identity preserve owner, district and administrator p
   assert.equal(document.headers.get("cache-control"), "private, no-store");
 });
 
-test("Signature, phone and PDF privacy validation runs before any cloud upload", async (t) => {
+test("Signature, verified email and PDF privacy validation runs before any cloud upload", async (t) => {
   const f = await fixture(t);
   assert.equal(
     (await f.upload({ data: Buffer.from("HTML masquerading as a photo") }))
@@ -273,8 +283,8 @@ test("Signature, phone and PDF privacy validation runs before any cloud upload",
     400,
   );
   assert.equal(
-    (await f.upload({ user: { ...f.owner, telefonoVerificado: false } }))
-      .response.status,
+    (await f.upload({ user: { ...f.owner, correoVerificado: false } })).response
+      .status,
     403,
   );
   assert.equal(
@@ -287,6 +297,56 @@ test("Signature, phone and PDF privacy validation runs before any cloud upload",
     400,
   );
   assert.equal(f.remote.calls.length, 0);
+  assert.deepEqual(await fs.readdir(f.directory), []);
+});
+
+test("Unverified users may upload only private identity for recovery; rejected participation files are cleaned", async (t) => {
+  const f = await fixture(t);
+  const unverified = { ...f.owner, correoVerificado: false };
+  for (const type of ["PUBLICO", "EVIDENCIA"]) {
+    assert.equal(
+      (await f.upload({ type, user: unverified })).response.status,
+      403,
+    );
+    assert.deepEqual(await fs.readdir(f.directory), []);
+  }
+  assert.equal(f.remote.calls.length, 0);
+  const accepted = await f.upload({
+    type: "IDENTIDAD",
+    privateFile: false,
+    user: unverified,
+    mime: "application/pdf",
+    data: Buffer.from("%PDF-1.7 identity fixture"),
+  });
+  assert.equal(accepted.response.status, 201);
+  assert.equal(accepted.json.tipo, "IDENTIDAD");
+  assert.equal(accepted.json.privado, true);
+  assert.equal((await f.download(accepted.json.id)).status, 403);
+  const owned = await f.download(accepted.json.id, unverified);
+  assert.equal(owned.status, 200);
+  assert.equal(owned.headers.get("cache-control"), "private, no-store");
+  assert.equal(
+    (
+      await f.download(accepted.json.id, {
+        id: 9,
+        rol: "AGENTE",
+        permisos: ["evidencia"],
+        bloqueado: false,
+      })
+    ).status,
+    403,
+  );
+  const calls = f.remote.calls.length;
+  assert.equal(
+    (
+      await f.upload({
+        type: "IDENTIDAD",
+        user: { ...unverified, bloqueado: true },
+      })
+    ).response.status,
+    403,
+  );
+  assert.equal(f.remote.calls.length, calls);
   assert.deepEqual(await fs.readdir(f.directory), []);
 });
 

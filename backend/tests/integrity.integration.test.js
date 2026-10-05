@@ -11,7 +11,7 @@ if (connection) {
     );
   process.env.DATABASE_URL = connection;
   process.env.NODE_ENV = "test";
-  process.env.DEMO_VERIFICATION = "true";
+  process.env.FIREBASE_PROJECT_ID = "civigo-fixture";
   process.env.ENABLE_JOBS = "false";
   delete process.env.TRUST_PROXY;
 }
@@ -55,10 +55,11 @@ test(
           nombreUsuario: run + "_" + label,
           nombres: "Prueba",
           apellidos: "Integridad",
-          correo: run + "_" + label + "@tests.civigo.local",
+          correo: run + "_" + label + "@gmail.com",
           telefono: "+519" + String(crypto.randomInt(10000000, 99999999)),
           password: "scrypt$cuenta_de_prueba_sin_login",
-          telefonoVerificado: true,
+          telefonoVerificado: false,
+          correoVerificado: true,
           rol: role,
           ...(role === "AGENTE"
             ? {
@@ -164,7 +165,7 @@ test(
           const row = await createIncident({
             publicado: true,
             estado: "VALIDADO",
-            evaluacion: "PENDIENTE",
+            evaluacion: "AGENTE",
             validacion: 1,
           });
           const result = await request(
@@ -514,11 +515,11 @@ test(
         "Solicitudes de verificación concurrentes comparten enfriamiento y los cambios de perfil respetan la validación inicial",
         async () => {
           const before = await prisma.verification.count({
-            where: { usuarioId: actors[6].id, tipo: "TELEFONO" },
+            where: { usuarioId: actors[6].id, tipo: "CORREO_GOOGLE" },
           });
           const verifiedRequests = await Promise.all([
-            request("/users/phone/request", actors[6], {}),
-            request("/users/phone/request", actors[6], {}),
+            request("/users/email/google/request", actors[6], {}),
+            request("/users/email/google/request", actors[6], {}),
           ]);
           assert.deepEqual(
             verifiedRequests.map((r) => r.status),
@@ -526,17 +527,17 @@ test(
           );
           assert.equal(
             await prisma.verification.count({
-              where: { usuarioId: actors[6].id, tipo: "TELEFONO" },
+              where: { usuarioId: actors[6].id, tipo: "CORREO_GOOGLE" },
             }),
             before,
           );
           await prisma.user.update({
             where: { id: actors[6].id },
-            data: { telefonoVerificado: false },
+            data: { correoVerificado: false },
           });
           const attempts = await Promise.all([
-            request("/users/phone/request", actors[6], {}),
-            request("/users/phone/request", actors[6], {}),
+            request("/users/email/google/request", actors[6], {}),
+            request("/users/email/google/request", actors[6], {}),
           ]);
           assert.deepEqual(attempts.map((r) => r.status).sort(), [200, 429]);
           await prisma.user.update({

@@ -1,6 +1,6 @@
 const express = require("express");
 const prisma = require("../lib/db");
-const { auth, optionalAuth, requirePhone, canReview } = require("../lib/auth");
+const { auth, optionalAuth, requireEmail, canReview } = require("../lib/auth");
 const {
   asyncRoute,
   HttpError,
@@ -11,6 +11,11 @@ const {
 } = require("../lib/http");
 const { config } = require("../lib/catalog");
 const { incident, publicUser } = require("../lib/projections");
+const {
+  publicIncidentEligibility,
+  canPublishIncident,
+  verifiedVoteInclude,
+} = require("../lib/publication");
 const {
   transaction,
   rewardValidated,
@@ -24,7 +29,7 @@ const include = {
     include: { usuario: true, adjuntos: true },
     orderBy: { fechaCreacion: "asc" },
   },
-  votos: true,
+  votos: verifiedVoteInclude(),
   _count: { select: { reportes: true } },
 };
 router.get(
@@ -35,6 +40,7 @@ router.get(
     cutoff.setUTCFullYear(cutoff.getUTCFullYear() - 3);
     const where = {
       publicado: true,
+      AND: [publicIncidentEligibility()],
       OR: [
         { historico: false },
         { historico: true, fechaEvento: { gte: cutoff } },
@@ -84,7 +90,8 @@ router.get(
     if (!row) throw new HttpError(404, "Incidente no encontrado.");
     const owner =
       req.user && row.reportes.some((r) => r.usuarioId === req.user.id);
-    if (!row.publicado && !owner && !canReview(req.user, row))
+    const visible = row.publicado && (await canPublishIncident(prisma, row.id));
+    if (!visible && !owner && !canReview(req.user, row))
       throw new HttpError(404, "Incidente no disponible.");
     res.json(incident(row));
   }),
@@ -93,7 +100,7 @@ for (const action of ["confirmar", "resolver"]) {
   router.post(
     "/:id/" + action,
     auth,
-    requirePhone,
+    requireEmail,
     asyncRoute(async (req, res) => {
       const p = coordinates(req.body.latitud, req.body.longitud);
       const rules = await config();
@@ -104,7 +111,7 @@ for (const action of ["confirmar", "resolver"]) {
             reportes: { orderBy: [{ fechaCreacion: "asc" }, { id: "asc" }] },
           },
         });
-        if (!row || !row.publicado)
+        if (!row || !row.publicado || !(await canPublishIncident(db, row.id)))
           throw new HttpError(404, "Incidente no encontrado.");
         if (!["ACTIVO", "VALIDADO", "PENDIENTE"].includes(row.estado))
           throw new HttpError(409, "El incidente ya no está activo.");
@@ -153,24 +160,28 @@ for (const action of ["confirmar", "resolver"]) {
           data: { usuarioId: req.user.id, incidenteId: row.id, tipo, ...p },
         });
         const count = await db.vote.count({
-          where: { incidenteId: row.id, tipo },
+          where: {
+            incidenteId: row.id,
+            tipo,
+            usuario: { correoVerificado: true },
+          },
         });
         if (action === "confirmar") {
           if (staff) {
             row = await db.incident.update({
               where: { id: row.id },
-              data: { validacion: 1, estado: "VALIDADO" },
+              data: { validacion: 1, estado: "VALIDADO", evaluacion: "AGENTE" },
             });
           } else if (row.evaluacion !== "AGENTE") {
-            const validacion = Math.max(
-              row.validacion,
-              Math.min(1, 0.5 + (0.5 * count) / rules.confirmaciones),
+            const validacion = Math.min(
+              1,
+              0.5 + (0.5 * count) / rules.confirmaciones,
             );
             row = await db.incident.update({
               where: { id: row.id },
               data: {
                 validacion,
-                ...(validacion === 1 ? { estado: "VALIDADO" } : {}),
+                estado: validacion === 1 ? "VALIDADO" : "ACTIVO",
               },
             });
           }
@@ -194,7 +205,7 @@ for (const action of ["confirmar", "resolver"]) {
 router.post(
   "/:id/reabrir",
   auth,
-  requirePhone,
+  requireEmail,
   asyncRoute(async (req, res) => {
     const row = await prisma.incident.findUnique({
       where: { id: id(req.params.id) },
@@ -228,13 +239,13 @@ router.post(
 router.post(
   "/:id/flags",
   auth,
-  requirePhone,
+  requireEmail,
   asyncRoute(async (req, res) => {
     const incidenteId = id(req.params.id);
     const row = await prisma.incident.findUnique({
       where: { id: incidenteId },
     });
-    if (!row || !row.publicado)
+    if (!row || !row.publicado || !(await canPublishIncident(prisma, row.id)))
       throw new HttpError(404, "Incidente no encontrado.");
     const tipo = req.body.tipo;
     if (!["FALSO", "NO_ENCONTRADO", "REAPERTURA"].includes(tipo))
@@ -255,9 +266,11 @@ router.get(
       where: { id: id(req.params.id) },
       include: { reportes: true },
     });
+    const visible =
+      row?.publicado && (await canPublishIncident(prisma, row.id));
     if (
       !row ||
-      (!row.publicado &&
+      (!visible &&
         !canReview(req.user, row) &&
         !row.reportes.some((r) => r.usuarioId === req.user.id))
     )
@@ -281,16 +294,17 @@ router.get(
 router.post(
   "/:id/chat",
   auth,
-  requirePhone,
+  requireEmail,
   asyncRoute(async (req, res) => {
     const m = await transaction(async (db) => {
       const row = await db.incident.findUnique({
         where: { id: id(req.params.id) },
         include: { reportes: true },
       });
+      const visible = row?.publicado && (await canPublishIncident(db, row.id));
       if (
         !row ||
-        (!row.publicado &&
+        (!visible &&
           !canReview(req.user, row) &&
           !row.reportes.some((r) => r.usuarioId === req.user.id))
       )

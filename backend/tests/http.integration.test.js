@@ -19,7 +19,7 @@ if (enabled) {
   dbUrl.searchParams.set("pgbouncer", "true");
   dbUrl.searchParams.set("statement_cache_size", "0");
   process.env.DATABASE_URL = dbUrl.toString();
-  process.env.DEMO_VERIFICATION = "true";
+
   process.env.NODE_ENV = "test";
   process.env.ENABLE_JOBS = "false";
   process.env.UPLOAD_DIR = path.join(__dirname, "../.test-uploads");
@@ -69,7 +69,7 @@ test(
           nombre: "Prueba",
           apellidos: "Integración",
           nickname: run + "_" + label,
-          correo: run + "_" + label + "@tests.civigo.local",
+          correo: run + "_" + label + "@gmail.com",
           telefono: "+519" + String(crypto.randomInt(10000000, 99999999)),
           password,
           fechaNacimiento: "2000-01-01",
@@ -94,19 +94,10 @@ test(
       return a;
     }
     async function verify(a) {
-      const code = await request("/users/phone/request", {
-        method: "POST",
-        cookie: a.cookie,
-        body: {},
+      await prisma.user.update({
+        where: { id: a.id },
+        data: { correoVerificado: true },
       });
-      assert.equal(code.status, 200);
-      assert.equal(code.json.modo, "demo");
-      const result = await request("/users/phone/verify", {
-        method: "POST",
-        cookie: a.cookie,
-        body: { codigo: code.json.codigoDemo },
-      });
-      assert.equal(result.status, 200);
     }
     const p = { latitud: -14.06777, longitud: -75.7286 };
     async function postReport(a, tipo, extra = {}) {

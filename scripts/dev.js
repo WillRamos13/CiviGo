@@ -105,7 +105,6 @@ async function main() {
       );
     env.LOCAL_DB_PORT = String(localPort);
     env.DATABASE_URL = `postgresql://postgres:postgres@127.0.0.1:${localPort}/postgres?connection_limit=1&pgbouncer=true&statement_cache_size=0`;
-    env.DEMO_VERIFICATION = "true";
     launchService(
       path.join(backend, "scripts/local-db.js"),
       [],

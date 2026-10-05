@@ -105,13 +105,10 @@ app.use((error, req, res, next) => {
   res.status(status).json({ error: message, ...(code ? { code } : {}) });
 });
 function start() {
-  if (
-    process.env.NODE_ENV === "production" &&
-    process.env.DEMO_VERIFICATION === "true"
-  )
-    throw new Error("No puede activarse DEMO_VERIFICATION en producción.");
   if (process.env.NODE_ENV === "production" && !process.env.FRONTEND_URL)
-    console.warn("FRONTEND_URL no configurado; se usan los orígenes por defecto.");
+    console.warn(
+      "FRONTEND_URL no configurado; se usan los orígenes por defecto.",
+    );
   const port = Number(process.env.PORT) || 4000;
   // Railway y otras plataformas solo alcanzan el proceso por la interfaz pública.
   const deployed =

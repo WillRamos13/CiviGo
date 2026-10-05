@@ -2,7 +2,6 @@ const { services } = require("./providers");
 
 // Configuration inspection only: no paid requests, messages or bucket mutations.
 function integrationChecklist(env = process.env, state = services()) {
-  const manual = state.telefono?.proveedor === "whatsapp-manual";
   const missing = (names) =>
     names.filter((name) => !String(env[name] || "").trim());
   return {
@@ -22,29 +21,12 @@ function integrationChecklist(env = process.env, state = services()) {
           "Configura la clave privada en Railway. AI_REPORT_MODEL elige el modelo para evaluar reportes (gpt-6.1-sol por defecto); AI_CHAT_MODEL elige el del chatbot (gpt-4.1-mini por defecto). AI_MODEL sigue como alternativa compatible para ambos.",
       },
       {
-        id: "telefono",
-        nombre: manual ? "WhatsApp con revisión manual" : "Twilio Verify",
-        configurado: !!state.telefono?.configurado,
-        variablesPendientes: missing(
-          manual
-            ? ["WHATSAPP_VERIFICATION_NUMBER"]
-            : [
-                "TWILIO_ACCOUNT_SID",
-                "TWILIO_AUTH_TOKEN",
-                "TWILIO_VERIFY_SERVICE_SID",
-              ],
-        ),
-        indicacion: manual
-          ? "Configura PHONE_VERIFICATION_PROVIDER=whatsapp-manual y WHATSAPP_VERIFICATION_NUMBER en Railway. El usuario envía el código desde su número registrado y un administrador comprueba remitente y código antes de aprobar; no hay envío automático ni API de pago."
-          : "Selecciona PHONE_VERIFICATION_PROVIDER=twilio, crea un servicio Verify y habilita los canales que usarás. La disponibilidad y aprobación de SMS/WhatsApp se comprueban en Twilio.",
-      },
-      {
         id: "correo",
         nombre: "Resend",
         configurado: !!state.correo?.configurado,
         variablesPendientes: missing(["RESEND_API_KEY", "EMAIL_FROM"]),
         indicacion:
-          "Verifica el dominio remitente en Resend y configura EMAIL_FROM con una dirección de ese dominio.",
+          "Resend envía recordatorios, no verifica cuentas. Verifica el dominio remitente y configura EMAIL_FROM con una dirección de ese dominio.",
       },
       {
         id: "almacenamiento",

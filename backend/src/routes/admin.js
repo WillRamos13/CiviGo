@@ -1,5 +1,9 @@
 const express = require("express");
 const prisma = require("../lib/db");
+const {
+  canPublishIncident,
+  verifiedVoteInclude,
+} = require("../lib/publication");
 const { auth, requirePermission, canReview } = require("../lib/auth");
 const {
   asyncRoute,
@@ -28,7 +32,6 @@ const adminOnly = (req, res, next) =>
   req.user.rol === "ADMIN"
     ? next()
     : next(new HttpError(403, "Solo administradores."));
-router.use("/phone-verifications", adminOnly, require("./phone-verifications"));
 router.get("/integrations", adminOnly, (req, res) => {
   res.setHeader("Cache-Control", "no-store");
   res.json(require("../lib/integrations").integrationChecklist());
@@ -107,7 +110,7 @@ router.get(
           include: { usuario: true, adjuntos: true },
           orderBy: { fechaCreacion: "asc" },
         },
-        votos: true,
+        votos: verifiedVoteInclude(),
         flags: true,
         revisiones: { orderBy: { creadoEn: "desc" } },
       },
@@ -510,20 +513,22 @@ router.post(
           },
           data: { estado: "ACEPTADA", respuesta },
         });
-        if (a.reporte.incidenteId)
+        if (a.reporte.incidenteId) {
+          const publicado =
+            a.reporte.incidente.emergencia &&
+            (await canPublishIncident(db, a.reporte.incidenteId));
           await db.incident.update({
             where: { id: a.reporte.incidenteId },
             data: {
               estado: "PENDIENTE",
-              publicado: a.reporte.incidente.emergencia,
-              fechaPublicacion: a.reporte.incidente.emergencia
-                ? new Date()
-                : null,
+              publicado,
+              fechaPublicacion: publicado ? new Date() : null,
               evaluacion: "PENDIENTE",
               validacion: 0.5,
               motivoRetiro: null,
             },
           });
+        }
         for (const usuarioId of new Set(
           afectados.map((report) => report.usuarioId),
         ))

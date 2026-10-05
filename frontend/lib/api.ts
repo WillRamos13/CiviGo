@@ -20,14 +20,8 @@ export async function api<T>(path: string, options: RequestInit = {}): Promise<T
         let message = 'No se pudo completar la solicitud.';
         if (response.status >= 500) {
             message = 'El servicio de CiviGo no está disponible en este momento. Inténtalo de nuevo.';
-            if (response.status === 503 && data?.code === 'PHONE_PROVIDER_MISSING')
-                message = 'La verificación telefónica no está disponible en este momento. Inténtalo de nuevo más tarde.';
-            else if (response.status === 503 && data?.code === 'ROADS_UNAVAILABLE')
+            if (response.status === 503 && data?.code === 'ROADS_UNAVAILABLE')
                 message = 'Los datos de calles no están disponibles en este momento. Inténtalo de nuevo más tarde.';
-            else if (response.status === 503 && data?.code === 'PHONE_CHANNEL_UNAVAILABLE')
-                message = 'Ese canal de verificación todavía no está habilitado. Prueba otro canal.';
-            else if (response.status === 503 && typeof data?.code === 'string' && data.code.startsWith('EMAIL_PROVIDER_'))
-                message = 'El correo de verificación no está disponible en este momento. Inténtalo de nuevo más tarde.';
             else if (response.status === 503 && typeof data?.code === 'string' && data.code.startsWith('EMAIL_GOOGLE_'))
                 message = 'La verificación con Google no está disponible en este momento. Inténtalo de nuevo más tarde.';
             else if (response.status === 503 && typeof data?.code === 'string' && data.code.startsWith('STORAGE_'))

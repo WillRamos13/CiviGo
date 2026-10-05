@@ -4,7 +4,7 @@ const path = require("node:path");
 const crypto = require("node:crypto");
 const multer = require("multer");
 const prisma = require("../lib/db");
-const { auth, optionalAuth, requirePhone, canReview } = require("../lib/auth");
+const { auth, optionalAuth, requireEmail, canReview } = require("../lib/auth");
 const { asyncRoute, HttpError } = require("../lib/http");
 const { attachment } = require("../lib/projections");
 const { createStorage, UPLOAD_DIR, MAX_FILE_SIZE } = require("../lib/storage");
@@ -52,7 +52,7 @@ function createUploadRouter({
   directory = UPLOAD_DIR,
   authenticate = auth,
   authenticateOptional = optionalAuth,
-  verifyPhone = requirePhone,
+  verifyEmail = requireEmail,
 } = {}) {
   fs.mkdirSync(directory, { recursive: true });
   const router = express.Router();
@@ -75,7 +75,6 @@ function createUploadRouter({
   router.post(
     "/",
     authenticate,
-    verifyPhone,
     upload.any(),
     asyncRoute(async (req, res) => {
       const file = req.files?.[0];
@@ -84,6 +83,17 @@ function createUploadRouter({
       let storedPath;
       let registered = false;
       try {
+        const tipo = ["EVIDENCIA", "IDENTIDAD"].includes(req.body.tipo)
+          ? req.body.tipo
+          : "PUBLICO";
+        // La identidad privada permite pedir recuperación. La autorización
+        // posterior a multipart debe quedar dentro de la limpieza del archivo.
+        if (tipo !== "IDENTIDAD" || !req.user || req.user.bloqueado)
+          await new Promise((resolve, reject) =>
+            verifyEmail(req, res, (error) =>
+              error ? reject(error) : resolve(),
+            ),
+          );
         if (!["archivo", "file"].includes(file.fieldname))
           throw new HttpError(400, "Campo de archivo inválido.");
         const buffer = Buffer.alloc(32);
@@ -103,9 +113,6 @@ function createUploadRouter({
             await fs.promises.readFile(file.path),
             file.mimetype,
           );
-        const tipo = ["EVIDENCIA", "IDENTIDAD"].includes(req.body.tipo)
-          ? req.body.tipo
-          : "PUBLICO";
         const privado = req.body.privado === "true" || tipo !== "PUBLICO";
         if (file.mimetype === "application/pdf" && !privado)
           throw new HttpError(400, "Los documentos PDF deben ser privados.");
@@ -149,7 +156,14 @@ function createUploadRouter({
     asyncRoute(async (req, res) => {
       const row = await db.attachment.findUnique({
         where: { id: req.params.id },
-        include: { reporte: { include: { incidente: true } } },
+        include: {
+          reporte: {
+            include: {
+              incidente: true,
+              usuario: { select: { correoVerificado: true } },
+            },
+          },
+        },
       });
       if (!row) throw new HttpError(404, "Archivo no encontrado.");
       const owner = req.user?.id === row.usuarioId;
@@ -160,7 +174,10 @@ function createUploadRouter({
           : row.reporte?.incidente &&
             canReview(req.user, row.reporte.incidente, "evidencia"));
       const privateFile = row.privado || row.tipo !== "PUBLICO";
-      const publicAccess = !privateFile && row.reporte?.incidente?.publicado;
+      const publicAccess =
+        !privateFile &&
+        row.reporte?.incidente?.publicado &&
+        row.reporte.usuario.correoVerificado;
       if (!owner && !staff && !publicAccess)
         throw new HttpError(403, "No puedes acceder a este archivo.");
       res.setHeader("Content-Type", row.mimeType);

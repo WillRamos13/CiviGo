@@ -18,19 +18,14 @@ async function fixture() {
     user: {
       id: 123,
       telefono: "+51900000001",
-      correo: "citizen@tests.local",
+      correo: "citizen@gmail.com",
       telefonoVerificado: false,
       correoVerificado: false,
       bloqueado: false,
     },
     records: [],
-    phoneConfigured: true,
-    phoneProvider: "twilio-verify",
-    emailConfigured: true,
-    phoneRequests: [],
-    phoneChecks: [],
+    googleConfigured: true,
     googleChecks: [],
-    emails: [],
     approved: true,
   };
   const db = {
@@ -73,29 +68,6 @@ async function fixture() {
     },
   };
   const fakeProviders = {
-    services: () => ({
-      telefono: {
-        proveedor: state.phoneProvider,
-        configurado: state.phoneConfigured,
-        canales:
-          state.phoneProvider === "whatsapp-manual"
-            ? ["whatsapp"]
-            : ["sms", "whatsapp"],
-        demo: false,
-      },
-      correo: { configurado: state.emailConfigured },
-    }),
-    requestPhone: async (...args) => {
-      if (!state.phoneConfigured)
-        throw new HttpError(503, "No configurado", "PHONE_PROVIDER_MISSING");
-      state.phoneRequests.push(args);
-      return { status: "pending" };
-    },
-    checkPhone: async (...args) => {
-      state.phoneChecks.push(args);
-      if (state.duringCheck) state.duringCheck();
-      return state.approved;
-    },
     verifyFirebaseEmail: async (...args) => {
       state.googleChecks.push(args);
       if (state.duringCheck) state.duringCheck();
@@ -103,22 +75,13 @@ async function fixture() {
         throw new HttpError(400, "Prueba inválida", "EMAIL_GOOGLE_INVALID");
       return { proofHash: state.proofHash || "signed-google-event-hash" };
     },
-    sendEmail: async (...args) => {
-      state.emails.push(args);
-      if (state.emailError) throw state.emailError;
-      return true;
-    },
   };
   const overrides = {
     "../src/lib/firebase-email": {
       firebaseEmailConfig: () => ({
-        configured: true,
+        configured: state.googleConfigured,
         projectId: "civigo-fixture",
       }),
-    },
-    "../src/lib/contact-providers": {
-      ...require("../src/lib/contact-providers"),
-      manualPhoneConfig: () => ({ configured: true, telefono: "+51900000009" }),
     },
     "../src/lib/db": db,
     "../src/lib/auth": {
@@ -127,7 +90,6 @@ async function fixture() {
         req.user = { ...state.user };
         next();
       },
-      demoEnabled: () => false,
     },
     "../src/lib/workflows": { transaction: (work) => work(db) },
     "../src/lib/providers": fakeProviders,
@@ -156,6 +118,7 @@ async function fixture() {
   const app = express();
   app.use(express.json());
   app.use("/users", router);
+  app.use((req, res) => res.status(404).json({ error: "Ruta no encontrada." }));
   app.use((error, req, res, next) =>
     res
       .status(error.status || 500)
@@ -183,137 +146,59 @@ async function fixture() {
   };
 }
 
-test("La ruta valida canales, proveedor ausente y cooldown antes de generar envíos cobrables", async () => {
+test("Google es la única verificación disponible y conserva cooldown y cinco solicitudes por hora", async () => {
   const f = await fixture();
   try {
-    assert.equal(
-      (await f.request("/phone/request", { canal: "invalid" })).status,
-      400,
-    );
+    for (const route of [
+      "/phone/request",
+      "/phone/verify",
+      "/email/request",
+      "/email/verify",
+    ])
+      assert.equal((await f.request(route)).status, 404);
+    f.state.googleConfigured = false;
+    assert.equal((await f.request("/email/google/request")).status, 503);
     assert.equal(f.state.records.length, 0);
-    f.state.phoneConfigured = false;
-    assert.equal((await f.request("/phone/request")).status, 503);
+    f.state.googleConfigured = true;
+    const request = await f.request("/email/google/request");
+    assert.equal(request.status, 200);
+    assert.equal(request.json.codigoDemo, undefined);
+    assert.equal(request.json.codigo, undefined);
+    assert.equal((await f.request("/email/google/request")).status, 429);
+    assert.equal(f.state.records.length, 1);
+    f.state.records[0].creadoEn = new Date(Date.now() - 120000);
+    for (let i = 1; i < 5; i++)
+      f.state.records.push({ ...f.state.records[0], id: i + 1 });
+    const limited = await f.request("/email/google/request");
+    assert.equal(limited.status, 429);
+    assert.equal(limited.json.code, "VERIFICATION_RATE_LIMITED");
+    assert.equal(f.state.records.length, 5);
+  } finally {
+    await f.close();
+  }
+});
+
+test("las cuentas pendientes deben usar Gmail y las cuentas ya verificadas mantienen el acceso", async () => {
+  const f = await fixture();
+  try {
+    f.state.user.correo = "workspace@empresa.test";
+    for (const path of ["/email/google/request", "/email/google/verify"]) {
+      const denied = await f.request(path, {
+        challengeId: "1",
+        idToken: "fixture-token-without-provider-call",
+      });
+      assert.equal(denied.status, 400);
+      assert.equal(denied.json.code, "EMAIL_GMAIL_REQUIRED");
+    }
+    assert.equal(f.state.googleChecks.length, 0);
     assert.equal(f.state.records.length, 0);
-    f.state.phoneConfigured = true;
-    const requested = await f.request("/phone/request", { canal: "whatsapp" });
-    assert.equal(requested.status, 200);
-    assert.equal(requested.json.modo, "proveedor");
-    assert.equal(requested.json.codigoDemo, undefined);
-    assert.equal((await f.request("/phone/request")).status, 429);
-    assert.equal(f.state.phoneRequests.length, 1);
-    assert.deepEqual(f.state.phoneRequests[0], [
-      f.state.user.telefono,
-      "whatsapp",
-    ]);
-  } finally {
-    await f.close();
-  }
-});
-
-test("La aprobación de Twilio verifica el teléfono actual y repetir no genera otra llamada", async () => {
-  const f = await fixture();
-  try {
-    assert.equal(
-      (await f.request("/phone/verify", { codigo: "123456" })).status,
-      400,
-      "Requiere solicitar un código primero",
-    );
-    assert.equal(f.state.phoneChecks.length, 0);
-    await f.request("/phone/request");
-    assert.equal(
-      (await f.request("/phone/verify", { codigo: "abc123" })).status,
-      400,
-    );
-    const verified = await f.request("/phone/verify", { codigo: "123456" });
-    assert.equal(verified.status, 200);
-    assert.equal(verified.json.usuario.telefonoVerificado, true);
-    assert.equal(f.state.records[0].usado, true);
-    assert.equal(
-      (await f.request("/phone/verify", { codigo: "123456" })).status,
-      200,
-    );
-    assert.equal((await f.request("/phone/request")).status, 200);
-    assert.equal(f.state.phoneChecks.length, 1);
-    assert.equal(f.state.phoneRequests.length, 1);
-  } finally {
-    await f.close();
-  }
-});
-
-test("Los intentos fallidos y los cambios concurrentes no aprueban otro teléfono", async () => {
-  const f = await fixture();
-  try {
-    await f.request("/phone/request");
-    f.state.approved = false;
-    for (let i = 0; i < 6; i++)
-      assert.equal(
-        (await f.request("/phone/verify", { codigo: "123456" })).status,
-        400,
-      );
-    assert.equal(f.state.phoneChecks.length, 5);
-    assert.equal(f.state.user.telefonoVerificado, false);
-    f.state.records[0].intentos = 0;
-    f.state.approved = true;
-    f.state.duringCheck = () => {
-      f.state.user.telefono = "+51900000002";
-    };
-    assert.equal(
-      (await f.request("/phone/verify", { codigo: "123456" })).status,
-      409,
-    );
-    assert.equal(f.state.user.telefonoVerificado, false);
-  } finally {
-    await f.close();
-  }
-});
-
-test("Los cinco códigos por hora se limitan en la base antes de contactar Twilio", async () => {
-  const f = await fixture();
-  try {
-    f.state.records = Array.from({ length: 5 }, (_, id) => ({
-      id: id + 1,
-      usuarioId: 123,
-      tipo: "TELEFONO",
-      usado: true,
-      creadoEn: new Date(Date.now() - 120000),
-    }));
-    const blocked = await f.request("/phone/request");
-    assert.equal(blocked.status, 429);
-    assert.equal(blocked.json.code, "VERIFICATION_RATE_LIMITED");
-    assert.equal(f.state.phoneRequests.length, 0);
-  } finally {
-    await f.close();
-  }
-});
-
-test("WhatsApp manual prepara un mensaje sin contactar Twilio ni aceptar autoaprobación", async () => {
-  const f = await fixture();
-  f.state.phoneProvider = "whatsapp-manual";
-  try {
-    assert.equal(
-      (await f.request("/phone/request", { canal: "sms" })).status,
-      400,
-    );
+    f.state.user.correo = "demo@civigo.test";
+    f.state.user.correoVerificado = true;
+    assert.equal((await f.request("/email/google/request")).status, 200);
+    assert.equal((await f.request("/email/google/verify")).status, 200);
+    assert.equal(f.state.user.correoVerificado, true);
+    assert.equal(f.state.googleChecks.length, 0);
     assert.equal(f.state.records.length, 0);
-    const result = await f.request("/phone/request", { canal: "whatsapp" });
-    assert.equal(result.status, 200);
-    assert.equal(result.json.modo, "whatsapp-manual");
-    assert.match(result.json.codigoManual, /^[A-F0-9]{24}$/);
-    assert.ok(
-      result.json.whatsappUrl.startsWith("https://wa.me/51900000009?text="),
-    );
-    assert.equal(result.json.codigoDemo, undefined);
-    assert.equal(f.state.records[0].tipo, "TELEFONO_WHATSAPP");
-    assert.equal(f.state.phoneRequests.length, 0);
-    assert.equal(
-      (await f.request("/phone/request", { canal: "whatsapp" })).status,
-      429,
-    );
-    assert.equal(
-      (await f.request("/phone/verify", { codigo: "123456" })).status,
-      409,
-    );
-    assert.equal(f.state.user.telefonoVerificado, false);
   } finally {
     await f.close();
   }
@@ -389,51 +274,5 @@ test("Google conserva cinco intentos y no verifica si cambia el correo o se bloq
     assert.equal(f.state.user.correoVerificado, false);
   } finally {
     await f.close();
-  }
-});
-
-test("La ruta de correo conserva idempotencia, errores del proveedor y confirmación solo del destino actual", async () => {
-  const f = await fixture();
-  try {
-    const sent = await f.request("/email/request");
-    assert.equal(sent.status, 200);
-    assert.equal(sent.json.codigoDemo, undefined);
-    const args = f.state.emails[0];
-    assert.deepEqual(args[3], {
-      idempotencyKey: "email-verification/1",
-      throwOnError: true,
-    });
-    assert.equal((await f.request("/email/request")).status, 429);
-    const code = args[2].match(/<strong>(\d{6})<\/strong>/)[1];
-    f.state.user.correo = "changed@tests.local";
-    assert.equal(
-      (await f.request("/email/verify", { codigo: code })).status,
-      409,
-    );
-    assert.equal(f.state.user.correoVerificado, false);
-    f.state.user.correo = "citizen@tests.local";
-    assert.equal(
-      (await f.request("/email/verify", { codigo: code })).status,
-      200,
-    );
-    assert.equal(f.state.user.correoVerificado, true);
-    assert.equal((await f.request("/email/request")).status, 200);
-    assert.equal(f.state.emails.length, 1);
-  } finally {
-    await f.close();
-  }
-  const failed = await fixture();
-  try {
-    failed.state.emailError = new HttpError(
-      429,
-      "Límite del proveedor",
-      "EMAIL_RATE_LIMITED",
-    );
-    const result = await failed.request("/email/request");
-    assert.equal(result.status, 429);
-    assert.equal(result.json.code, "EMAIL_RATE_LIMITED");
-    assert.equal(failed.state.user.correoVerificado, false);
-  } finally {
-    await failed.close();
   }
 });

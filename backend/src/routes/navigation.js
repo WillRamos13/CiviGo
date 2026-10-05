@@ -8,14 +8,20 @@ const { scoreSegments } = require("../lib/risk");
 const { planRoutes, MODES } = require("../lib/navigation");
 const { config } = require("../lib/catalog");
 const { transaction } = require("../lib/workflows");
+const { publicIncidentEligibility } = require("../lib/publication");
 const router = express.Router();
 async function incidents() {
   return prisma.incident
     .findMany({
-      where: { publicado: true, estado: { notIn: ["FALSO", "RETIRADO"] } },
+      where: {
+        publicado: true,
+        estado: { notIn: ["FALSO", "RETIRADO"] },
+        AND: [publicIncidentEligibility()],
+      },
       include: {
         tipoCatalogo: true,
         reportes: {
+          where: { usuario: { correoVerificado: true } },
           select: {
             adjuntos: {
               where: { tipo: "EVIDENCIA", privado: true },

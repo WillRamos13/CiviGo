@@ -37,7 +37,7 @@ export function googleEmailErrorMessage(error: unknown): string {
         case 'auth/operation-not-supported-in-this-environment':
             return 'La verificación con Google todavía no está disponible para esta página.';
         case 'auth/account-exists-with-different-credential':
-            return 'Esta cuenta de Google no está disponible para verificar el correo. Puedes usar el código por correo o comunicarlo al administrador.';
+            return 'Esta cuenta de Google no está disponible para verificar el Gmail. Comunícalo al administrador.';
         default:
             return 'No se pudo completar la verificación con Google. Inténtalo de nuevo.';
     }

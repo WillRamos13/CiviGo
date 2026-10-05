@@ -219,7 +219,7 @@ test("Chatbot HTTP usa memoria corta, contexto público, guía honesta y cuota s
         assert.equal(result.body.modo, "guia");
         assert.equal(result.body.ia, false);
         assert.match(result.body.aviso, /IA no está disponible/);
-        assert.match(result.body.respuesta, /teléfono verificado/);
+        assert.match(result.body.respuesta, /correo verificado/);
         assert.ok(!JSON.stringify(result.body).includes("fixture-error"));
         assert.ok(
           !JSON.stringify(result.body).includes("credit_balance_exhausted"),

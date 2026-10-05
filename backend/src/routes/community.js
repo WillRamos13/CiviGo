@@ -1,6 +1,6 @@
 const express = require("express");
 const prisma = require("../lib/db");
-const { auth, requirePhone } = require("../lib/auth");
+const { auth, requireEmail } = require("../lib/auth");
 const {
   asyncRoute,
   HttpError,
@@ -11,6 +11,7 @@ const {
 } = require("../lib/http");
 const { transaction } = require("../lib/workflows");
 const { ranking } = require("../lib/ranking");
+const { publicIncidentEligibility } = require("../lib/publication");
 const router = express.Router();
 router.get(
   "/ranking",
@@ -72,7 +73,7 @@ router.get(
 router.post(
   "/recompensas/:id/canjear",
   auth,
-  requirePhone,
+  requireEmail,
   asyncRoute(async (req, res) => {
     const result = await transaction(async (db) => {
       const reward = await db.reward.findUnique({
@@ -170,6 +171,7 @@ router.post(
     cutoff.setUTCFullYear(cutoff.getUTCFullYear() - 3);
     const where = {
       publicado: true,
+      AND: [publicIncidentEligibility()],
       OR: [
         {
           historico: false,
@@ -212,7 +214,7 @@ router.post(
       "Puedo explicar cómo reportar, validar incidentes, consultar rutas, reputación y Premium. ¿Sobre qué parte de CiviGo necesitas ayuda?";
     if (/report|incidente/.test(message))
       respuesta =
-        "En Reportar, selecciona una categoría y un tipo, confirma la ubicación y adjunta hasta tres archivos. Necesitas teléfono verificado. Robo, hurto, intento de robo, amenazas y extorsión se validan con pruebas privadas y no se agrupan.";
+        "En Reportar, selecciona una categoría y un tipo, confirma la ubicación y adjunta hasta tres archivos. Necesitas correo verificado con Google. Robo, hurto, intento de robo, amenazas y extorsión se validan con pruebas privadas y no se agrupan.";
     if (/confirm|valid/.test(message))
       respuesta =
         "Los incidentes comunitarios se validan con " +

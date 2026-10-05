@@ -3,7 +3,6 @@ const assert = require("node:assert/strict");
 const providers = require("../src/lib/providers");
 const keys = [
   "NODE_ENV",
-  "DEMO_VERIFICATION",
   "AI_API_KEY",
   "OPENAI_API_KEY",
   "AI_MODEL",
@@ -12,12 +11,7 @@ const keys = [
   "AI_REPORT_MAX_OUTPUT_TOKENS",
   "AI_BASE_URL",
   "AI_TIMEOUT_MS",
-  "TWILIO_ACCOUNT_SID",
-  "TWILIO_AUTH_TOKEN",
-  "TWILIO_VERIFY_SERVICE_SID",
-  "PHONE_VERIFICATION_PROVIDER",
   "FIREBASE_PROJECT_ID",
-  "WHATSAPP_VERIFICATION_NUMBER",
   "RESEND_API_KEY",
   "EMAIL_FROM",
 ];
@@ -42,7 +36,7 @@ test("Los proveedores ausentes declaran su estado y no inventan envíos ni evalu
       throw new Error("No debe invocarse ninguna red");
     };
     assert.equal(providers.services().ia.configurado, false);
-    assert.equal(providers.services().telefono.configurado, false);
+    assert.equal(providers.services().correoGoogle.configurado, false);
     assert.equal(providers.services().correo.configurado, false);
     assert.equal(
       await providers.evaluateReport(
@@ -60,13 +54,8 @@ test("Los proveedores ausentes declaran su estado y no inventan envíos ni evalu
       ),
       false,
     );
-    await assert.rejects(providers.requestPhone("+51900000001"), {
-      status: 503,
-      code: "PHONE_PROVIDER_MISSING",
-    });
-    process.env.NODE_ENV = "production";
-    process.env.DEMO_VERIFICATION = "true";
-    assert.equal(providers.services().telefono.demo, false);
+    assert.equal(providers.requestPhone, undefined);
+    assert.equal(providers.checkPhone, undefined);
   }));
 
 test("El adaptador IA valida gravedad, tipos propuestos y respuestas dañadas", () =>
@@ -152,28 +141,8 @@ test("El adaptador IA valida gravedad, tipos propuestos y respuestas dañadas", 
     );
   }));
 
-test("SMS/WhatsApp y correo usan los contratos de sus proveedores sin exponer credenciales", () =>
+test("Resend conserva recordatorios sin adaptadores de verificación telefónica", () =>
   isolated(async () => {
-    process.env.TWILIO_ACCOUNT_SID = "AC" + "a".repeat(32);
-    process.env.TWILIO_AUTH_TOKEN = "fixture-token";
-    process.env.TWILIO_VERIFY_SERVICE_SID = "VA" + "b".repeat(32);
-    let status = "pending";
-    global.fetch = async (url, options) => {
-      assert.ok(url.startsWith("https://verify.twilio.com/"));
-      const body = new URLSearchParams(options.body);
-      assert.equal(body.get("To"), "+51900000001");
-      if (url.endsWith("/Verifications"))
-        assert.equal(body.get("Channel"), "whatsapp");
-      else assert.equal(body.get("Code"), "123456");
-      return { ok: true, json: async () => ({ status }) };
-    };
-    await providers.requestPhone("+51900000001", "whatsapp");
-    assert.equal(await providers.checkPhone("+51900000001", "123456"), false);
-    status = "approved";
-    assert.equal(await providers.checkPhone("+51900000001", "123456"), true);
-    await assert.rejects(providers.requestPhone("+51900000001", "invalid"), {
-      status: 400,
-    });
     process.env.RESEND_API_KEY = "fixture-resend";
     process.env.EMAIL_FROM = "CiviGo <fixture@tests.local>";
     global.fetch = async (url, options) => {

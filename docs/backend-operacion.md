@@ -32,7 +32,7 @@ Para una base local: `npm run db:local`. Las cuentas de demostración requieren 
 | SUPABASE_STORAGE_BUCKET | Bucket privado existente; `civigo-attachments` por defecto. El código no lo crea ni cambia su privacidad. |
 | UPLOAD_DIR | Directorio temporal de recepción; en modo local necesita un volumen persistente y no se publica como carpeta estática. |
 | ENABLE_JOBS | `false` desactiva la tarea periódica. Por defecto revisa plazos cada cinco minutos. |
-| DEMO_VERIFICATION | `true` permite códigos locales de demostración. El servidor rechaza esta opción en producción. |
+| FIREBASE_PROJECT_ID | Proyecto Firebase de la aplicación Web que acredita Google/Gmail; debe coincidir con Vercel. |
 | OPENAI_API_KEY | Clave privada preferida para OpenAI Responses; `AI_API_KEY` es un alias de compatibilidad. |
 | AI_REPORT_MODEL | Modelo de evaluación de reportes; `gpt-6.1-sol` por defecto. Prevalece sobre AI_MODEL. |
 | AI_CHAT_MODEL | Modelo del chatbot; `gpt-4.1-mini` por defecto. Prevalece sobre AI_MODEL. |
@@ -40,14 +40,13 @@ Para una base local: `npm run db:local`. Las cuentas de demostración requieren 
 | AI_REPORT_MAX_OUTPUT_TOKENS | Presupuesto total para evaluar reportes con Sol: 4096 por defecto, entero entre 1024 y 16384; incluye razonamiento. |
 | AI_TIMEOUT_MS | Timeout de IA: 30000 por defecto con Sol y 15000 con otros modelos; entre 1000 y 30000. |
 | AI_BASE_URL | Opcional por compatibilidad. Solo endpoints oficiales admitidos; el adaptador utiliza Responses y no envía claves a otros hosts. |
-| TWILIO_ACCOUNT_SID / TWILIO_AUTH_TOKEN / TWILIO_VERIFY_SERVICE_SID | Credenciales de Twilio Verify para SMS/WhatsApp. |
-| RESEND_API_KEY / EMAIL_FROM | Envío de correo con Resend, incluyendo verificación y recordatorios. |
+| RESEND_API_KEY / EMAIL_FROM | Envío de recordatorios con Resend; no se usa para verificar la cuenta. |
 | ADMIN_EMAIL | Correo de una cuenta ya registrada para el primer administrador mediante `npm run db:bootstrap`; no cambia contraseñas. |
 | TEST_DATABASE_URL | Base aislada para pruebas HTTP; las bases remotas exigen autorización explícita. |
 | ALLOW_REMOTE_TESTS | `true` habilita pruebas sobre una base remota de prueba expresamente autorizada. |
 | LOCAL_DB_PORT / LOCAL_DB_DIR | Puerto y directorio del PostgreSQL local de desarrollo. |
 
-Los adaptadores usan OpenAI Responses, Twilio Verify, Resend y Supabase Storage. Sus contratos se comprueban con respuestas simuladas; eso no acredita un envío real ni activa las cuentas del propietario. El [procedimiento de integraciones](integraciones.md) distingue variables de Railway/Vercel, alta de WhatsApp, DNS de correo y bucket privado.
+Los adaptadores usan OpenAI Responses, Firebase/Google, Resend para recordatorios y Supabase Storage. Sus contratos se comprueban con respuestas simuladas; eso no acredita una comprobación o envío real ni activa las cuentas del propietario. El [procedimiento de integraciones](integraciones.md) distingue variables de Railway/Vercel, habilitación Google, DNS de correo y bucket privado.
 
 OpenAI recibe texto e información limitada del reporte o contexto público del chatbot; actualmente no analiza los adjuntos. Se usa `store: false`, sin conversaciones alojadas; esto no equivale a Zero Data Retention. El chatbot muestra guía local si falta clave o falla la respuesta y no ejecuta acciones sobre cuentas o reportes.
 
@@ -55,9 +54,9 @@ OpenAI recibe texto e información limitada del reporte o contexto público del 
 
 Contraseñas nuevas: scrypt con sal aleatoria. Sesiones: token aleatorio en cookie HTTP-only; en PostgreSQL solo se guarda su hash. La cookie usa Secure en producción. No se entrega contraseña, token ni evidencia privada en las proyecciones públicas.
 
-La verificación telefónica y de correo admite cinco solicitudes por hora por usuario y tipo, un minuto entre solicitudes y cinco intentos por código. El envío no se reintenta automáticamente ante un timeout. Consumir el código y marcar el destino verificado se hace en una transacción, comprobando que el teléfono/correo siga vigente; solicitudes repetidas de un destino ya verificado no generan nuevos envíos. Solo `approved` de Twilio valida el teléfono; un modo de demostración no sustituye esa aprobación en producción.
+La participación exige correoVerificado. Google acredita el correo actual mediante firma pública y autenticación reciente ligada al desafío de diez minutos. Se admiten cinco solicitudes por hora, un minuto entre solicitudes y cinco intentos. La comprobación y consumo se realizan en una transacción, con protección frente a cambio de correo, bloqueo y reutilización del evento. El teléfono no se verifica ni afecta permisos. Las cuentas demo verificadas requieren un script explícito del propietario; no se incluyen credenciales predeterminadas en el seed.
 
-Los roles son `USUARIO`, `AGENTE` y `ADMIN`. Los agentes requieren permisos individuales: `revisar`, `resolver`, `reabrir` y `evidencia`, además del distrito correspondiente. Los colaboradores autorizados abarcan la provincia. Los administradores administran también usuarios, catálogo, reglas, negocios y premios.
+Los roles son `USUARIO`, `AGENTE` y `ADMIN`. Los agentes requieren permisos individuales: `revisar`, `resolver`, `reabrir` y `evidencia`, además del distrito correspondiente. Los colaboradores autorizados abarcan la provincia. Los administradores gestionan usuarios, catálogo, reglas, negocios y premios desde la aplicación de escritorio. El backend sigue autorizando cada endpoint por rol y ámbito.
 
 Las cuentas bloqueadas conservan únicamente el acceso necesario para consultar sus reportes y solicitar revisión. El bloqueo no impide una apelación.
 
@@ -108,7 +107,7 @@ Una fotografía pública o prueba privada vinculada a un reporte validado habili
 
 `npm run check` revisa sintaxis de fuente, scripts y tests.
 
-`npm run integrations:check` y el panel **Administración → Integraciones** comprueban presencia/formato de variables, sin llamadas externas ni valores secretos. No prueban conectividad, saldo, habilitación de WhatsApp, dominio remitente ni bucket. `npm run integrations:check -- --strict` falla cuando alguna configuración de proveedor está pendiente o es inválida. `/api/health` confirma el proceso y `/api/ready` comprueba PostgreSQL, no los proveedores externos.
+`npm run integrations:check` y el panel **Administración → Integraciones** en la aplicación de escritorio comprueban presencia/formato de variables, sin llamadas externas ni valores secretos. No prueban conectividad, saldo, Google habilitado, dominio remitente ni bucket. `npm run integrations:check -- --strict` falla cuando alguna configuración de proveedor está pendiente o es inválida. `/api/health` confirma el proceso y `/api/ready` comprueba PostgreSQL, no los proveedores externos.
 
 `npm test` ejecuta pruebas unitarias. Las pruebas HTTP se omiten cuando no existe TEST_DATABASE_URL; eso se informa como omitido, nunca como verificado.
 

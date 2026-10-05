@@ -6,7 +6,6 @@ export interface Usuario {
     apellidos?: string;
     correo: string;
     telefono: string;
-    telefonoVerificado: boolean;
     correoVerificado: boolean;
     rol: string;
     premium: boolean;

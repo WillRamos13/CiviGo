@@ -9,10 +9,8 @@ El stack del proyecto es **frontend Next.js en Vercel, API Express en Railway, P
 | Supabase PostgreSQL | Usuarios, sesiones, catálogo, reportes, incidentes y reglas mediante Prisma. | Railway: `DATABASE_URL`. | Conexión PostgreSQL válida y migraciones aplicadas. |
 | Supabase Storage | Fotos, videos, pruebas e identidad con descargas autorizadas por la API. | Railway: `STORAGE_PROVIDER`, `SUPABASE_URL`, clave privada y nombre del bucket. | Bucket privado existente y credencial privada del backend. |
 | OpenAI Responses | Chatbot y evaluación inicial del texto de reportes, con modelos separados. | Railway: `OPENAI_API_KEY`, opcionalmente `AI_REPORT_MODEL`, `AI_CHAT_MODEL` y `AI_TIMEOUT_MS`. | Cuenta de API, clave, acceso a los modelos y facturación/cuota disponibles. |
-| WhatsApp manual | Prueba del teléfono mediante mensaje del usuario y aprobación del administrador. | Railway: `PHONE_VERIFICATION_PROVIDER=whatsapp-manual`, `WHATSAPP_VERIFICATION_NUMBER`. | Número receptor y revisión humana. No usa API de pago. [Guía](verificacion-contactos.md). |
 | Google / Firebase Authentication | Verificar el correo con una cuenta Google coincidente; conserva las sesiones de CiviGo. | Railway: `FIREBASE_PROJECT_ID`. Vercel: las cuatro variables `NEXT_PUBLIC_FIREBASE_*`. | Habilitar Google y los dominios autorizados. [Guía paso a paso](verificacion-contactos.md). |
-| Twilio Verify | Código de verificación por SMS o WhatsApp. | Railway: `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_VERIFY_SERVICE_SID`. | Cuenta y servicio Verify; configurar los canales en Twilio. WhatsApp necesita remitente propio. |
-| Resend | Verificación del correo y recordatorio de pruebas. | Railway: `RESEND_API_KEY`, `EMAIL_FROM`. | Cuenta, dominio remitente verificado y registros DNS correspondientes. |
+| Resend | Recordatorios de pruebas; no verifica cuentas. | Railway: `RESEND_API_KEY`, `EMAIL_FROM`. | Cuenta, dominio remitente verificado y registros DNS correspondientes. |
 | Mapbox | Mapa base y representación visual de calles, reportes y recorridos. | Vercel: `NEXT_PUBLIC_MAPBOX_TOKEN`. | Token público `pk.` con permisos del mapa y restricciones de URL compatibles. |
 | OpenStreetMap | Red vial y búsquedas de direcciones locales; cálculo de recorridos en el backend. | Archivo `backend/data/ica-roads.json`. | Datos vigentes de cobertura. No necesita clave de Directions ni llamadas a una API de tráfico en vivo. |
 | Geolocalización del navegador | Posición y seguimiento durante el recorrido. | Permiso del usuario en su navegador. | HTTPS en el sitio público y permiso de ubicación. No usa una clave de API. |
@@ -35,7 +33,7 @@ En el proyecto del frontend, abrir **Settings → Environment Variables**. Selec
 
 La raíz del proyecto debe ser `frontend`; Vercel detecta Next.js y ejecuta `npm run build`. La reescritura definida en `frontend/next.config.ts` envía `/api/:path*` a `BACKEND_URL/api/:path*`. La URL del backend y el token público se incorporan al construir la web: aplicar cambios exige un nuevo despliegue del frontend. [Reescrituras externas de Vercel](https://vercel.com/docs/routing/rewrites).
 
-Las claves de OpenAI, Twilio, Resend, PostgreSQL y Supabase Storage pertenecen a Railway. Nunca deben ser `NEXT_PUBLIC_*`, aparecer en Git ni pegarse en capturas o mensajes.
+Las claves de OpenAI, Resend, PostgreSQL y Supabase Storage pertenecen a Railway. Nunca deben ser `NEXT_PUBLIC_*`, aparecer en Git ni pegarse en capturas o mensajes.
 
 ## Variables de Railway
 
@@ -53,12 +51,7 @@ En el servicio del backend, abrir **Variables** y agregar los nombres y valores 
 | `AI_MODEL` | Alternativa compatible para ambos servicios cuando falta su variable específica. Si ya tiene `gpt-4.1-mini`, definir `AI_REPORT_MODEL=gpt-6.1-sol` para actualizar la evaluación. |
 | `AI_REPORT_MAX_OUTPUT_TOKENS` | Opcional para reportes con Sol; `4096` por defecto, entero entre 1024 y 16384. Incluye razonamiento y respuesta. |
 | `AI_TIMEOUT_MS` | Opcional; por defecto 30000 con Sol y 15000 con otros modelos. Admite entre 1000 y 30000 milisegundos. |
-| `PHONE_VERIFICATION_PROVIDER` | `whatsapp-manual` para la etapa actual. `twilio` mantiene la verificación automática existente. |
-| `WHATSAPP_VERIFICATION_NUMBER` | Número receptor de la atención de CiviGo en formato internacional. Se usa para el enlace de WhatsApp; no es una credencial. |
 | `FIREBASE_PROJECT_ID` | Proyecto de Firebase cuyo proveedor Google verifica el correo. Debe coincidir con la app Web de Vercel. |
-| `TWILIO_ACCOUNT_SID` | Account SID de la cuenta; formato `AC` seguido de 32 caracteres hexadecimales. |
-| `TWILIO_AUTH_TOKEN` | Auth Token privado de esa cuenta. |
-| `TWILIO_VERIFY_SERVICE_SID` | SID del servicio Verify; formato `VA` seguido de 32 caracteres hexadecimales. |
 | `RESEND_API_KEY` | Clave privada de Resend con permiso de envío. |
 | `EMAIL_FROM` | Remitente del dominio verificado, por ejemplo `CiviGo <notificaciones@correo.civigo.online>`. Es una dirección propuesta, no una cuenta creada por el código. |
 | `STORAGE_PROVIDER` | `supabase` para archivos en la nube; `local` es el valor por defecto y necesita persistencia propia. |
@@ -67,7 +60,6 @@ En el servicio del backend, abrir **Variables** y agregar los nombres y valores 
 | `SUPABASE_STORAGE_BUCKET` | Nombre del bucket privado existente; por defecto `civigo-attachments`. |
 | `UPLOAD_DIR` | Opcional. Directorio temporal de recepción; en modo local debe estar en un volumen persistente. |
 | `ENABLE_JOBS` | Dejar sin definir o usar `true` en una única instancia que procese plazos. `false` desactiva ese trabajo periódico. |
-| `DEMO_VERIFICATION` | Dejar sin definir o `false`. `true` se rechaza en producción. |
 
 `AI_API_KEY` sigue siendo un alias de compatibilidad; se prefiere `OPENAI_API_KEY`, que tiene prioridad. `AI_BASE_URL` no es necesario: el adaptador usa el endpoint oficial Responses. Si existe con el antiguo endpoint oficial Chat Completions, se acepta por compatibilidad y se usa Responses; otros hosts se rechazan para evitar enviar la clave a un destino incorrecto.
 
@@ -91,25 +83,20 @@ Un timeout, límite o respuesta inválida devuelve la evaluación a los flujos e
 
 Antes de llamar al evaluador se reservan como máximo tres solicitudes por minuto y usuario, incluso si llegan simultáneamente. Esa reserva funciona por proceso; se mantiene también el límite de reportes recientes en PostgreSQL. No sustituye la revisión del consumo y saldo de la cuenta de OpenAI.
 
-## Activar SMS y WhatsApp con Twilio
+## Verificar únicamente Gmail con Google
 
-**Modalidad elegida para esta etapa: WhatsApp manual para teléfono y Google para correo.** Seguir [la guía de verificación de contactos](verificacion-contactos.md). Twilio se conserva para instalaciones existentes y futuras automatizaciones; no hace falta contratarlo para el flujo manual. Google verifica el correo y no sustituye la aprobación del teléfono.
+**Decisión vigente: sólo Gmail verificado habilita la participación.** Se retiraron la verificación telefónica, sus endpoints, adaptadores y panel de aprobación. Seguir [la guía de Gmail](verificacion-contactos.md): habilitar Google en Firebase, autorizar dominios, definir `FIREBASE_PROJECT_ID` en Railway y las cuatro variables públicas de la aplicación Web en Vercel.
 
-1. Crear la cuenta y un **Verify Service**. Guardar sus tres variables privadas en Railway y seleccionar `PHONE_VERIFICATION_PROVIDER=twilio`. Si se mantiene `whatsapp-manual`, las credenciales no cambian la modalidad elegida.
-2. Permitir SMS al destino Perú en **Verify → Settings → Geo permissions** y revisar las protecciones de fraude del servicio. En cuentas de prueba, Twilio exige verificar previamente los números destinatarios habilitados para pruebas. [Verify](https://www.twilio.com/docs/verify/api/verification), [Geo Permissions](https://www.twilio.com/docs/verify/preventing-toll-fraud/verify-geo-permissions).
-3. Para WhatsApp, configurar un remitente propio asociado a una WhatsApp Business Account y habilitarlo para Verify. Las tres variables no completan esa alta por sí solas. No hay cambio automático de WhatsApp a SMS en CiviGo. [Verify WhatsApp](https://www.twilio.com/docs/verify/whatsapp).
-4. Solicitar un código desde el perfil y confirmar que llega al número previsto. Solo la aprobación de Twilio marca el teléfono como verificado.
-
-El código limita solicitudes a cinco por hora por usuario y tipo, espera un minuto entre solicitudes y permite cinco intentos por código. No reintenta un envío automáticamente tras un timeout: podría haber sido enviado ya. Los códigos vencidos, los límites y los canales sin habilitar se distinguen de un fallo general del proveedor. Un teléfono ya verificado no vuelve a generar un envío al repetir la solicitud.
+Las variables anteriores de teléfono/Twilio ya no se utilizan. La autenticación de Google no cambia la sesión de CiviGo. La administración se realiza desde [la aplicación de escritorio](../desktop/README.md), sin panel ADMIN en el frontend público.
 
 ## Activar correo con Resend
 
 1. Crear la cuenta y añadir un dominio remitente. Puede usarse el subdominio `correo.civigo.online` para separar correo transaccional de la web.
 2. En GoDaddy, añadir exactamente los registros DNS que muestre Resend y esperar su verificación. No sustituir los registros A/CNAME usados por la web ni registros de correo existentes sin evaluar su función. [Dominios verificados de Resend](https://resend.com/docs/dashboard/domains/introduction).
 3. Crear la clave de envío y configurar `RESEND_API_KEY` y `EMAIL_FROM` en Railway.
-4. Solicitar verificación de correo desde el perfil, comprobar recepción y usar el código dentro de diez minutos. Comprobar también los recordatorios de pruebas con datos de prueba.
+4. Comprobar los recordatorios de pruebas con datos de prueba. La verificación de cuentas usa Google, sin códigos enviados por Resend.
 
-Un correo se considera aceptado por el proveedor solo si Resend devuelve un identificador válido; la entrega a la bandeja debe verificarse aparte. Los envíos llevan claves idempotentes vinculadas a la verificación o al reporte, conservadas por Resend durante 24 horas; no sustituyen el marcado persistente de los recordatorios en PostgreSQL. No hay reintentos automáticos en el adaptador. [Envío](https://resend.com/docs/api-reference/emails/send-email), [idempotencia](https://resend.com/docs/dashboard/emails/idempotency-keys).
+Un correo se considera aceptado por el proveedor solo si Resend devuelve un identificador válido; la entrega a la bandeja debe verificarse aparte. Los recordatorios llevan claves idempotentes vinculadas al reporte, conservadas por Resend durante 24 horas; no sustituyen su marcado persistente en PostgreSQL. No hay reintentos automáticos en el adaptador. [Envío](https://resend.com/docs/api-reference/emails/send-email), [idempotencia](https://resend.com/docs/dashboard/emails/idempotency-keys).
 
 ## Activar archivos privados en Supabase Storage
 
@@ -133,7 +120,7 @@ npm run integrations:check -- --strict
 
 El primer comando informa los requisitos sin hacer llamadas externas ni imprimir valores privados. `--strict` devuelve un código de salida distinto de cero si alguna configuración de proveedor está pendiente o es inválida. El modo local de archivos puede aparecer configurado aunque no se haya comprobado su persistencia en Railway.
 
-En **Administración → Integraciones**, solo los administradores pueden consultar el mismo diagnóstico mediante `/api/admin/integrations`. Muestra nombres de variables y estado de presencia/formato; no prueba conexión, saldo, permiso real, WhatsApp habilitado, remitente verificado ni existencia/privacidad del bucket. `GET /api/health` confirma el proceso; `GET /api/ready` comprueba PostgreSQL, no los proveedores de pago.
+En **Administración → Integraciones** de la aplicación de escritorio, solo los administradores pueden consultar el mismo diagnóstico mediante `/api/admin/integrations`. Muestra nombres de variables y estado de presencia/formato; no prueba conexión, saldo, permiso real de Google, remitente verificado ni existencia/privacidad del bucket. `GET /api/health` confirma el proceso; `GET /api/ready` comprueba PostgreSQL, no los proveedores de pago.
 
 ### Si el chatbot muestra la guía porque la IA no está disponible
 
@@ -167,8 +154,9 @@ Antes de considerar activados los servicios, comprobar en el entorno previsto:
 - Registro, sesión, rutas y visualización del mapa desde el dominio final.
 - Chatbot con continuidad de conversación, modo IA real y fallback visible si el proveedor falla.
 - Evaluación de un reporte de prueba y prioridad posterior de la revisión humana.
-- SMS y WhatsApp recibidos, códigos erróneos/vencidos y límites sin reenvíos inesperados.
-- Correo recibido y un código que verifique únicamente la dirección vigente.
+- Google acredita únicamente el Gmail vigente; un correo sin verificar no permite participar, independientemente del teléfono.
+- Ventana de Google bloqueada, cuenta diferente, desafío vencido, firma inválida y límites sin llamadas inesperadas.
+- Login ADMIN y gestión desde la aplicación de escritorio; `/admin` ya no ofrece un panel en la web pública.
 - Adjuntos persistentes, límites de video/tamaño y permisos sobre pruebas privadas e identidad.
 - Reinicio del backend sin pérdida de datos o archivos, y recordatorios/plazos procesados por una única instancia.
 

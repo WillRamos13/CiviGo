@@ -45,7 +45,7 @@ async function seedDemo() {
         correo,
         telefono: "+5190000000" + roles.findIndex((r) => r[0] === nickname),
         password: await hashPassword(credential),
-        telefonoVerificado: true,
+        telefonoVerificado: false,
         correoVerificado: true,
         rol,
         reputacion: null,

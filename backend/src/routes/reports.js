@@ -1,6 +1,6 @@
 const express = require("express");
 const prisma = require("../lib/db");
-const { auth, requirePhone } = require("../lib/auth");
+const { auth, requireEmail } = require("../lib/auth");
 const {
   asyncRoute,
   HttpError,
@@ -15,6 +15,7 @@ const { config, DISTRICTS } = require("../lib/catalog");
 const { evaluateReport } = require("../lib/providers");
 const { counter } = require("../lib/security");
 const { report, incident } = require("../lib/projections");
+const { verifiedVoteInclude } = require("../lib/publication");
 const {
   transaction,
   alertAgents,
@@ -27,7 +28,10 @@ const includes = {
   adjuntos: true,
   usuario: true,
   incidente: {
-    include: { tipoCatalogo: { include: { categoria: true } }, votos: true },
+    include: {
+      tipoCatalogo: { include: { categoria: true } },
+      votos: verifiedVoteInclude(),
+    },
   },
 };
 router.get(
@@ -65,7 +69,7 @@ router.get(
 router.post(
   "/",
   auth,
-  requirePhone,
+  requireEmail,
   asyncRoute(async (req, res) => {
     const b = req.body;
     const p = coordinates(b.latitud, b.longitud);
@@ -208,6 +212,20 @@ router.post(
       }
     }
     const result = await transaction(async (db) => {
+      // La evaluación puede tardar: no usemos la autorización anterior a la IA.
+      const actor = await db.user.findUnique({ where: { id: req.user.id } });
+      if (!actor || actor.bloqueado)
+        throw new HttpError(
+          403,
+          "Tu cuenta no puede publicar reportes en este momento.",
+          "ACCOUNT_BLOCKED",
+        );
+      if (!actor.correoVerificado)
+        throw new HttpError(
+          403,
+          "Verifica tu correo con Google para participar.",
+          "EMAIL_REQUIRED",
+        );
       const cutoff = new Date(Date.now() - rules.agrupacionHoras * 3600000);
       let nearby = [];
       if (!type.individual)
@@ -271,7 +289,7 @@ router.post(
         }
         current = await db.incident.update({ where: { id: current.id }, data });
       }
-      const created = await db.report.create({
+      let created = await db.report.create({
         data: {
           usuarioId: req.user.id,
           tipo: type.nombre,
@@ -321,22 +339,33 @@ router.post(
           });
         if (current.evaluacion !== "AGENTE") {
           const votes = await db.vote.count({
-            where: { incidenteId: current.id, tipo: "CONFIRMAR" },
+            where: {
+              incidenteId: current.id,
+              tipo: "CONFIRMAR",
+              usuario: { correoVerificado: true },
+            },
           });
-          const validacion = Math.max(
-            current.validacion,
-            Math.min(1, 0.5 + (0.5 * votes) / rules.confirmaciones),
+          const validacion = Math.min(
+            1,
+            0.5 + (0.5 * votes) / rules.confirmaciones,
           );
           current = await db.incident.update({
             where: { id: current.id },
             data: {
               validacion,
-              ...(validacion === 1 && current.publicado
-                ? { estado: "VALIDADO" }
-                : {}),
+              estado: current.publicado
+                ? validacion === 1
+                  ? "VALIDADO"
+                  : "ACTIVO"
+                : "PENDIENTE",
             },
           });
         }
+        if (created.estado === "VALIDADO" && current.estado !== "VALIDADO")
+          created = await db.report.update({
+            where: { id: created.id },
+            data: { estado: "PENDIENTE" },
+          });
         if (current.validacion >= 1 && current.publicado)
           await rewardValidated(db, current.id);
       }
@@ -390,7 +419,7 @@ router.post(
 router.post(
   "/:id/evidence",
   auth,
-  requirePhone,
+  requireEmail,
   asyncRoute(async (req, res) => {
     const r = await prisma.report.findFirst({
       where: { id: id(req.params.id), usuarioId: req.user.id },

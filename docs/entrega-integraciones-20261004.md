@@ -2,7 +2,7 @@
 
 ## Actualización de contactos
 
-La decisión posterior del propietario es **WhatsApp manual para verificar el teléfono y Google para verificar el correo**. Estos flujos ya están implementados; su entrega y validación final se detallan en [Verificación de contactos](entrega-verificacion-contactos-20261004.md) y su configuración en [Activación](verificacion-contactos.md). Twilio y Resend se conservan como alternativas; no son requisitos para la modalidad elegida. Se añadieron el SDK oficial de Firebase en el frontend y JOSE en el backend para verificar firmas públicas. Los apartados inferiores documentan las fases anteriores y sus resultados en ese momento.
+La decisión vigente del propietario es **verificar únicamente Gmail con Google y administrar desde una aplicación de escritorio**. Se retiraron los flujos de verificación telefónica y OTP por correo. Ver [entrega vigente](entrega-gmail-escritorio-20261004.md) y [configuración](verificacion-contactos.md). Se mantienen Firebase en el frontend y JOSE en el backend para comprobar firmas públicas; Resend sólo envía recordatorios. Los apartados inferiores documentan las fases anteriores y sus resultados en ese momento.
 
 ## Resultado
 

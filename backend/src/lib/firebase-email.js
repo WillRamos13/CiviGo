@@ -22,6 +22,12 @@ const unavailable = () =>
     "No se pudo comprobar la verificación del correo. Inténtalo nuevamente.",
     "EMAIL_GOOGLE_UNAVAILABLE",
   );
+const emailMismatch = () =>
+  new HttpError(
+    400,
+    "Usa la cuenta de Gmail verificada que coincide con el correo de esta solicitud.",
+    "EMAIL_GOOGLE_EMAIL_MISMATCH",
+  );
 
 function normalizedProjectId(value) {
   const projectId = typeof value === "string" ? value.trim() : "";
@@ -84,6 +90,7 @@ function createFirebaseEmailVerifier({
       )
     )
       throw invalid();
+    if (!currentEmail.endsWith("@gmail.com")) throw emailMismatch();
     const createdTime = new Date(creadoEn).getTime();
     const currentDate = new Date(now());
     if (!Number.isFinite(createdTime) || createdTime <= 0) throw invalid();
@@ -168,13 +175,10 @@ function createFirebaseEmailVerifier({
       payload.firebase?.sign_in_provider !== "google.com" ||
       payload.email_verified !== true ||
       !normalizedEmail(payload.email) ||
+      !normalizedEmail(payload.email).endsWith("@gmail.com") ||
       normalizedEmail(payload.email) !== currentEmail
     )
-      throw new HttpError(
-        400,
-        "La cuenta de Google no corresponde al correo verificado de esta solicitud.",
-        "EMAIL_GOOGLE_EMAIL_MISMATCH",
-      );
+      throw emailMismatch();
 
     // Refreshing an ID token preserves auth_time. Consume this event hash in
     // the application transaction, so a refreshed token cannot be used again.

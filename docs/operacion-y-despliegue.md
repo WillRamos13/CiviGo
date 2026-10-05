@@ -34,9 +34,9 @@ Antes de abrir conexiones Prisma, el lanzador espera el puerto local y genera el
 
 El ayudante incluye un adaptador compatible con `pglite-socket` 0.2.11 que corrige bloqueos de cola y desconexiones del protocolo. Conserva una sola conexión; detener la API antes de conectar Prisma CLI u otra herramienta a esa base. No aumentar sus conexiones para simular un PostgreSQL de producción.
 
-El modo local permite códigos de verificación de demostración, claramente identificados. Para preparar tres cuentas locales (`admin@demo.civigo.local`, `agente@demo.civigo.local`, `ciudadano@demo.civigo.local`) elegir una contraseña local mediante `DEMO_PASSWORD` y ejecutar el lanzador con `--local --demo`. No se imprime la contraseña ni se sustituyen credenciales de cuentas existentes. Sin una contraseña explícita, la semilla genera una que no se imprime.
+Para preparar tres cuentas locales ya verificadas (`admin@demo.civigo.local`, `agente@demo.civigo.local`, `ciudadano@demo.civigo.local`) elegir una contraseña local mediante `DEMO_PASSWORD` y ejecutar el lanzador con `--local --demo`. Son identidades de demostración, no una comprobación real de Google. No se imprime la contraseña ni se sustituyen credenciales de cuentas existentes. Sin una contraseña explícita, la semilla genera una que no se imprime.
 
-En producción `DEMO_VERIFICATION=true` provoca un error de inicio. Premium, publicidad y canjes son demostraciones y no realizan cobros.
+Los códigos de demostración y `DEMO_VERIFICATION` se retiraron junto con la verificación telefónica. Premium, publicidad y canjes son demostraciones y no realizan cobros.
 
 ## Validaciones
 
@@ -62,14 +62,14 @@ El registro público crea únicamente usuarios ciudadanos. La promoción a agent
 
 ## Servicios pendientes de configuración
 
-- SMS/WhatsApp: adaptador Twilio Verify, variables `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_VERIFY_SERVICE_SID`. La cuenta/servicio se configura en Twilio; WhatsApp requiere remitente propio asociado a WABA, además de las variables.
-- Correo: adaptador Resend, `RESEND_API_KEY` y `EMAIL_FROM`, con dominio o subdominio remitente verificado por DNS.
+- Verificación Gmail: habilitar Google en Firebase Authentication, configurar `FIREBASE_PROJECT_ID` en Railway y las cuatro variables públicas Web de Firebase en Vercel. El teléfono ya no se verifica ni habilita participación. [Guía de Gmail](verificacion-contactos.md).
+- Recordatorios por correo: Resend, `RESEND_API_KEY` y `EMAIL_FROM`, con dominio o subdominio remitente verificado por DNS; no verifica cuentas.
 - IA: `OPENAI_API_KEY` (alias compatible `AI_API_KEY`), `AI_REPORT_MODEL` (`gpt-6.1-sol` por defecto), `AI_CHAT_MODEL` (`gpt-4.1-mini` por defecto) y `AI_TIMEOUT_MS`. `AI_MODEL` se conserva como alternativa para ambos cuando falta la variable específica. Sol usa esfuerzo de razonamiento bajo y 4096 tokens totales inicialmente, ajustables para reportes mediante `AI_REPORT_MAX_OUTPUT_TOKENS`. Se usa OpenAI Responses con `store: false`; esto no acredita Zero Data Retention. La evaluación actual solo recibe texto, tipo y fechas, sin adjuntos. Una emergencia sin evaluación aparece «por evaluar»; otros reportes esperan revisión. El asistente distingue una respuesta de IA de la guía local cuando falta o falla el proveedor.
 - Archivos: `STORAGE_PROVIDER=supabase`, `SUPABASE_URL`, `SUPABASE_SECRET_KEY` (o la alternativa `SUPABASE_SERVICE_ROLE_KEY`) y un bucket privado existente indicado en `SUPABASE_STORAGE_BUCKET`.
 - Mapbox: token público limitado a los dominios permitidos para el mapa base. Las rutas se calculan con calles de OpenStreetMap; no requieren un servicio de Directions ni prometen tráfico en vivo.
 - DATACRIM: todavía no hay una fuente concreta entregada. Los administradores pueden revisar e importar CSV/JSON de hechos históricos con coordenadas verificables.
 
-Consultar **Administración → Integraciones** o ejecutar `npm run integrations:check` en backend para revisar presencia/formato de configuración sin exponer valores. No prueba conexión, cuota/saldo, habilitación de canales, remitente ni bucket. `--strict` devuelve salida de error si algún proveedor está pendiente o es inválido. Las pruebas simuladas no acreditan SMS, correos o llamadas de IA reales.
+Consultar **Administración → Integraciones** en la aplicación de escritorio o ejecutar `npm run integrations:check` en backend para revisar presencia/formato de configuración sin exponer valores. No prueba conexión, cuota/saldo, Google habilitado, remitente ni bucket. `--strict` devuelve salida de error si algún proveedor está pendiente o es inválido. Las pruebas simuladas no acreditan OAuth, correos o llamadas de IA reales.
 
 ## Calles, cobertura y archivos
 
@@ -95,11 +95,11 @@ Estos pasos corresponden al stack público acordado. Son instrucciones para el p
 
 1. En Supabase, obtener la conexión PostgreSQL compatible con Prisma y comprobar que corresponde a la base prevista. Para Storage, preparar previamente un bucket privado y su clave de backend; el código no crea ni publica el bucket. Ver [configuración de Prisma en Supabase](https://supabase.com/docs/guides/database/prisma) y [la guía de integraciones](integraciones.md).
 2. En Railway, conectar el repositorio y elegir raíz `/backend`. Configurar build `npm run db:generate`, **Pre-deploy Command** `npm run db:migrate && npm run db:seed`, **Start Command** `npm start` (también es válido `node src/server.js`) y healthcheck `/api/ready`. Comprobar que los valores coincidan con `backend/railway.json` si está aplicado a ese servicio. El servidor no va en predeploy, y generar Prisma no aplica migraciones. [Pre-deploy de Railway](https://docs.railway.com/deployments/pre-deploy-command).
-3. En Variables de Railway, establecer `DATABASE_URL`, `NODE_ENV=production`, `FRONTEND_URL=https://civigo.online,https://www.civigo.online,https://civigo-rho.vercel.app` y las variables de proveedores que se habiliten. Mantener `DEMO_VERIFICATION` desactivado. Obtener el dominio público HTTPS del backend y confirmar `/api/ready` después de aplicar la configuración.
+3. En Variables de Railway, establecer `DATABASE_URL`, `NODE_ENV=production`, `FRONTEND_URL=https://civigo.online,https://www.civigo.online,https://civigo-rho.vercel.app` y las variables de proveedores que se habiliten. Obtener el dominio público HTTPS del backend y confirmar `/api/ready` después de aplicar la configuración.
 4. En Vercel, conectar el mismo repositorio y elegir raíz `frontend` con Next.js y build `npm run build`. Configurar `BACKEND_URL=https://civigo-production.up.railway.app` o el origen real de Railway, sin `/api`, y `NEXT_PUBLIC_MAPBOX_TOKEN` con el token público del propietario. Usar `/api` como URL del cliente por defecto; las claves privadas no van en Vercel ni en `NEXT_PUBLIC_*`. Aplicar un nuevo despliegue cuando cambien las variables de compilación.
 5. En Vercel Domains, agregar `civigo.online` y, si se usará, `www.civigo.online`. Elegir el dominio principal y una redirección para el otro. En GoDaddy, editar los registros exactos A/CNAME que muestre Vercel, esperar validación DNS y HTTPS. Añadir los dominios a las restricciones del token Mapbox. Mantener `FRONTEND_URL` alineado con los orígenes autorizados; las previsualizaciones también requieren su origen específico si usarán la API. [Dominios en Vercel](https://vercel.com/docs/domains/working-with-domains/add-a-domain).
 6. Para el primer administrador, registrar una cuenta propia y ejecutar `npm run db:bootstrap` en el entorno del backend con `ADMIN_EMAIL` definido. El script conserva credenciales y solo prepara el administrador inicial cuando no existe uno activo. No se incorpora una contraseña administrativa al repositorio.
-7. Completar las altas de OpenAI, Twilio y Resend en sus paneles y aplicar las variables privadas a Railway siguiendo [Integraciones](integraciones.md). Comprobar registro, sesión, rutas, permisos administrativos, revisión, SMS/WhatsApp recibidos, correo y persistencia de archivos. Probar tanto archivos superiores a 4,5 MB como cercanos a 15 MiB por el dominio final, además de rechazos y permisos de descarga. La presencia de variables no acredita esas pruebas.
+7. Configurar OpenAI, Firebase/Google y Resend para recordatorios siguiendo [Integraciones](integraciones.md). Comprobar registro, sesión, Gmail verificado, rutas, permisos, revisión y persistencia de archivos. La administración se abre desde [la aplicación de escritorio Windows](../desktop/README.md), no desde `/admin` en la web. Probar archivos superiores a 4,5 MB y cercanos a 15 MiB por el dominio final, además de rechazos y permisos de descarga. La presencia de variables no acredita esas pruebas.
 
 ### Herramientas Docker opcionales
 

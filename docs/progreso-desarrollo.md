@@ -2,6 +2,10 @@
 
 Inicio: 1 de octubre de 2026, America/Lima.
 
+## Decisión vigente del 4 de octubre
+
+La verificación telefónica y el panel ADMIN web descritos en etapas anteriores se reemplazan por Gmail/Google y la aplicación de administración Windows. El teléfono queda como contacto privado; correo verificado habilita participación y elegibilidad de publicación. Los agentes conservan `/agente`. La [entrega vigente](entrega-gmail-escritorio-20261004.md) detalla cambios, pruebas, dos cuentas de demostración solicitadas y configuración externa pendiente; los apartados siguientes conservan el historial del trabajo.
+
 ## Alcance y límites
 
 Implementar y verificar los requisitos de `especificacion-funcional.md` respetando los cambios que ya existían. No desplegar, cambiar infraestructura externa, publicar ni modificar credenciales. Configurar integraciones mediante variables documentadas y declarar la falta de proveedor cuando corresponda.

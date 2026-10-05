@@ -44,7 +44,8 @@ test(
           telefono: "+519" + crypto.randomInt(10000000, 99999999),
           password: await hashPassword(password),
           rol: "ADMIN",
-          telefonoVerificado: true,
+          telefonoVerificado: false,
+          correoVerificado: true,
         },
       });
       usuarioId = user.id;

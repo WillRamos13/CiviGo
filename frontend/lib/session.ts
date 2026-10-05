@@ -6,6 +6,9 @@ export interface BrowserStorage {
 }
 export interface SessionState { usuario: Usuario | null; loading: boolean; offline: boolean; }
 export const INITIAL_SESSION: SessionState = { usuario: null, loading: true, offline: false };
+export function canParticipate(usuario: Pick<Usuario, 'correoVerificado' | 'bloqueado'> | null | undefined) {
+    return usuario?.correoVerificado === true && usuario.bloqueado !== true;
+}
 type Dependencies = {
     storage: BrowserStorage;
     loadUser: (signal: AbortSignal) => Promise<Usuario>;
@@ -33,7 +36,7 @@ export class SessionController {
         try {
             const hint = JSON.parse(this.dependencies.storage.getItem('civigo:offline-account') || 'null');
             if (!hint || !Number.isInteger(hint.id) || hint.id <= 0 || typeof hint.nickname !== 'string' || !hint.nickname.trim()) return null;
-            return { id: hint.id, nickname: hint.nickname.slice(0, 30), premium: hint.premium === true, ocultarAnuncios: hint.ocultarAnuncios === true, rol: 'USUARIO', telefono: '', correo: '', telefonoVerificado: false, correoVerificado: false, credibilidad: null, monedas: 0 };
+            return { id: hint.id, nickname: hint.nickname.slice(0, 30), premium: hint.premium === true, ocultarAnuncios: hint.ocultarAnuncios === true, rol: 'USUARIO', telefono: '', correo: '', correoVerificado: false, credibilidad: null, monedas: 0 };
         } catch { return null; }
     }
     private flushLogout() {

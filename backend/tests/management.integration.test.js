@@ -19,7 +19,7 @@ if (connection) {
   url.searchParams.set("statement_cache_size", "0");
   process.env.DATABASE_URL = url.toString();
   process.env.NODE_ENV = "test";
-  process.env.DEMO_VERIFICATION = "true";
+
   process.env.ENABLE_JOBS = "false";
 }
 
@@ -76,13 +76,14 @@ test(
           nombres: "Ensayo local",
           apellidos: "Administración",
           nickname: `mgmt_${run}_${++counter}`,
-          correo: `mgmt_${run}_${label}@tests.civigo.local`,
+          correo: `mgmt_${run}_${label}@gmail.com`,
           telefono: phone,
           fechaNacimiento: "2000-01-01",
           password,
           rol: "ADMIN",
           premium: true,
           telefonoVerificado: true,
+          correoVerificado: true,
         },
       });
       assert.equal(result.status, 201, JSON.stringify(result.json));
@@ -92,7 +93,8 @@ test(
         "El registro no debe aceptar privilegios enviados por el cliente.",
       );
       assert.equal(result.json.usuario.premium, false);
-      assert.equal(result.json.usuario.telefonoVerificado, false);
+      assert.equal("telefonoVerificado" in result.json.usuario, false);
+      assert.equal(result.json.usuario.correoVerificado, false);
       const value = {
         id: result.json.usuario.id,
         cookie: result.cookie,
@@ -101,24 +103,11 @@ test(
       userIds.push(value.id);
       return value;
     }
-    async function verifyPhone(user) {
-      const challenge = await request("/users/phone/request", {
-        cookie: user.cookie,
-        method: "POST",
-        body: {},
+    async function verifyEmail(user) {
+      await prisma.user.update({
+        where: { id: user.id },
+        data: { correoVerificado: true },
       });
-      assert.equal(challenge.status, 200);
-      assert.equal(challenge.json.modo, "demo");
-      assert.equal(
-        (
-          await request("/users/phone/verify", {
-            cookie: user.cookie,
-            method: "POST",
-            body: { codigo: challenge.json.codigoDemo },
-          })
-        ).status,
-        200,
-      );
     }
 
     try {
@@ -129,7 +118,7 @@ test(
         where: { id: admin.id },
         data: { rol: "ADMIN" },
       });
-      await verifyPhone(citizen);
+      await verifyEmail(citizen);
 
       await t.test(
         "Acceso administrativo, roles, distrito, permisos y perfiles privados",
@@ -151,7 +140,7 @@ test(
           assert.equal(integrations.json.conexionesProbadas, false);
           assert.deepEqual(
             integrations.json.proveedores.map((p) => p.id),
-            ["ia", "telefono", "correo", "almacenamiento", "correoGoogle"],
+            ["ia", "correo", "almacenamiento", "correoGoogle"],
           );
           assert.equal(integrations.json.proveedores[0].configurado, false);
           assert.equal(
@@ -843,6 +832,7 @@ test(
                   ? agent
                   : await actor(`ranking${index}`);
             ranked.push(user);
+            await verifyEmail(user);
             await prisma.pointEvent.create({
               data: {
                 usuarioId: user.id,

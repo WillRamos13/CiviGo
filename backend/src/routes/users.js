@@ -2,20 +2,10 @@ const express = require("express");
 const crypto = require("node:crypto");
 const prisma = require("../lib/db");
 const { asyncRoute, HttpError, text } = require("../lib/http");
-const {
-  auth,
-  createSession,
-  COOKIE,
-  demoEnabled,
-  hashToken,
-} = require("../lib/auth");
+const { auth, createSession, COOKIE, hashToken } = require("../lib/auth");
 const { ownUser } = require("../lib/projections");
 const { hashPassword, verifyPassword } = require("../lib/password");
 const providers = require("../lib/providers");
-const {
-  validatePhoneChannel,
-  manualPhoneConfig,
-} = require("../lib/contact-providers");
 const { firebaseEmailConfig } = require("../lib/firebase-email");
 const { transaction } = require("../lib/workflows");
 const router = express.Router();
@@ -67,13 +57,20 @@ router.post(
     const b = req.body;
     const nickname = nicknameValue(b.nickname || b.nombreUsuario);
     const password = text(b.password, "Contraseña", 128, 10);
+    const correo = email(b.correo);
+    if (!correo.endsWith("@gmail.com"))
+      throw new HttpError(
+        400,
+        "Regístrate con tu dirección de Gmail para verificarla con Google.",
+        "EMAIL_GMAIL_REQUIRED",
+      );
     const usuario = await prisma.user.create({
       data: {
         nombreUsuario: nickname,
         nombres: text(b.nombres || b.nombre, "Nombres", 100),
         apellidos: text(b.apellidos, "Apellidos", 100),
         fechaNacimiento: birthDate(b.fechaNacimiento),
-        correo: email(b.correo),
+        correo,
         telefono: phone(b.telefono),
         password: await hashPassword(password),
         reputacion: null,
@@ -151,10 +148,8 @@ router.patch(
     });
   }),
 );
-async function createVerification(user, tipo, destino, manual = false) {
-  const codigo = manual
-    ? crypto.randomBytes(12).toString("hex").toUpperCase()
-    : crypto.randomInt(100000, 1000000).toString();
+async function createVerification(user, tipo, destino) {
+  const codigo = crypto.randomBytes(32).toString("hex");
   const verification = await transaction(async (db) => {
     const recent = await db.verification.findFirst({
       where: {
@@ -166,7 +161,7 @@ async function createVerification(user, tipo, destino, manual = false) {
     if (recent)
       throw new HttpError(
         429,
-        "Espera un minuto antes de solicitar otro código.",
+        "Espera un minuto antes de solicitar otra verificación con Google.",
       );
     const hourly = await db.verification.count({
       where: {
@@ -178,7 +173,7 @@ async function createVerification(user, tipo, destino, manual = false) {
     if (hourly >= 5)
       throw new HttpError(
         429,
-        "Se alcanzó el límite de cinco códigos por hora. Inténtalo después.",
+        "Se alcanzó el límite de cinco solicitudes de verificación por hora. Inténtalo después.",
         "VERIFICATION_RATE_LIMITED",
       );
     await db.verification.updateMany({
@@ -191,11 +186,11 @@ async function createVerification(user, tipo, destino, manual = false) {
         tipo,
         destino,
         codigoHash: hashToken(codigo),
-        expiresAt: new Date(Date.now() + (manual ? 24 * 60 : 10) * 60000),
+        expiresAt: new Date(Date.now() + 10 * 60000),
       },
     });
   });
-  return { codigo, verification };
+  return { verification };
 }
 async function pendingVerification(user, tipo, destino, verificationId) {
   const v = await prisma.verification.findFirst({
@@ -210,11 +205,14 @@ async function pendingVerification(user, tipo, destino, verificationId) {
   if (!v || v.expiresAt < new Date() || v.intentos >= 5)
     throw new HttpError(
       400,
-      "Código vencido o demasiados intentos.",
+      "La solicitud de verificación venció o agotó sus intentos.",
       "VERIFICATION_EXPIRED",
     );
   if (v.destino !== destino)
-    throw new HttpError(409, "El destino cambió. Solicita un código nuevo.");
+    throw new HttpError(
+      409,
+      "El correo cambió. Prepara otra verificación con Google.",
+    );
   const result = await prisma.verification.updateMany({
     where: {
       id: v.id,
@@ -227,15 +225,9 @@ async function pendingVerification(user, tipo, destino, verificationId) {
   if (!result.count)
     throw new HttpError(
       400,
-      "Código vencido o demasiados intentos.",
+      "La solicitud de verificación venció o agotó sus intentos.",
       "VERIFICATION_EXPIRED",
     );
-  return v;
-}
-async function checkLocalCode(user, tipo, codigo, destino) {
-  const v = await pendingVerification(user, tipo, destino);
-  if (v.codigoHash !== hashToken(codigo))
-    throw new HttpError(400, "Código incorrecto.");
   return v;
 }
 async function finishVerification(
@@ -275,7 +267,8 @@ async function finishVerification(
     if (!consumed.count)
       throw new HttpError(
         409,
-        "Este código venció o ya fue utilizado. Solicita uno nuevo.",
+        "Esta solicitud venció o ya fue utilizada. Prepara otra verificación con Google.",
+        "VERIFICATION_EXPIRED",
       );
     const changed = await db.user.updateMany({
       where: { id: user.id, [field]: verification.destino, bloqueado: false },
@@ -284,86 +277,18 @@ async function finishVerification(
     if (!changed.count)
       throw new HttpError(
         409,
-        "El destino cambió durante la verificación. Solicita un código nuevo.",
+        "La cuenta cambió durante la verificación. Prepara otra verificación con Google.",
       );
   });
 }
-router.get(
-  "/phone/config",
-  auth,
-  asyncRoute(async (req, res) => {
-    const status = providers.services().telefono;
-    res.json(status);
-  }),
-);
-router.post(
-  "/phone/request",
-  auth,
-  asyncRoute(async (req, res) => {
-    const canal = validatePhoneChannel(
-      req.body.canal ||
-        (providers.services().telefono.proveedor === "whatsapp-manual"
-          ? "whatsapp"
-          : "sms"),
+function requireGmailVerification(user) {
+  if (!String(user.correo).trim().toLowerCase().endsWith("@gmail.com"))
+    throw new HttpError(
+      400,
+      "Esta cuenta debe usar Gmail para verificar el correo. Solicita al administrador revisar tu dirección; no se cambiará automáticamente.",
+      "EMAIL_GMAIL_REQUIRED",
     );
-    if (req.user.telefonoVerificado)
-      return res.json({ mensaje: "Tu teléfono ya está verificado." });
-    if (demoEnabled()) {
-      const { codigo } = await createVerification(
-        req.user,
-        "TELEFONO",
-        req.user.telefono,
-      );
-      return res.json({
-        modo: "demo",
-        codigoDemo: codigo,
-        mensaje: "Código de demostración local; no se envió SMS.",
-      });
-    }
-    if (!providers.services().telefono.configurado)
-      throw new HttpError(
-        503,
-        "Verificación telefónica no configurada. Hace falta un proveedor SMS o WhatsApp.",
-        "PHONE_PROVIDER_MISSING",
-      );
-    if (providers.services().telefono.proveedor === "whatsapp-manual") {
-      if (canal !== "whatsapp")
-        throw new HttpError(
-          400,
-          "Envía la solicitud desde tu WhatsApp para revisión manual.",
-          "PHONE_CHANNEL_INVALID",
-        );
-      const { codigo, verification } = await createVerification(
-        req.user,
-        "TELEFONO_WHATSAPP",
-        req.user.telefono,
-        true,
-      );
-      const mensaje =
-        "Quiero verificar mi teléfono en CiviGo. Código: " +
-        codigo +
-        ". Envío este mensaje desde el número registrado en mi cuenta.";
-      const whatsappUrl =
-        "https://wa.me/" +
-        manualPhoneConfig().telefono.slice(1) +
-        "?text=" +
-        encodeURIComponent(mensaje);
-      return res.json({
-        modo: "whatsapp-manual",
-        codigoManual: codigo,
-        whatsappUrl,
-        expiresAt: verification.expiresAt.toISOString(),
-        mensaje:
-          "Envía el mensaje desde tu número registrado. Un administrador revisará la solicitud; vence en 24 horas.",
-      });
-    }
-    // La fila limita solicitudes; el código enviado y su validación siguen
-    // siendo responsabilidad de Twilio Verify.
-    await createVerification(req.user, "TELEFONO", req.user.telefono);
-    await providers.requestPhone(req.user.telefono, canal);
-    res.json({ modo: "proveedor", mensaje: "Código solicitado al proveedor." });
-  }),
-);
+}
 router.post(
   "/email/google/request",
   auth,
@@ -373,6 +298,7 @@ router.post(
         usuario: ownUser(req.user),
         mensaje: "Tu correo ya está verificado.",
       });
+    requireGmailVerification(req.user);
     const config = firebaseEmailConfig();
     if (!config.configured)
       throw new HttpError(
@@ -406,6 +332,7 @@ router.post(
   asyncRoute(async (req, res) => {
     if (req.user.correoVerificado)
       return res.json({ usuario: ownUser(req.user) });
+    requireGmailVerification(req.user);
     const challenge = req.body.challengeId;
     if (
       typeof challenge !== "string" ||
@@ -435,122 +362,6 @@ router.post(
       "correo",
       "correoVerificado",
       proofHash,
-    );
-    const usuario = await prisma.user.findUnique({
-      where: { id: req.user.id },
-    });
-    res.json({ usuario: ownUser(usuario) });
-  }),
-);
-router.post(
-  "/phone/verify",
-  auth,
-  asyncRoute(async (req, res) => {
-    if (
-      !demoEnabled() &&
-      providers.services().telefono.proveedor === "whatsapp-manual"
-    )
-      throw new HttpError(
-        409,
-        "La verificación por WhatsApp debe ser aprobada por un administrador.",
-        "PHONE_PROVIDER_CHANGED",
-      );
-    const codigo = text(req.body.codigo, "Código", 10, 4);
-    if (!/^\d{4,10}$/.test(codigo))
-      throw new HttpError(400, "Código inválido.");
-    if (req.user.telefonoVerificado)
-      return res.json({ usuario: ownUser(req.user) });
-    let verification;
-    if (demoEnabled()) {
-      verification = await checkLocalCode(
-        req.user,
-        "TELEFONO",
-        codigo,
-        req.user.telefono,
-      );
-    } else {
-      verification = await pendingVerification(
-        req.user,
-        "TELEFONO",
-        req.user.telefono,
-      );
-      if (!(await providers.checkPhone(req.user.telefono, codigo)))
-        throw new HttpError(400, "Código incorrecto.");
-    }
-    await finishVerification(
-      req.user,
-      verification,
-      "telefono",
-      "telefonoVerificado",
-    );
-    const usuario = await prisma.user.findUnique({
-      where: { id: req.user.id },
-    });
-    res.json({ usuario: ownUser(usuario) });
-  }),
-);
-router.post(
-  "/email/request",
-  auth,
-  asyncRoute(async (req, res) => {
-    if (req.user.correoVerificado)
-      return res.json({ mensaje: "Tu correo ya está verificado." });
-    if (!demoEnabled() && !providers.services().correo.configurado)
-      throw new HttpError(
-        503,
-        "El proveedor de correo no está configurado.",
-        "EMAIL_PROVIDER_MISSING",
-      );
-    const { codigo, verification } = await createVerification(
-      req.user,
-      "CORREO",
-      req.user.correo,
-    );
-    if (demoEnabled())
-      return res.json({
-        modo: "demo",
-        codigoDemo: codigo,
-        mensaje: "Código local de demostración; no se envió correo.",
-      });
-    if (
-      !(await providers.sendEmail(
-        req.user.correo,
-        "Verifica tu correo en CiviGo",
-        "<p>Tu código es <strong>" +
-          codigo +
-          "</strong>. Vence en diez minutos.</p>",
-        {
-          idempotencyKey: "email-verification/" + verification.id,
-          throwOnError: true,
-        },
-      ))
-    )
-      throw new HttpError(
-        503,
-        "No pudo enviarse el correo. Inténtalo después.",
-      );
-    res.json({ mensaje: "Revisa tu correo." });
-  }),
-);
-router.post(
-  "/email/verify",
-  auth,
-  asyncRoute(async (req, res) => {
-    if (req.user.correoVerificado)
-      return res.json({ usuario: ownUser(req.user) });
-    const codigo = text(req.body.codigo, "Código", 6, 6);
-    if (!/^\d{6}$/.test(codigo)) throw new HttpError(400, "Código inválido.");
-    const verification = await checkLocalCode(
-      req.user,
-      "CORREO",
-      codigo,
-      req.user.correo,
-    );
-    await finishVerification(
-      req.user,
-      verification,
-      "correo",
-      "correoVerificado",
     );
     const usuario = await prisma.user.findUnique({
       where: { id: req.user.id },

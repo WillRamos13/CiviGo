@@ -107,10 +107,8 @@ export function RemoteStatus({
 
 export function ManagementGate({
   children,
-  administrator = false,
 }: {
   children: React.ReactNode;
-  administrator?: boolean;
 }) {
   const { usuario, loading } = useAuth();
   if (loading)
@@ -149,7 +147,7 @@ export function ManagementGate({
       </div>
     );
   const role = usuario.rol.toUpperCase();
-  if (role !== "ADMIN" && (administrator || role !== "AGENTE"))
+  if (role !== "AGENTE")
     return (
       <div className="page">
         <section className="card">

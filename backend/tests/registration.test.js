@@ -13,16 +13,12 @@ test("Registro HTTP y errores internos sin base de datos ni proveedores", async 
     FRONTEND_URL: "http://registration.test",
     ENABLE_JOBS: "false",
     COOKIE_SAME_SITE: "lax",
-    DEMO_VERIFICATION: "false",
     ROADS_FILE: path.join(
       __dirname,
       `missing-registration-roads-${process.pid}.json`,
     ),
     AI_API_KEY: "",
     OPENAI_API_KEY: "",
-    TWILIO_ACCOUNT_SID: "",
-    TWILIO_AUTH_TOKEN: "",
-    TWILIO_VERIFY_SERVICE_SID: "",
     RESEND_API_KEY: "",
     EMAIL_FROM: "",
   };
@@ -71,7 +67,7 @@ test("Registro HTTP y errores internos sin base de datos ni proveedores", async 
       nombres: "  Ana  ",
       apellidos: "  Pérez  ",
       fechaNacimiento: "2000-01-01",
-      correo: "  ANA@EXAMPLE.TEST  ",
+      correo: "  ANA@GMAIL.COM  ",
       telefono: "(912) 345-678",
       password,
     };
@@ -127,7 +123,7 @@ test("Registro HTTP y errores internos sin base de datos ni proveedores", async 
         assert.equal(data.nombreUsuario, "Vecino de Ica");
         assert.equal(data.nombres, "Ana");
         assert.equal(data.apellidos, "Pérez");
-        assert.equal(data.correo, "ana@example.test");
+        assert.equal(data.correo, "ana@gmail.com");
         assert.equal(data.telefono, "+51912345678");
         assert.equal(
           data.fechaNacimiento.toISOString(),
@@ -152,6 +148,7 @@ test("Registro HTTP y errores internos sin base de datos ni proveedores", async 
         assert.deepEqual(body.usuario.permisos, []);
         assert.equal(Object.hasOwn(body.usuario, "password"), false);
         assert.equal(Object.hasOwn(body.usuario, "sesiones"), false);
+        assert.equal(Object.hasOwn(body.usuario, "telefonoVerificado"), false);
         assert.equal(JSON.stringify(body).includes(password), false);
         assert.equal(JSON.stringify(body).includes(data.password), false);
       },
@@ -165,6 +162,24 @@ test("Registro HTTP y errores internos sin base de datos ni proveedores", async 
         const { response, body } = await register(withoutNickname);
         assert.equal(response.status, 400);
         assert.deepEqual(body, { error: "Nickname inválido." });
+        assert.equal(create.mock.callCount(), 0);
+        assert.equal(session.mock.callCount(), 0);
+      },
+    );
+
+    await t.test(
+      "el registro nuevo exige Gmail sin aceptar otro proveedor o un dominio parecido",
+      async (context) => {
+        const { create, session } = mockSuccessfulRegistration(context);
+        for (const correo of [
+          "persona@example.com",
+          "persona@gmail.com.attacker.test",
+          "persona@googlemail.com",
+        ]) {
+          const { response, body } = await register({ ...input, correo });
+          assert.equal(response.status, 400);
+          assert.equal(body.code, "EMAIL_GMAIL_REQUIRED");
+        }
         assert.equal(create.mock.callCount(), 0);
         assert.equal(session.mock.callCount(), 0);
       },
