@@ -1,5 +1,9 @@
 # Entrega de integraciones — 4 de octubre de 2026
 
+## Actualización de contactos
+
+La decisión posterior del propietario es **WhatsApp manual para verificar el teléfono y Google para verificar el correo**. Estos flujos ya están implementados; su entrega y validación final se detallan en [Verificación de contactos](entrega-verificacion-contactos-20261004.md) y su configuración en [Activación](verificacion-contactos.md). Twilio y Resend se conservan como alternativas; no son requisitos para la modalidad elegida. Se añadieron el SDK oficial de Firebase en el frontend y JOSE en el backend para verificar firmas públicas. Los apartados inferiores documentan las fases anteriores y sus resultados en ese momento.
+
 ## Resultado
 
 Se revisaron los adaptadores existentes y se completó su integración conservando Next.js, Express, Prisma, la sesión de CiviGo y el despliegue previsto en Vercel/Railway/Supabase. El código está preparado para configurar los proveedores. No se crearon cuentas, buckets, credenciales ni despliegues externos; las pruebas no enviaron mensajes ni utilizaron claves reales.

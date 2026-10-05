@@ -12,7 +12,11 @@ const {
 const { ownUser } = require("../lib/projections");
 const { hashPassword, verifyPassword } = require("../lib/password");
 const providers = require("../lib/providers");
-const { validatePhoneChannel } = require("../lib/contact-providers");
+const {
+  validatePhoneChannel,
+  manualPhoneConfig,
+} = require("../lib/contact-providers");
+const { firebaseEmailConfig } = require("../lib/firebase-email");
 const { transaction } = require("../lib/workflows");
 const router = express.Router();
 function phone(value) {
@@ -147,8 +151,10 @@ router.patch(
     });
   }),
 );
-async function createVerification(user, tipo, destino) {
-  const codigo = crypto.randomInt(100000, 1000000).toString();
+async function createVerification(user, tipo, destino, manual = false) {
+  const codigo = manual
+    ? crypto.randomBytes(12).toString("hex").toUpperCase()
+    : crypto.randomInt(100000, 1000000).toString();
   const verification = await transaction(async (db) => {
     const recent = await db.verification.findFirst({
       where: {
@@ -185,19 +191,28 @@ async function createVerification(user, tipo, destino) {
         tipo,
         destino,
         codigoHash: hashToken(codigo),
-        expiresAt: new Date(Date.now() + 10 * 60000),
+        expiresAt: new Date(Date.now() + (manual ? 24 * 60 : 10) * 60000),
       },
     });
   });
   return { codigo, verification };
 }
-async function pendingVerification(user, tipo, destino) {
+async function pendingVerification(user, tipo, destino, verificationId) {
   const v = await prisma.verification.findFirst({
-    where: { usuarioId: user.id, tipo, usado: false },
+    where: {
+      usuarioId: user.id,
+      tipo,
+      usado: false,
+      ...(verificationId === undefined ? {} : { id: verificationId }),
+    },
     orderBy: { creadoEn: "desc" },
   });
   if (!v || v.expiresAt < new Date() || v.intentos >= 5)
-    throw new HttpError(400, "Código vencido o demasiados intentos.");
+    throw new HttpError(
+      400,
+      "Código vencido o demasiados intentos.",
+      "VERIFICATION_EXPIRED",
+    );
   if (v.destino !== destino)
     throw new HttpError(409, "El destino cambió. Solicita un código nuevo.");
   const result = await prisma.verification.updateMany({
@@ -210,7 +225,11 @@ async function pendingVerification(user, tipo, destino) {
     data: { intentos: { increment: 1 } },
   });
   if (!result.count)
-    throw new HttpError(400, "Código vencido o demasiados intentos.");
+    throw new HttpError(
+      400,
+      "Código vencido o demasiados intentos.",
+      "VERIFICATION_EXPIRED",
+    );
   return v;
 }
 async function checkLocalCode(user, tipo, codigo, destino) {
@@ -219,15 +238,39 @@ async function checkLocalCode(user, tipo, codigo, destino) {
     throw new HttpError(400, "Código incorrecto.");
   return v;
 }
-async function finishVerification(user, verification, field, verifiedField) {
+async function finishVerification(
+  user,
+  verification,
+  field,
+  verifiedField,
+  proofHash,
+) {
   await transaction(async (db) => {
+    if (
+      proofHash &&
+      (await db.verification.findFirst({
+        where: {
+          tipo: "CORREO_GOOGLE",
+          usado: true,
+          codigoHash: proofHash,
+        },
+      }))
+    )
+      throw new HttpError(
+        409,
+        "Esta verificación ya fue utilizada. Verifica de nuevo con Google.",
+        "EMAIL_GOOGLE_REPLAY",
+      );
     const consumed = await db.verification.updateMany({
       where: {
         id: verification.id,
+        usuarioId: user.id,
+        tipo: verification.tipo,
+        destino: verification.destino,
         usado: false,
         expiresAt: { gte: new Date() },
       },
-      data: { usado: true },
+      data: { usado: true, ...(proofHash ? { codigoHash: proofHash } : {}) },
     });
     if (!consumed.count)
       throw new HttpError(
@@ -235,7 +278,7 @@ async function finishVerification(user, verification, field, verifiedField) {
         "Este código venció o ya fue utilizado. Solicita uno nuevo.",
       );
     const changed = await db.user.updateMany({
-      where: { id: user.id, [field]: verification.destino },
+      where: { id: user.id, [field]: verification.destino, bloqueado: false },
       data: { [verifiedField]: true },
     });
     if (!changed.count)
@@ -245,11 +288,24 @@ async function finishVerification(user, verification, field, verifiedField) {
       );
   });
 }
+router.get(
+  "/phone/config",
+  auth,
+  asyncRoute(async (req, res) => {
+    const status = providers.services().telefono;
+    res.json(status);
+  }),
+);
 router.post(
   "/phone/request",
   auth,
   asyncRoute(async (req, res) => {
-    const canal = validatePhoneChannel(req.body.canal || "sms");
+    const canal = validatePhoneChannel(
+      req.body.canal ||
+        (providers.services().telefono.proveedor === "whatsapp-manual"
+          ? "whatsapp"
+          : "sms"),
+    );
     if (req.user.telefonoVerificado)
       return res.json({ mensaje: "Tu teléfono ya está verificado." });
     if (demoEnabled()) {
@@ -270,6 +326,37 @@ router.post(
         "Verificación telefónica no configurada. Hace falta un proveedor SMS o WhatsApp.",
         "PHONE_PROVIDER_MISSING",
       );
+    if (providers.services().telefono.proveedor === "whatsapp-manual") {
+      if (canal !== "whatsapp")
+        throw new HttpError(
+          400,
+          "Envía la solicitud desde tu WhatsApp para revisión manual.",
+          "PHONE_CHANNEL_INVALID",
+        );
+      const { codigo, verification } = await createVerification(
+        req.user,
+        "TELEFONO_WHATSAPP",
+        req.user.telefono,
+        true,
+      );
+      const mensaje =
+        "Quiero verificar mi teléfono en CiviGo. Código: " +
+        codigo +
+        ". Envío este mensaje desde el número registrado en mi cuenta.";
+      const whatsappUrl =
+        "https://wa.me/" +
+        manualPhoneConfig().telefono.slice(1) +
+        "?text=" +
+        encodeURIComponent(mensaje);
+      return res.json({
+        modo: "whatsapp-manual",
+        codigoManual: codigo,
+        whatsappUrl,
+        expiresAt: verification.expiresAt.toISOString(),
+        mensaje:
+          "Envía el mensaje desde tu número registrado. Un administrador revisará la solicitud; vence en 24 horas.",
+      });
+    }
     // La fila limita solicitudes; el código enviado y su validación siguen
     // siendo responsabilidad de Twilio Verify.
     await createVerification(req.user, "TELEFONO", req.user.telefono);
@@ -278,9 +365,96 @@ router.post(
   }),
 );
 router.post(
+  "/email/google/request",
+  auth,
+  asyncRoute(async (req, res) => {
+    if (req.user.correoVerificado)
+      return res.json({
+        usuario: ownUser(req.user),
+        mensaje: "Tu correo ya está verificado.",
+      });
+    const config = firebaseEmailConfig();
+    if (!config.configured)
+      throw new HttpError(
+        503,
+        "La verificación de correo con Google no está configurada.",
+        "EMAIL_GOOGLE_CONFIG",
+      );
+    const { verification } = await createVerification(
+      req.user,
+      "CORREO_GOOGLE",
+      req.user.correo,
+    );
+    res.json({
+      challengeId: String(verification.id),
+      projectId: config.projectId,
+      expiresAt: verification.expiresAt.toISOString(),
+    });
+  }),
+);
+router.get(
+  "/email/google/config",
+  auth,
+  asyncRoute(async (req, res) => {
+    const config = firebaseEmailConfig();
+    res.json({ configurado: config.configured, projectId: config.projectId });
+  }),
+);
+router.post(
+  "/email/google/verify",
+  auth,
+  asyncRoute(async (req, res) => {
+    if (req.user.correoVerificado)
+      return res.json({ usuario: ownUser(req.user) });
+    const challenge = req.body.challengeId;
+    if (
+      typeof challenge !== "string" ||
+      !/^[1-9]\d{0,9}$/.test(challenge) ||
+      Number(challenge) > 2147483647
+    )
+      throw new HttpError(
+        400,
+        "Solicitud de verificación inválida.",
+        "EMAIL_CHALLENGE_INVALID",
+      );
+    const idToken = text(req.body.idToken, "Comprobación del correo", 8192, 20);
+    const verification = await pendingVerification(
+      req.user,
+      "CORREO_GOOGLE",
+      req.user.correo,
+      Number(challenge),
+    );
+    const { proofHash } = await providers.verifyFirebaseEmail(
+      idToken,
+      verification.destino,
+      verification.creadoEn,
+    );
+    await finishVerification(
+      req.user,
+      verification,
+      "correo",
+      "correoVerificado",
+      proofHash,
+    );
+    const usuario = await prisma.user.findUnique({
+      where: { id: req.user.id },
+    });
+    res.json({ usuario: ownUser(usuario) });
+  }),
+);
+router.post(
   "/phone/verify",
   auth,
   asyncRoute(async (req, res) => {
+    if (
+      !demoEnabled() &&
+      providers.services().telefono.proveedor === "whatsapp-manual"
+    )
+      throw new HttpError(
+        409,
+        "La verificación por WhatsApp debe ser aprobada por un administrador.",
+        "PHONE_PROVIDER_CHANGED",
+      );
     const codigo = text(req.body.codigo, "Código", 10, 4);
     if (!/^\d{4,10}$/.test(codigo))
       throw new HttpError(400, "Código inválido.");

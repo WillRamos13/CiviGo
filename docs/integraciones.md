@@ -9,6 +9,8 @@ El stack del proyecto es **frontend Next.js en Vercel, API Express en Railway, P
 | Supabase PostgreSQL | Usuarios, sesiones, catálogo, reportes, incidentes y reglas mediante Prisma. | Railway: `DATABASE_URL`. | Conexión PostgreSQL válida y migraciones aplicadas. |
 | Supabase Storage | Fotos, videos, pruebas e identidad con descargas autorizadas por la API. | Railway: `STORAGE_PROVIDER`, `SUPABASE_URL`, clave privada y nombre del bucket. | Bucket privado existente y credencial privada del backend. |
 | OpenAI Responses | Chatbot y evaluación inicial del texto de reportes, con modelos separados. | Railway: `OPENAI_API_KEY`, opcionalmente `AI_REPORT_MODEL`, `AI_CHAT_MODEL` y `AI_TIMEOUT_MS`. | Cuenta de API, clave, acceso a los modelos y facturación/cuota disponibles. |
+| WhatsApp manual | Prueba del teléfono mediante mensaje del usuario y aprobación del administrador. | Railway: `PHONE_VERIFICATION_PROVIDER=whatsapp-manual`, `WHATSAPP_VERIFICATION_NUMBER`. | Número receptor y revisión humana. No usa API de pago. [Guía](verificacion-contactos.md). |
+| Google / Firebase Authentication | Verificar el correo con una cuenta Google coincidente; conserva las sesiones de CiviGo. | Railway: `FIREBASE_PROJECT_ID`. Vercel: las cuatro variables `NEXT_PUBLIC_FIREBASE_*`. | Habilitar Google y los dominios autorizados. [Guía paso a paso](verificacion-contactos.md). |
 | Twilio Verify | Código de verificación por SMS o WhatsApp. | Railway: `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_VERIFY_SERVICE_SID`. | Cuenta y servicio Verify; configurar los canales en Twilio. WhatsApp necesita remitente propio. |
 | Resend | Verificación del correo y recordatorio de pruebas. | Railway: `RESEND_API_KEY`, `EMAIL_FROM`. | Cuenta, dominio remitente verificado y registros DNS correspondientes. |
 | Mapbox | Mapa base y representación visual de calles, reportes y recorridos. | Vercel: `NEXT_PUBLIC_MAPBOX_TOKEN`. | Token público `pk.` con permisos del mapa y restricciones de URL compatibles. |
@@ -29,6 +31,7 @@ En el proyecto del frontend, abrir **Settings → Environment Variables**. Selec
 | `BACKEND_URL` | `https://civigo-production.up.railway.app`, o el origen HTTPS público real del servicio. Sin `/api`, rutas, credenciales ni parámetros. |
 | `NEXT_PUBLIC_MAPBOX_TOKEN` | Token público de Mapbox del propietario. Nunca un token secreto `sk.`. |
 | `NEXT_PUBLIC_API_URL` | Normalmente no se necesita: la web usa `/api` por defecto. Si ya existe, dejar `/api` para conservar esta arquitectura. |
+| `NEXT_PUBLIC_FIREBASE_API_KEY`, `NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN`, `NEXT_PUBLIC_FIREBASE_PROJECT_ID`, `NEXT_PUBLIC_FIREBASE_APP_ID` | Configuración pública de la app Web de Firebase para verificar correo con Google. El proyecto debe coincidir con Railway. |
 
 La raíz del proyecto debe ser `frontend`; Vercel detecta Next.js y ejecuta `npm run build`. La reescritura definida en `frontend/next.config.ts` envía `/api/:path*` a `BACKEND_URL/api/:path*`. La URL del backend y el token público se incorporan al construir la web: aplicar cambios exige un nuevo despliegue del frontend. [Reescrituras externas de Vercel](https://vercel.com/docs/routing/rewrites).
 
@@ -50,6 +53,9 @@ En el servicio del backend, abrir **Variables** y agregar los nombres y valores 
 | `AI_MODEL` | Alternativa compatible para ambos servicios cuando falta su variable específica. Si ya tiene `gpt-4.1-mini`, definir `AI_REPORT_MODEL=gpt-6.1-sol` para actualizar la evaluación. |
 | `AI_REPORT_MAX_OUTPUT_TOKENS` | Opcional para reportes con Sol; `4096` por defecto, entero entre 1024 y 16384. Incluye razonamiento y respuesta. |
 | `AI_TIMEOUT_MS` | Opcional; por defecto 30000 con Sol y 15000 con otros modelos. Admite entre 1000 y 30000 milisegundos. |
+| `PHONE_VERIFICATION_PROVIDER` | `whatsapp-manual` para la etapa actual. `twilio` mantiene la verificación automática existente. |
+| `WHATSAPP_VERIFICATION_NUMBER` | Número receptor de la atención de CiviGo en formato internacional. Se usa para el enlace de WhatsApp; no es una credencial. |
+| `FIREBASE_PROJECT_ID` | Proyecto de Firebase cuyo proveedor Google verifica el correo. Debe coincidir con la app Web de Vercel. |
 | `TWILIO_ACCOUNT_SID` | Account SID de la cuenta; formato `AC` seguido de 32 caracteres hexadecimales. |
 | `TWILIO_AUTH_TOKEN` | Auth Token privado de esa cuenta. |
 | `TWILIO_VERIFY_SERVICE_SID` | SID del servicio Verify; formato `VA` seguido de 32 caracteres hexadecimales. |
@@ -87,7 +93,9 @@ Antes de llamar al evaluador se reservan como máximo tres solicitudes por minut
 
 ## Activar SMS y WhatsApp con Twilio
 
-1. Crear la cuenta y un **Verify Service**. Guardar sus tres variables privadas en Railway.
+**Modalidad elegida para esta etapa: WhatsApp manual para teléfono y Google para correo.** Seguir [la guía de verificación de contactos](verificacion-contactos.md). Twilio se conserva para instalaciones existentes y futuras automatizaciones; no hace falta contratarlo para el flujo manual. Google verifica el correo y no sustituye la aprobación del teléfono.
+
+1. Crear la cuenta y un **Verify Service**. Guardar sus tres variables privadas en Railway y seleccionar `PHONE_VERIFICATION_PROVIDER=twilio`. Si se mantiene `whatsapp-manual`, las credenciales no cambian la modalidad elegida.
 2. Permitir SMS al destino Perú en **Verify → Settings → Geo permissions** y revisar las protecciones de fraude del servicio. En cuentas de prueba, Twilio exige verificar previamente los números destinatarios habilitados para pruebas. [Verify](https://www.twilio.com/docs/verify/api/verification), [Geo Permissions](https://www.twilio.com/docs/verify/preventing-toll-fraud/verify-geo-permissions).
 3. Para WhatsApp, configurar un remitente propio asociado a una WhatsApp Business Account y habilitarlo para Verify. Las tres variables no completan esa alta por sí solas. No hay cambio automático de WhatsApp a SMS en CiviGo. [Verify WhatsApp](https://www.twilio.com/docs/verify/whatsapp).
 4. Solicitar un código desde el perfil y confirmar que llega al número previsto. Solo la aprobación de Twilio marca el teléfono como verificado.

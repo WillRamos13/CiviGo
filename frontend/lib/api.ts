@@ -28,6 +28,8 @@ export async function api<T>(path: string, options: RequestInit = {}): Promise<T
                 message = 'Ese canal de verificación todavía no está habilitado. Prueba otro canal.';
             else if (response.status === 503 && typeof data?.code === 'string' && data.code.startsWith('EMAIL_PROVIDER_'))
                 message = 'El correo de verificación no está disponible en este momento. Inténtalo de nuevo más tarde.';
+            else if (response.status === 503 && typeof data?.code === 'string' && data.code.startsWith('EMAIL_GOOGLE_'))
+                message = 'La verificación con Google no está disponible en este momento. Inténtalo de nuevo más tarde.';
             else if (response.status === 503 && typeof data?.code === 'string' && data.code.startsWith('STORAGE_'))
                 message = 'No se pudo acceder al archivo. Inténtalo de nuevo más tarde o comunícalo al administrador.';
         }

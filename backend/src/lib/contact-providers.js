@@ -1,4 +1,5 @@
 const { HttpError } = require("./http");
+const { firebaseEmailConfig } = require("./firebase-email");
 
 const timeoutMs = 15000;
 const phonePattern = /^\+[1-9]\d{7,14}$/;
@@ -38,16 +39,42 @@ function emailConfig() {
   };
 }
 function contactServices() {
+  const provider = (
+    process.env.PHONE_VERIFICATION_PROVIDER ||
+    (twilioConfig().configured ? "twilio" : "whatsapp-manual")
+  )
+    .trim()
+    .toLowerCase();
+  const manual = provider === "whatsapp-manual";
   return {
     telefono: {
-      proveedor: "twilio-verify",
-      configurado: twilioConfig().configured,
+      proveedor: manual
+        ? "whatsapp-manual"
+        : provider === "twilio"
+          ? "twilio-verify"
+          : "sin-configurar",
+      configurado: manual
+        ? manualPhoneConfig().configured
+        : provider === "twilio" && twilioConfig().configured,
+      canales: manual
+        ? ["whatsapp"]
+        : provider === "twilio"
+          ? ["sms", "whatsapp"]
+          : [],
       demo:
         process.env.DEMO_VERIFICATION === "true" &&
         process.env.NODE_ENV !== "production",
     },
     correo: { proveedor: "resend", configurado: emailConfig().configured },
+    correoGoogle: {
+      proveedor: "firebase-google",
+      configurado: firebaseEmailConfig().configured,
+    },
   };
+}
+function manualPhoneConfig() {
+  const telefono = (process.env.WHATSAPP_VERIFICATION_NUMBER || "").trim();
+  return { telefono, configured: phonePattern.test(telefono) };
 }
 function validatePhone(telefono) {
   if (typeof telefono !== "string" || !phonePattern.test(telefono))
@@ -264,6 +291,7 @@ async function sendEmail(to, subject, html, options = {}) {
 
 module.exports = {
   contactServices,
+  manualPhoneConfig,
   validatePhoneChannel,
   requestPhone,
   checkPhone,

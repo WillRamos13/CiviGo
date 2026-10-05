@@ -17,5 +17,6 @@ module.exports = {
   assist: ai.assist,
   requestPhone: contacts.requestPhone,
   checkPhone: contacts.checkPhone,
+  verifyFirebaseEmail: require("./firebase-email").verifyFirebaseEmail,
   sendEmail: contacts.sendEmail,
 };

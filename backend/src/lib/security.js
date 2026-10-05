@@ -92,7 +92,7 @@ function rateLimits(options = {}) {
     try {
       count("ip:" + req.ip, options.ipLimit ?? 2400, res);
       if (
-        /^\/api\/users\/(login|register|phone\/(request|verify)|email\/(request|verify))\/?$/.test(
+        /^\/api\/users\/(login|register|phone\/(request|verify)|email\/(request|verify|google\/(request|verify)))\/?$/.test(
           req.path,
         )
       )
@@ -123,9 +123,10 @@ function rateLimits(options = {}) {
     // Solo identidades verificadas por la sesión separan a clientes detrás
     // de Next; cookies aleatorias y headers XFF no conceden otra cuota.
     const key = user ? "user:" + user.id : "anonymous:" + req.ip;
-    const sensitive = /^\/api\/users\/(phone|email)\/(request|verify)\/?$/.test(
-      req.path,
-    );
+    const sensitive =
+      /^\/api\/users\/(?:phone\/(request|verify)|email\/(request|verify|google\/(request|verify)))\/?$/.test(
+        req.path,
+      );
     count(
       key + ":" + req.method + ":" + route,
       sensitive

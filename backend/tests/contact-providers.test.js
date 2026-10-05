@@ -6,6 +6,9 @@ const keys = [
   "TWILIO_ACCOUNT_SID",
   "TWILIO_AUTH_TOKEN",
   "TWILIO_VERIFY_SERVICE_SID",
+  "PHONE_VERIFICATION_PROVIDER",
+  "FIREBASE_PROJECT_ID",
+  "WHATSAPP_VERIFICATION_NUMBER",
   "RESEND_API_KEY",
   "EMAIL_FROM",
   "NODE_ENV",
@@ -36,6 +39,29 @@ const response = (data, status = 200) => ({
   status,
   json: async () => data,
 });
+
+test("WhatsApp manual no exige Twilio y Google verifica correo con un proyecto válido", () =>
+  isolated(async () => {
+    process.env.PHONE_VERIFICATION_PROVIDER = "whatsapp-manual";
+    process.env.WHATSAPP_VERIFICATION_NUMBER = "+51900000009";
+    process.env.FIREBASE_PROJECT_ID = "civigo-fixture";
+    delete process.env.TWILIO_AUTH_TOKEN;
+    global.fetch = () => assert.fail("El diagnóstico no hace llamadas");
+    assert.equal(
+      contacts.contactServices().telefono.proveedor,
+      "whatsapp-manual",
+    );
+    assert.equal(contacts.contactServices().telefono.configurado, true);
+    assert.deepEqual(contacts.contactServices().telefono.canales, ["whatsapp"]);
+    assert.equal(contacts.contactServices().correoGoogle.configurado, true);
+    process.env.FIREBASE_PROJECT_ID = "invalid/project";
+    assert.equal(contacts.contactServices().correoGoogle.configurado, false);
+    process.env.WHATSAPP_VERIFICATION_NUMBER = "invalid-phone";
+    assert.equal(contacts.contactServices().telefono.configurado, false);
+    process.env.PHONE_VERIFICATION_PROVIDER = "unknown";
+    assert.equal(contacts.contactServices().telefono.configurado, false);
+    assert.deepEqual(contacts.contactServices().telefono.canales, []);
+  }));
 
 test("El estado de contacto valida configuración y jamás publica secretos", () =>
   isolated(async () => {

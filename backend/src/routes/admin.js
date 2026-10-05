@@ -28,6 +28,7 @@ const adminOnly = (req, res, next) =>
   req.user.rol === "ADMIN"
     ? next()
     : next(new HttpError(403, "Solo administradores."));
+router.use("/phone-verifications", adminOnly, require("./phone-verifications"));
 router.get("/integrations", adminOnly, (req, res) => {
   res.setHeader("Cache-Control", "no-store");
   res.json(require("../lib/integrations").integrationChecklist());
@@ -580,6 +581,14 @@ router.post(
           data: { telefono: row.telefonoNuevo, telefonoVerificado: false },
         });
         await db.session.deleteMany({ where: { usuarioId: row.usuarioId } });
+        await db.verification.updateMany({
+          where: {
+            usuarioId: row.usuarioId,
+            tipo: { in: ["TELEFONO", "TELEFONO_WHATSAPP"] },
+            usado: false,
+          },
+          data: { usado: true },
+        });
       }
       await audit(db, req.user, estado, "RECUPERACION", row.id);
       return db.recovery.update({ where: { id: row.id }, data: { estado } });

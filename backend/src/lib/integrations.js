@@ -2,6 +2,7 @@ const { services } = require("./providers");
 
 // Configuration inspection only: no paid requests, messages or bucket mutations.
 function integrationChecklist(env = process.env, state = services()) {
+  const manual = state.telefono?.proveedor === "whatsapp-manual";
   const missing = (names) =>
     names.filter((name) => !String(env[name] || "").trim());
   return {
@@ -22,15 +23,20 @@ function integrationChecklist(env = process.env, state = services()) {
       },
       {
         id: "telefono",
-        nombre: "Twilio Verify",
+        nombre: manual ? "WhatsApp con revisión manual" : "Twilio Verify",
         configurado: !!state.telefono?.configurado,
-        variablesPendientes: missing([
-          "TWILIO_ACCOUNT_SID",
-          "TWILIO_AUTH_TOKEN",
-          "TWILIO_VERIFY_SERVICE_SID",
-        ]),
-        indicacion:
-          "Crea un servicio Verify y habilita los canales que usarás. La disponibilidad y aprobación de SMS/WhatsApp se comprueban en Twilio.",
+        variablesPendientes: missing(
+          manual
+            ? ["WHATSAPP_VERIFICATION_NUMBER"]
+            : [
+                "TWILIO_ACCOUNT_SID",
+                "TWILIO_AUTH_TOKEN",
+                "TWILIO_VERIFY_SERVICE_SID",
+              ],
+        ),
+        indicacion: manual
+          ? "Configura PHONE_VERIFICATION_PROVIDER=whatsapp-manual y WHATSAPP_VERIFICATION_NUMBER en Railway. El usuario envía el código desde su número registrado y un administrador comprueba remitente y código antes de aprobar; no hay envío automático ni API de pago."
+          : "Selecciona PHONE_VERIFICATION_PROVIDER=twilio, crea un servicio Verify y habilita los canales que usarás. La disponibilidad y aprobación de SMS/WhatsApp se comprueban en Twilio.",
       },
       {
         id: "correo",
@@ -59,6 +65,14 @@ function integrationChecklist(env = process.env, state = services()) {
             ? "Usa un bucket privado de Supabase Storage. El backend valida los archivos y autoriza cada descarga."
             : "El almacenamiento local necesita un volumen persistente en Railway. Para Supabase, define STORAGE_PROVIDER=supabase y sus variables privadas.",
       },
+      {
+        id: "correoGoogle",
+        nombre: "Correo con Google",
+        configurado: !!state.correoGoogle?.configurado,
+        variablesPendientes: missing(["FIREBASE_PROJECT_ID"]),
+        indicacion:
+          "Habilita Google en Firebase Authentication. FIREBASE_PROJECT_ID va en Railway y las cuatro variables públicas NEXT_PUBLIC_FIREBASE_* de la app web van en Vercel. Solo verifica el correo coincidente de la cuenta actual; no sustituye la sesión de CiviGo.",
+      },
     ].map((provider) => ({
       ...provider,
       ...(!provider.configurado && !provider.variablesPendientes.length
@@ -70,7 +84,14 @@ function integrationChecklist(env = process.env, state = services()) {
     })),
     frontend: {
       plataforma: "Vercel",
-      variables: ["BACKEND_URL", "NEXT_PUBLIC_MAPBOX_TOKEN"],
+      variables: [
+        "BACKEND_URL",
+        "NEXT_PUBLIC_MAPBOX_TOKEN",
+        "NEXT_PUBLIC_FIREBASE_API_KEY",
+        "NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN",
+        "NEXT_PUBLIC_FIREBASE_PROJECT_ID",
+        "NEXT_PUBLIC_FIREBASE_APP_ID",
+      ],
       indicacion:
         "BACKEND_URL apunta a Railway. El token público de Mapbox habilita el mapa; las claves privadas permanecen en el backend.",
     },

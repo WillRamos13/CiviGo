@@ -2,7 +2,7 @@
 
 Proyecto académico de seguridad y movilidad ciudadana para la provincia de Ica. Web Next.js, API Express, Prisma y PostgreSQL de Supabase.
 
-Stack de despliegue: **frontend en Vercel, backend Node.js en Railway, PostgreSQL y archivos privados en Supabase, y dominio civigo.online en GoDaddy**. OpenAI, Twilio Verify y Resend requieren configuración y comprobaciones reales en las cuentas del propietario.
+Stack de despliegue: **frontend en Vercel, backend Node.js en Railway, PostgreSQL y archivos privados en Supabase, y dominio civigo.online en GoDaddy**. Para verificar contactos se eligieron **WhatsApp manual para el teléfono y Google para el correo**: seguir [la guía de activación](docs/verificacion-contactos.md). OpenAI y Firebase requieren configuración y comprobaciones reales en las cuentas del propietario; Twilio Verify y Resend se conservan como alternativas.
 
 ## Documentación
 
@@ -12,6 +12,7 @@ Stack de despliegue: **frontend en Vercel, backend Node.js en Railway, PostgreSQ
 - [Operación y preparación de despliegue](docs/operacion-y-despliegue.md): configuración, comandos y servicios.
 - [Integraciones y variables por plataforma](docs/integraciones.md): OpenAI, teléfono, correo, Supabase Storage, mapa y diagnóstico de configuración.
 - [Entrega de integraciones](docs/entrega-integraciones-20261004.md): cambios, pruebas locales y activación pendiente de proveedores.
+- [Verificación de contactos](docs/verificacion-contactos.md): configurar WhatsApp manual y Google; [entrega y pruebas](docs/entrega-verificacion-contactos-20261004.md).
 - [Operación del backend](docs/backend-operacion.md): reglas, permisos y pruebas.
 
 ## Desarrollo

@@ -151,7 +151,7 @@ test(
           assert.equal(integrations.json.conexionesProbadas, false);
           assert.deepEqual(
             integrations.json.proveedores.map((p) => p.id),
-            ["ia", "telefono", "correo", "almacenamiento"],
+            ["ia", "telefono", "correo", "almacenamiento", "correoGoogle"],
           );
           assert.equal(integrations.json.proveedores[0].configurado, false);
           assert.equal(

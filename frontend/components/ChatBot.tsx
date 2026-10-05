@@ -61,7 +61,7 @@ function AccountChatBot() {
             <div ref={list} className="chat-list" role="log" aria-live="polite" aria-busy={busy} aria-label="Conversación con la ayuda" style={{ maxHeight: 280 }}>
                 {messages.length === 0 ? preguntas.map(p => <button type="button" className="btn btn-secondary btn-small" key={p} disabled={busy} onClick={() => void ask(p)}>{p}</button>) : messages.map((m, i) => <div key={i}>
                     <p style={{ fontSize: 11, fontWeight: 700, margin: '12px 0 6px' }}>{m.pregunta}</p>
-                    <span className="badge">{m.ia ? 'IA · OpenAI' : 'Guía de CiviGo'}</span>
+                    {!m.ia && <span className="badge">Guía de CiviGo</span>}
                     <p className="notice" style={{ fontSize: 12, whiteSpace: 'pre-wrap' }}>{m.respuesta}</p>
                     {m.aviso && <p className="muted" style={{ fontSize: 11 }}>{m.aviso}</p>}
                 </div>)}

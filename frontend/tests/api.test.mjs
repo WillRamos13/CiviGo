@@ -33,6 +33,8 @@ for (const [code, message] of [
     ['PHONE_CHANNEL_UNAVAILABLE', 'Ese canal de verificación todavía no está habilitado. Prueba otro canal.'],
     ['EMAIL_PROVIDER_MISSING', 'El correo de verificación no está disponible en este momento. Inténtalo de nuevo más tarde.'],
     ['EMAIL_PROVIDER_INVALID_RESPONSE', 'El correo de verificación no está disponible en este momento. Inténtalo de nuevo más tarde.'],
+    ['EMAIL_GOOGLE_CONFIG', 'La verificación con Google no está disponible en este momento. Inténtalo de nuevo más tarde.'],
+    ['EMAIL_GOOGLE_UNAVAILABLE', 'La verificación con Google no está disponible en este momento. Inténtalo de nuevo más tarde.'],
     ['STORAGE_PRIVATE_BUCKET_REQUIRED', 'No se pudo acceder al archivo. Inténtalo de nuevo más tarde o comunícalo al administrador.'],
     ['STORAGE_CONFIG', 'No se pudo acceder al archivo. Inténtalo de nuevo más tarde o comunícalo al administrador.'],
 ]) {

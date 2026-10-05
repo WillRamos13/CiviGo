@@ -15,6 +15,7 @@ import RankingAdminPanel from "./RankingAdminPanel";
 import HistoricalImportPanel from "./HistoricalImportPanel";
 import AuditPanel from "./AuditPanel";
 import IntegrationsPanel from "./IntegrationsPanel";
+import PhoneVerificationsPanel from "./PhoneVerificationsPanel";
 
 type Tab =
   | "incidentes"
@@ -28,7 +29,8 @@ type Tab =
   | "configuracion"
   | "historicos"
   | "actividad"
-  | "integraciones";
+  | "integraciones"
+  | "telefonos";
 const tabs: {
   id: Tab;
   label: string;
@@ -38,6 +40,7 @@ const tabs: {
   { id: "incidentes", label: "Incidentes", permission: "revisar" },
   { id: "apelaciones", label: "Apelaciones", adminOnly: true },
   { id: "usuarios", label: "Usuarios", adminOnly: true },
+  { id: "telefonos", label: "Verificar teléfonos", adminOnly: true },
   { id: "catalogo", label: "Categorías y tipos", adminOnly: true },
   { id: "negocios", label: "Negocios", adminOnly: true },
   { id: "premios", label: "Recompensas", adminOnly: true },
@@ -54,6 +57,7 @@ interface Overview {
     ia?: { configurado: boolean };
     telefono?: { configurado: boolean; demo?: boolean };
     correo?: { configurado: boolean };
+    correoGoogle?: { configurado: boolean };
   };
 }
 
@@ -111,8 +115,14 @@ function OverviewPanel() {
                     : "pendiente de proveedor"}
               </span>
               <span className="badge">
-                Correo:{" "}
+                Correo por código:{" "}
                 {data.servicios.correo?.configurado
+                  ? "configurado"
+                  : "pendiente de conexión"}
+              </span>
+              <span className="badge">
+                Correo con Google:{" "}
+                {data.servicios.correoGoogle?.configurado
                   ? "configurado"
                   : "pendiente de conexión"}
               </span>
@@ -183,6 +193,7 @@ function DashboardContent() {
           )}
           {admin && active === "apelaciones" && <AppealsPanel />}
           {admin && active === "usuarios" && <UsersPanel />}
+          {admin && active === "telefonos" && <PhoneVerificationsPanel />}
           {admin && active === "catalogo" && <CatalogPanel />}
           {admin && active === "negocios" && <BusinessesPanel />}
           {admin && active === "premios" && <RewardsAdminPanel />}

@@ -21,12 +21,15 @@ async function fixture() {
       correo: "citizen@tests.local",
       telefonoVerificado: false,
       correoVerificado: false,
+      bloqueado: false,
     },
     records: [],
     phoneConfigured: true,
+    phoneProvider: "twilio-verify",
     emailConfigured: true,
     phoneRequests: [],
     phoneChecks: [],
+    googleChecks: [],
     emails: [],
     approved: true,
   };
@@ -55,6 +58,7 @@ async function fixture() {
         for (const row of rows) {
           if (data.intentos) row.intentos += data.intentos.increment;
           if (data.usado !== undefined) row.usado = data.usado;
+          if (data.codigoHash !== undefined) row.codigoHash = data.codigoHash;
         }
         return { count: rows.length };
       },
@@ -70,7 +74,15 @@ async function fixture() {
   };
   const fakeProviders = {
     services: () => ({
-      telefono: { configurado: state.phoneConfigured },
+      telefono: {
+        proveedor: state.phoneProvider,
+        configurado: state.phoneConfigured,
+        canales:
+          state.phoneProvider === "whatsapp-manual"
+            ? ["whatsapp"]
+            : ["sms", "whatsapp"],
+        demo: false,
+      },
       correo: { configurado: state.emailConfigured },
     }),
     requestPhone: async (...args) => {
@@ -84,6 +96,13 @@ async function fixture() {
       if (state.duringCheck) state.duringCheck();
       return state.approved;
     },
+    verifyFirebaseEmail: async (...args) => {
+      state.googleChecks.push(args);
+      if (state.duringCheck) state.duringCheck();
+      if (!state.approved)
+        throw new HttpError(400, "Prueba inválida", "EMAIL_GOOGLE_INVALID");
+      return { proofHash: state.proofHash || "signed-google-event-hash" };
+    },
     sendEmail: async (...args) => {
       state.emails.push(args);
       if (state.emailError) throw state.emailError;
@@ -91,6 +110,16 @@ async function fixture() {
     },
   };
   const overrides = {
+    "../src/lib/firebase-email": {
+      firebaseEmailConfig: () => ({
+        configured: true,
+        projectId: "civigo-fixture",
+      }),
+    },
+    "../src/lib/contact-providers": {
+      ...require("../src/lib/contact-providers"),
+      manualPhoneConfig: () => ({ configured: true, telefono: "+51900000009" }),
+    },
     "../src/lib/db": db,
     "../src/lib/auth": {
       ...require("../src/lib/auth"),
@@ -252,6 +281,112 @@ test("Los cinco códigos por hora se limitan en la base antes de contactar Twili
     assert.equal(blocked.status, 429);
     assert.equal(blocked.json.code, "VERIFICATION_RATE_LIMITED");
     assert.equal(f.state.phoneRequests.length, 0);
+  } finally {
+    await f.close();
+  }
+});
+
+test("WhatsApp manual prepara un mensaje sin contactar Twilio ni aceptar autoaprobación", async () => {
+  const f = await fixture();
+  f.state.phoneProvider = "whatsapp-manual";
+  try {
+    assert.equal(
+      (await f.request("/phone/request", { canal: "sms" })).status,
+      400,
+    );
+    assert.equal(f.state.records.length, 0);
+    const result = await f.request("/phone/request", { canal: "whatsapp" });
+    assert.equal(result.status, 200);
+    assert.equal(result.json.modo, "whatsapp-manual");
+    assert.match(result.json.codigoManual, /^[A-F0-9]{24}$/);
+    assert.ok(
+      result.json.whatsappUrl.startsWith("https://wa.me/51900000009?text="),
+    );
+    assert.equal(result.json.codigoDemo, undefined);
+    assert.equal(f.state.records[0].tipo, "TELEFONO_WHATSAPP");
+    assert.equal(f.state.phoneRequests.length, 0);
+    assert.equal(
+      (await f.request("/phone/request", { canal: "whatsapp" })).status,
+      429,
+    );
+    assert.equal(
+      (await f.request("/phone/verify", { codigo: "123456" })).status,
+      409,
+    );
+    assert.equal(f.state.user.telefonoVerificado, false);
+  } finally {
+    await f.close();
+  }
+});
+
+test("Google exige el desafío propio, consume el evento firmado y rechaza su reutilización", async () => {
+  const f = await fixture();
+  try {
+    const token = "local-signed-token-placeholder";
+    const request = await f.request("/email/google/request");
+    const body = { challengeId: request.json.challengeId, idToken: token };
+    assert.equal(
+      (
+        await f.request("/email/google/verify", {
+          ...body,
+          challengeId: "99",
+        })
+      ).status,
+      400,
+    );
+    assert.equal(
+      (await f.request("/email/google/verify", { ...body, challengeId: 1 }))
+        .status,
+      400,
+    );
+    assert.equal(f.state.googleChecks.length, 0);
+    const verified = await f.request("/email/google/verify", body);
+    assert.equal(verified.status, 200);
+    assert.equal(verified.json.usuario.correoVerificado, true);
+    assert.equal(f.state.records[0].usado, true);
+    assert.equal(f.state.records[0].codigoHash, "signed-google-event-hash");
+    assert.deepEqual(f.state.googleChecks[0], [
+      token,
+      f.state.user.correo,
+      f.state.records[0].creadoEn,
+    ]);
+    assert.equal((await f.request("/email/google/verify", body)).status, 200);
+    assert.equal(f.state.googleChecks.length, 1);
+    f.state.user.correoVerificado = false;
+    f.state.records[0].creadoEn = new Date(Date.now() - 120000);
+    const next = await f.request("/email/google/request");
+    const replay = await f.request("/email/google/verify", {
+      ...body,
+      challengeId: next.json.challengeId,
+    });
+    assert.equal(replay.status, 409);
+    assert.equal(replay.json.code, "EMAIL_GOOGLE_REPLAY");
+    assert.equal(f.state.user.correoVerificado, false);
+    assert.equal(f.state.records[1].usado, false);
+  } finally {
+    await f.close();
+  }
+});
+
+test("Google conserva cinco intentos y no verifica si cambia el correo o se bloquea la cuenta", async () => {
+  const f = await fixture();
+  try {
+    const request = await f.request("/email/google/request");
+    const body = {
+      challengeId: request.json.challengeId,
+      idToken: "local-signed-token-placeholder",
+    };
+    f.state.approved = false;
+    for (let i = 0; i < 6; i++)
+      assert.equal((await f.request("/email/google/verify", body)).status, 400);
+    assert.equal(f.state.googleChecks.length, 5);
+    f.state.records[0].intentos = 0;
+    f.state.approved = true;
+    f.state.duringCheck = () => {
+      f.state.user.bloqueado = true;
+    };
+    assert.equal((await f.request("/email/google/verify", body)).status, 409);
+    assert.equal(f.state.user.correoVerificado, false);
   } finally {
     await f.close();
   }
