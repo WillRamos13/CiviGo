@@ -120,7 +120,7 @@ function ConfigForm({ initial, done }: { initial: Config; done: () => void }) {
     <form className="card" onSubmit={submit}>
       <h2 className="text-xl font-bold">Reglas configurables</h2>
       <p className="muted mt-2 mb-5">
-        Estos parámetros controlan el piloto. Los puntos de participación y
+        Estos parámetros controlan CiviGo. Los puntos de participación y
         premios inicialmente propuestos pueden ajustarse después de observar sus
         resultados.
       </p>
@@ -232,7 +232,7 @@ export default function ConfigPanel() {
           key={JSON.stringify(data)}
           initial={data}
           done={() => {
-            setSuccess("La configuración del piloto se guardó.");
+            setSuccess("La configuración de CiviGo se guardó.");
             reload();
           }}
         />

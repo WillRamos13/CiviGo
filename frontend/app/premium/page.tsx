@@ -35,7 +35,7 @@ export default function PremiumPage() {
               </span>
             </h2>
             <p className="mt-2">
-              Durante el piloto no hay cobros ni suscripciones automáticas.
+              No se realizan cobros ni se generan suscripciones automáticas.
             </p>
           </div>
           <span className="badge">
@@ -45,7 +45,7 @@ export default function PremiumPage() {
           </span>
         </div>
         <p className="muted mt-4">
-          Un administrador puede activar Premium en cuentas del piloto. Su
+          Un administrador puede activar Premium en una cuenta. Su
           activación no genera un pago.
         </p>
       </section>

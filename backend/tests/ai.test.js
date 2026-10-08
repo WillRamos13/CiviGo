@@ -1,6 +1,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const ai = require("../src/lib/ai");
+const storage = require("../src/lib/storage");
 const keys = [
   "AI_API_KEY",
   "OPENAI_API_KEY",
@@ -826,4 +827,399 @@ test("Configuración ausente o inválida es silenciosa y un fallo del logger no 
     });
     assert.equal(await ai.assist("Hola", {}), null);
     assert.equal(await ai.evaluateReport(input, fire), null);
+  }));
+
+const image = Buffer.from(
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+X9YAAAAAASUVORK5CYII=",
+  "base64",
+);
+const imageIds = [
+  "10000000-0000-4000-8000-000000000001",
+  "10000000-0000-4000-8000-000000000002",
+  "10000000-0000-4000-8000-000000000003",
+];
+function file(id, mimeType = "image/png") {
+  return {
+    id,
+    tipo: "EVIDENCIA",
+    usuarioId: 7,
+    privado: true,
+    path: "storage-private-path-not-to-send/" + id,
+    nombre: "storage-private-filename-not-to-send.png",
+    mimeType,
+    size: image.length,
+  };
+}
+const compatible = (id) => ({
+  id,
+  resultado: "COMPATIBLE",
+  motivo: "El contenido visual es compatible, sin acreditar fecha ni lugar.",
+});
+function imageResponse(evidencias, extra = {}) {
+  return {
+    ...evaluation,
+    requiereRevision: false,
+    evidencias,
+    ...extra,
+  };
+}
+
+test("Evaluación multimodal envía hasta tres imágenes autorizadas como datos y vincula cada resultado por id", (t) =>
+  isolated(async () => {
+    process.env.AI_API_KEY = "fixture-openai-private";
+    const rows = imageIds.map((id) => file(id));
+    const reads = [];
+    t.mock.method(storage, "createStorage", () => ({
+      read: async (row) => {
+        reads.push(row);
+        return image;
+      },
+    }));
+    let payload;
+    global.fetch = async (url, options) => {
+      assert.equal(url, "https://api.openai.com/v1/responses");
+      payload = JSON.parse(options.body);
+      return {
+        ok: true,
+        json: async () =>
+          completed(
+            JSON.stringify(imageResponse(imageIds.map(compatible).reverse())),
+          ),
+      };
+    };
+    const result = await ai.evaluateReport({ ...input, adjuntos: rows }, fire);
+    assert.deepEqual(reads, rows);
+    assert.deepEqual(result, imageResponse(imageIds.map(compatible)));
+    assert.equal(payload.store, false);
+    assert.equal(payload.model, "gpt-6.1-sol");
+    assert.deepEqual(payload.reasoning, { effort: "low" });
+    const parts = payload.input[0].content;
+    assert.equal(parts.length, 7);
+    assert.deepEqual(
+      JSON.parse(parts[0].text).adjuntos,
+      rows.map((row) => ({
+        id: row.id,
+        mimeType: row.mimeType,
+        analizable: true,
+      })),
+    );
+    for (let index = 0; index < rows.length; index++) {
+      assert.deepEqual(JSON.parse(parts[1 + index * 2].text), {
+        adjuntoId: rows[index].id,
+      });
+      assert.deepEqual(parts[2 + index * 2], {
+        type: "input_image",
+        image_url: "data:image/png;base64," + image.toString("base64"),
+        detail: "auto",
+      });
+    }
+    assert.ok(!JSON.stringify(payload).includes("storage-private-"));
+    assert.ok(
+      payload.instructions.includes(
+        "No identifiques personas ni decidas sanciones",
+      ),
+    );
+    assert.ok(
+      payload.instructions.includes("no demuestra veracidad, fecha, lugar"),
+    );
+    const schema = payload.text.format.schema;
+    assert.equal(schema.additionalProperties, false);
+    assert.equal(schema.properties.evidencias.minItems, 3);
+    assert.equal(schema.properties.evidencias.maxItems, 3);
+    assert.deepEqual(
+      schema.properties.evidencias.items.properties.id.enum,
+      imageIds,
+    );
+  }));
+
+test("Una imagen irrelevante o dudosa obliga a revisión aunque la respuesta declare que no hace falta", (t) =>
+  isolated(async () => {
+    process.env.AI_API_KEY = "fixture-openai-private";
+    t.mock.method(storage, "createStorage", () => ({
+      read: async () => image,
+    }));
+    for (const resultado of ["NO_RELACIONADA", "NO_CONCLUYENTE"]) {
+      global.fetch = async () => ({
+        ok: true,
+        json: async () =>
+          completed(
+            JSON.stringify(
+              imageResponse([
+                {
+                  id: imageIds[0],
+                  resultado,
+                  motivo: " \u0000No muestra claramente el incidente.\u0007 ",
+                },
+              ]),
+            ),
+          ),
+      });
+      const result = await ai.evaluateReport(
+        { ...input, adjuntos: [file(imageIds[0])] },
+        fire,
+      );
+      assert.equal(result.requiereRevision, true);
+      assert.equal(
+        result.posibleFalso,
+        false,
+        "una imagen no concluyente no establece falsedad del autor",
+      );
+      assert.deepEqual(result.evidencias, [
+        {
+          id: imageIds[0],
+          resultado,
+          motivo: "No muestra claramente el incidente.",
+        },
+      ]);
+    }
+    global.fetch = async () => ({
+      ok: true,
+      json: async () =>
+        completed(
+          JSON.stringify(
+            imageResponse([compatible(imageIds[0])], {
+              requiereRevision: true,
+            }),
+          ),
+        ),
+    });
+    assert.equal(
+      (
+        await ai.evaluateReport(
+          { ...input, adjuntos: [file(imageIds[0])] },
+          fire,
+        )
+      ).requiereRevision,
+      true,
+    );
+  }));
+
+test("Videos, PDFs e imágenes ilegibles no se presentan como revisados ni permiten aprobar sólo el texto", (t) =>
+  isolated(async () => {
+    process.env.AI_API_KEY = "fixture-openai-private";
+    const reads = [];
+    let mode = "missing";
+    t.mock.method(storage, "createStorage", () => ({
+      read: async (row) => {
+        reads.push(row.id);
+        if (row.id === imageIds[0]) return image;
+        if (mode === "missing")
+          throw new Error("private-storage-provider-message");
+        return Buffer.from("not an image with private metadata");
+      },
+    }));
+    const warnings = [];
+    console.warn = (value) => warnings.push(value);
+    global.fetch = async (url, options) => {
+      const payload = JSON.parse(options.body);
+      assert.equal(
+        payload.input[0].content.filter((part) => part.type === "input_image")
+          .length,
+        1,
+      );
+      assert.deepEqual(
+        payload.text.format.schema.properties.evidencias.items.properties.id
+          .enum,
+        [imageIds[0]],
+      );
+      assert.ok(!options.body.includes("private-storage-provider-message"));
+      assert.ok(!options.body.includes("not an image with private metadata"));
+      return {
+        ok: true,
+        json: async () =>
+          completed(JSON.stringify(imageResponse([compatible(imageIds[0])]))),
+      };
+    };
+    for (const unsupported of ["video/mp4", "application/pdf"]) {
+      const result = await ai.evaluateReport(
+        {
+          ...input,
+          adjuntos: [
+            file(imageIds[0]),
+            file(imageIds[1], unsupported),
+            file(imageIds[2]),
+          ],
+        },
+        fire,
+      );
+      assert.equal(result.requiereRevision, true);
+      assert.equal(result.evidencias[0].resultado, "COMPATIBLE");
+      assert.equal(result.evidencias[1].resultado, "NO_CONCLUYENTE");
+      assert.equal(result.evidencias[2].resultado, "NO_CONCLUYENTE");
+      assert.ok(
+        !reads.includes(imageIds[1]),
+        "no lee el contenido de un video o PDF para fingir análisis visual",
+      );
+      mode = "invalid";
+    }
+    assert.deepEqual(
+      warnings,
+      [],
+      "un fallo de archivo no imprime datos privados ni se atribuye al proveedor IA",
+    );
+  }));
+
+test("Sin ninguna imagen legible, con identidad privada o con filas inválidas, el adaptador falla cerrado sin abrir OpenAI", (t) =>
+  isolated(async () => {
+    process.env.AI_API_KEY = "fixture-openai-private";
+    let reads = 0;
+    let bytes = Buffer.from("unreadable");
+    t.mock.method(storage, "createStorage", () => ({
+      read: async () => {
+        reads++;
+        return bytes;
+      },
+    }));
+    let calls = 0;
+    global.fetch = async () => {
+      calls++;
+      throw new Error("never call OpenAI");
+    };
+    const invalidRows = [
+      null,
+      {},
+      [file("not-a-server-id")],
+      [{ ...file(imageIds[0]), tipo: "IDENTIDAD" }],
+      [file(imageIds[0]), file(imageIds[0])],
+      [
+        ...imageIds.map((id) => file(id)),
+        file("10000000-0000-4000-8000-000000000004"),
+      ],
+    ];
+    for (const adjuntos of invalidRows)
+      assert.equal(await ai.evaluateReport({ ...input, adjuntos }, fire), null);
+    assert.equal(reads, 0);
+    for (const adjuntos of [
+      [file(imageIds[0])],
+      [file(imageIds[0], "video/mp4")],
+      [file(imageIds[0], "application/pdf")],
+    ])
+      assert.equal(await ai.evaluateReport({ ...input, adjuntos }, fire), null);
+    // 15 MiB binarios, más el prefijo, exceden el máximo de una data URL.
+    bytes = Buffer.alloc(storage.MAX_FILE_SIZE);
+    Buffer.from([255, 216, 255]).copy(bytes);
+    bytes[bytes.length - 2] = 255;
+    bytes[bytes.length - 1] = 217;
+    assert.equal(
+      await ai.evaluateReport(
+        { ...input, adjuntos: [file(imageIds[0], "image/jpeg")] },
+        fire,
+      ),
+      null,
+    );
+    assert.equal(calls, 0);
+    delete process.env.AI_API_KEY;
+    const before = reads;
+    assert.equal(
+      await ai.evaluateReport(
+        { ...input, adjuntos: [file(imageIds[0])] },
+        fire,
+      ),
+      null,
+    );
+    assert.equal(
+      reads,
+      before,
+      "no descarga adjuntos privados si falta la configuración de IA",
+    );
+  }));
+
+test("El contrato de evidencias rechaza ids ajenos, omitidos, duplicados y resultados mal formados", (t) =>
+  isolated(async () => {
+    process.env.AI_API_KEY = "fixture-openai-private";
+    t.mock.method(storage, "createStorage", () => ({
+      read: async () => image,
+    }));
+    const warnings = [];
+    console.warn = (value) => warnings.push(value);
+    const good = imageIds.slice(0, 2).map(compatible);
+    const broken = [
+      imageResponse([]),
+      imageResponse([good[0]]),
+      imageResponse([good[0], good[0]]),
+      imageResponse([good[0], compatible(imageIds[2])]),
+      imageResponse(good, { requiereRevision: "false" }),
+      imageResponse([good[0], { ...good[1], resultado: "REAL" }]),
+      imageResponse([good[0], { ...good[1], motivo: " " }]),
+      imageResponse([good[0], { ...good[1], motivo: "x".repeat(501) }]),
+      imageResponse([
+        good[0],
+        { ...good[1], motivo: { secret: "private-provider-message" } },
+      ]),
+      { ...evaluation },
+    ];
+    for (const output of broken) {
+      global.fetch = async () => ({
+        ok: true,
+        json: async () => completed(JSON.stringify(output)),
+      });
+      assert.equal(
+        await ai.evaluateReport(
+          { ...input, adjuntos: imageIds.slice(0, 2).map((id) => file(id)) },
+          fire,
+        ),
+        null,
+      );
+      assert.equal(
+        JSON.parse(warnings.at(-1).slice("[CiviGo IA] ".length)).motivo,
+        "INVALID_EVALUATION",
+      );
+    }
+    assert.ok(!JSON.stringify(warnings).includes("private-provider-message"));
+    assert.ok(!JSON.stringify(warnings).includes(imageIds[0]));
+    global.fetch = async () => ({
+      ok: false,
+      status: 429,
+      json: async () => ({
+        error: {
+          code: "insufficient_quota",
+          message: "private-provider-message",
+        },
+      }),
+    });
+    assert.equal(
+      await ai.evaluateReport(
+        { ...input, adjuntos: [file(imageIds[0])] },
+        fire,
+      ),
+      null,
+    );
+    assert.ok(!JSON.stringify(warnings).includes("private-provider-message"));
+  }));
+
+test("El payload total de imágenes está acotado; los adjuntos que excedan el límite obligan a revisión", (t) =>
+  isolated(async () => {
+    process.env.AI_API_KEY = "fixture-openai-private";
+    const large = Buffer.alloc(12 * 1024 * 1024);
+    Buffer.from([255, 216, 255]).copy(large);
+    large[large.length - 2] = 255;
+    large[large.length - 1] = 217;
+    t.mock.method(storage, "createStorage", () => ({
+      read: async () => large,
+    }));
+    global.fetch = async (url, options) => {
+      const payload = JSON.parse(options.body);
+      const images = payload.input[0].content.filter(
+        (part) => part.type === "input_image",
+      );
+      assert.equal(images.length, 2);
+      assert.ok(
+        images.reduce((sum, part) => sum + part.image_url.length, 0) <=
+          45 * 1024 * 1024,
+      );
+      return {
+        ok: true,
+        json: async () =>
+          completed(
+            JSON.stringify(imageResponse(imageIds.slice(0, 2).map(compatible))),
+          ),
+      };
+    };
+    const result = await ai.evaluateReport(
+      { ...input, adjuntos: imageIds.map((id) => file(id, "image/jpeg")) },
+      fire,
+    );
+    assert.equal(result.requiereRevision, true);
+    assert.equal(result.evidencias[2].resultado, "NO_CONCLUYENTE");
+    assert.match(result.evidencias[2].motivo, /límite/);
   }));

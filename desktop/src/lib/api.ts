@@ -33,6 +33,9 @@ export async function upload(file: File, privado = false, tipo: 'PUBLICO' | 'EVI
   if (file.size > 15 * 1024 * 1024) throw new ApiError('Cada archivo debe pesar como máximo 15 MB.', 400);
   return unwrap(await window.civigoDesktop.upload({ name: file.name, mimeType: file.type, bytes: new Uint8Array(await file.arrayBuffer()), privado, tipo })) as import('./types').Adjunto;
 }
+export async function downloadAttachment(id: string) {
+  return unwrap(await window.civigoDesktop.download(id));
+}
 export function currentPosition(): Promise<import('./types').Posicion> { return Promise.reject(new Error('Introduce las coordenadas del negocio. El escritorio no solicita permisos de ubicación.')); }
 export const errorMessage = (error: unknown) => error instanceof Error ? error.message : 'Ocurrió un error inesperado.';
 export function formatDate(value?: string | null) { if (!value) return 'Sin fecha'; const date = new Date(value); return Number.isFinite(+date) ? new Intl.DateTimeFormat('es-PE', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'America/Lima' }).format(date) : 'Fecha no disponible'; }

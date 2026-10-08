@@ -1,10 +1,11 @@
 'use client';
 import { useState, useId } from 'react';
 import { RISK_COLORS, RISK_NAMES } from '@/lib/types';
+import CollapsiblePanel from './CollapsiblePanel';
 
-export default function RiskLegend() {
+export default function RiskLegend({ open, onOpenChange }: { open?: boolean; onOpenChange?: (open: boolean) => void }) {
     const [detail, setDetail] = useState(false), detailId = useId();
-    return <div className="risk-legend">
+    return <CollapsiblePanel title="Leyenda del mapa" className="risk-legend" open={open} onOpenChange={onOpenChange}>
         <strong>Riesgo registrado por tramo</strong>
         <div className="risk-scale">{RISK_COLORS.map(c => <span key={c} style={{ background: c }}/>)}</div>
         <div className="legend-endpoints"><span>0 · Seguro</span><span>5 · Crítico</span></div>
@@ -24,5 +25,5 @@ export default function RiskLegend() {
             <p style={{ fontSize: 9, margin: '10px 0 0', maxWidth: 210 }}>0 puntos: nivel 0. Más de 0–5: nivel 1; &gt;5–10: 2; &gt;10–15: 3; &gt;15–20: 4; &gt;20: 5. Según los reportes disponibles.</p>
             <p style={{ fontSize: 9, margin: '7px 0 0', maxWidth: 210 }}>Al alejar el zoom las zonas de incidentes se unen visualmente. Consulta la gravedad en cada marcador.</p>
         </div>
-    </div>;
+    </CollapsiblePanel>;
 }

@@ -26,6 +26,13 @@ const {
 } = require("../lib/workflows");
 const { ranking, currentMonth, monthRange } = require("../lib/ranking");
 const { processLifecycle } = require("../lib/lifecycle");
+const { hashPassword } = require("../lib/password");
+const {
+  phone,
+  email,
+  birthDate,
+  nicknameValue,
+} = require("../lib/account-input");
 const router = express.Router();
 router.use(auth);
 const adminOnly = (req, res, next) =>
@@ -80,7 +87,15 @@ router.get(
     const scope = districtScope(req.user);
     const [pendientes, activos, flags, usuarios, apelaciones] =
       await Promise.all([
-        prisma.incident.count({ where: { ...scope, evaluacion: "PENDIENTE" } }),
+        prisma.incident.count({
+          where: {
+            ...scope,
+            OR: [
+              { evaluacion: "PENDIENTE" },
+              { reportes: { some: { estado: "EN_REVISION" } } },
+            ],
+          },
+        }),
         prisma.incident.count({
           where: { ...scope, estado: { in: ["ACTIVO", "VALIDADO"] } },
         }),
@@ -230,6 +245,86 @@ router.get(
     ),
   ),
 );
+router.post(
+  "/users",
+  adminOnly,
+  asyncRoute(async (req, res) => {
+    const b = req.body;
+    const rol = b.rol ?? "USUARIO";
+    if (!["USUARIO", "AGENTE", "ADMIN"].includes(rol))
+      throw new HttpError(400, "Rol inválido.");
+    const correo = email(b.correo);
+    if (rol === "USUARIO" && !correo.endsWith("@gmail.com"))
+      throw new HttpError(
+        400,
+        "Las cuentas ciudadanas deben usar Gmail.",
+        "EMAIL_GMAIL_REQUIRED",
+      );
+    if (
+      b.correoVerificado !== undefined &&
+      typeof b.correoVerificado !== "boolean"
+    )
+      throw new HttpError(400, "Verificación de correo inválida.");
+    const correoVerificado = b.correoVerificado === true;
+    const motivoVerificacion = correoVerificado
+      ? text(b.motivoVerificacion, "Motivo de validación", 1000, 10)
+      : null;
+    const tipoAgente = rol === "AGENTE" ? b.tipoAgente : null;
+    const distrito = rol === "AGENTE" ? (b.distrito ?? null) : null;
+    if (
+      rol === "AGENTE" &&
+      !["POLICIA", "SERENAZGO", "COLABORADOR"].includes(tipoAgente)
+    )
+      throw new HttpError(400, "Selecciona el tipo de agente.");
+    if (distrito !== null && !DISTRICTS.includes(distrito))
+      throw new HttpError(400, "Distrito inválido.");
+    if (rol === "AGENTE" && tipoAgente !== "COLABORADOR" && !distrito)
+      throw new HttpError(400, "Asigna un distrito al agente.");
+    if (
+      b.permisos !== undefined &&
+      (!Array.isArray(b.permisos) ||
+        b.permisos.some((value) => !permissions.includes(value)))
+    )
+      throw new HttpError(400, "Permisos inválidos.");
+    const data = {
+      nombreUsuario: nicknameValue(b.nickname || b.nombreUsuario),
+      nombres: text(b.nombres || b.nombre, "Nombres", 100),
+      apellidos: text(b.apellidos, "Apellidos", 100),
+      fechaNacimiento: birthDate(b.fechaNacimiento),
+      correo,
+      telefono: phone(b.telefono),
+      rol,
+      tipoAgente,
+      distrito,
+      permisos: rol === "AGENTE" ? [...new Set(b.permisos ?? [])] : [],
+      correoVerificado,
+      telefonoVerificado: false,
+      reputacion: null,
+      password: await hashPassword(text(b.password, "Contraseña", 128, 10)),
+    };
+    const result = await transaction(async (db) => {
+      const actor = await db.user.findUnique({ where: { id: req.user.id } });
+      if (!actor || actor.rol !== "ADMIN" || actor.bloqueado)
+        throw new HttpError(
+          403,
+          "Tu cuenta ya no tiene acceso administrativo.",
+        );
+      const created = await db.user.create({ data });
+      await audit(db, actor, "CREAR_USUARIO", "USUARIO", created.id, {
+        rol,
+        correoVerificado,
+      });
+      if (correoVerificado)
+        await audit(db, actor, "VALIDAR_CORREO_ADMIN", "USUARIO", created.id, {
+          motivo: motivoVerificacion,
+          verificacionGoogleReal: false,
+        });
+      return created;
+    });
+    // Crear una cuenta no cambia ni sustituye la sesión del administrador.
+    res.status(201).json({ usuario: ownUser(result) });
+  }),
+);
 router.patch(
   "/users/:id",
   adminOnly,
@@ -269,6 +364,11 @@ router.patch(
           throw new HttpError(400, "Valor inválido.");
         data[key] = b[key];
       }
+    if (b.correoVerificado !== undefined) {
+      if (typeof b.correoVerificado !== "boolean")
+        throw new HttpError(400, "Verificación de correo inválida.");
+      data.correoVerificado = b.correoVerificado;
+    }
     if (
       target === req.user.id &&
       (data.bloqueado || (data.rol && data.rol !== "ADMIN"))
@@ -278,8 +378,20 @@ router.patch(
         "No puedes retirar tu propio acceso administrativo.",
       );
     const result = await transaction(async (db) => {
+      const actor = await db.user.findUnique({ where: { id: req.user.id } });
+      if (!actor || actor.rol !== "ADMIN" || actor.bloqueado)
+        throw new HttpError(
+          403,
+          "Tu cuenta ya no tiene acceso administrativo.",
+        );
       const existing = await db.user.findUnique({ where: { id: target } });
       if (!existing) throw new HttpError(404, "Usuario no encontrado.");
+      const verificationChanged =
+        data.correoVerificado !== undefined &&
+        data.correoVerificado !== existing.correoVerificado;
+      const verificationReason = verificationChanged
+        ? text(b.motivoVerificacion, "Motivo de validación", 1000, 10)
+        : null;
       if (
         (data.rol || existing.rol) === "AGENTE" &&
         (data.tipoAgente ?? existing.tipoAgente) !== "COLABORADOR" &&
@@ -293,6 +405,22 @@ router.patch(
           data: { ocultarAnuncios: false },
         });
       await audit(db, req.user, "ACTUALIZAR", "USUARIO", target, data);
+      if (verificationChanged)
+        await audit(
+          db,
+          actor,
+          data.correoVerificado
+            ? "VALIDAR_CORREO_ADMIN"
+            : "REVOCAR_CORREO_ADMIN",
+          "USUARIO",
+          target,
+          {
+            motivo: verificationReason,
+            anterior: existing.correoVerificado,
+            actual: data.correoVerificado,
+            verificacionGoogleReal: false,
+          },
+        );
       return u;
     });
     res.json({ usuario: ownUser(result) });

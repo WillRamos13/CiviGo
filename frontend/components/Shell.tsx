@@ -73,7 +73,7 @@ export default function Shell({ children }: { children: React.ReactNode }) {
           </span>
         </Link>
         <span className="coverage-pill">
-          <span /> Ica, Perú · Piloto ciudadano
+          <span /> Ica, Perú
         </span>
         <div className="header-actions">
           <ThemeToggle />
@@ -162,7 +162,7 @@ export default function Shell({ children }: { children: React.ReactNode }) {
             <Link href="/reportar">Hacer un reporte →</Link>
           </div>
           <div className="sidebar-footer">
-            CiviGo · Proyecto académico
+            CiviGo · Información ciudadana
             <br />
             <span>Publicidad y canjes en demostración</span>
           </div>

@@ -1,9 +1,12 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { api, API_URL } from "@/lib/api";
+import { api } from "@/lib/api";
+import AttachmentDownload from "@/components/AttachmentDownload";
 import { useAuth } from "@/components/AuthProvider";
 import IncidentIcon from "@/components/IncidentIcon";
+import { incidentEvaluationLabel } from "@/lib/incidents";
+import EditorPanel from "@/components/EditorPanel";
 import {
   dateTime,
   Feedback,
@@ -183,6 +186,7 @@ function ReviewDetail({
       </div>
       <div className="flex flex-wrap gap-2 mt-4">
         <span className="badge">{stateLabel(incident.estado)}</span>
+        <span className="badge">{incidentEvaluationLabel(incident)}</span>
         <span className="badge">
           {incident.publicado
             ? "Visible en el mapa"
@@ -201,7 +205,7 @@ function ReviewDetail({
           <strong>{incident.nivelRiesgo ?? "Por evaluar"}</strong>
         </div>
         <div className="rounded-xl bg-slate-50 p-3">
-          <p className="muted text-sm">Validación</p>
+          <p className="muted text-sm">Peso de validación</p>
           <strong>{number(incident.validacion * 100)} %</strong>
         </div>
         <div className="rounded-xl bg-slate-50 p-3">
@@ -213,6 +217,7 @@ function ReviewDetail({
           <strong className="text-sm">{dateTime(incident.fechaEvento)}</strong>
         </div>
       </div>
+      <p className="muted text-sm mt-3">La evaluación por IA es preliminar: no certifica la autenticidad de las imágenes ni del hecho. El peso de validación es un factor del cálculo de riesgo, no una probabilidad de que el reporte sea verdadero. Revisa las pruebas y las confirmaciones antes de validar.</p>
       {incident.motivoRetiro && (
         <p className="notice mt-4">
           Motivo de retirada: {incident.motivoRetiro}
@@ -251,8 +256,9 @@ function ReviewDetail({
                     "Autor registrado"}
                 </h4>
                 <p className="muted text-sm">
-                  {dateTime(report.fechaCreacion)} · {stateLabel(report.estado)}
+                  {dateTime(report.fechaCreacion)} · {report.estado === "EN_REVISION" ? "En revisión humana" : stateLabel(report.estado)}
                 </p>
+                {report.estado === "EN_REVISION" && <p className="notice notice-warning mt-2">Este aporte requiere revisión humana. El estado del incidente agrupado no valida este reporte.</p>}
                 <p className="mt-2 whitespace-pre-wrap">{report.descripcion}</p>
                 <ul className="flex flex-wrap gap-2 mt-3">
                   {report.adjuntos?.map((attachment) => (
@@ -262,17 +268,12 @@ function ReviewDetail({
                           Documento privado · permiso requerido
                         </span>
                       ) : (
-                        <a
-                          className="btn btn-secondary text-sm"
-                          href={`${API_URL}/uploads/${encodeURIComponent(attachment.id)}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                        >
+                        <AttachmentDownload id={attachment.id}>
                           {attachment.privado
-                            ? "Prueba privada: "
-                            : "Adjunto: "}
+                            ? "Descargar prueba privada: "
+                            : "Descargar adjunto: "}
                           {attachment.nombre}
-                        </a>
+                        </AttachmentDownload>
                       )}
                     </li>
                   ))}
@@ -429,11 +430,14 @@ export default function IncidentReviewPanel({
   const [status, setStatus] = useState("TODOS");
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState<IncidentReview | null>(null);
+  const [editorOpening, setEditorOpening] = useState(0);
   const [success, setSuccess] = useState("");
   const incidents = (data ?? []).filter((incident) => {
     const matchesStatus =
       status === "TODOS" ||
-      (status === "PUBLICADOS"
+      (status === "REVISION"
+        ? incident.evaluacion === "PENDIENTE" || incident.reportes?.some(report => report.estado === "EN_REVISION")
+        : status === "PUBLICADOS"
         ? incident.publicado
         : status === "SIN_PUBLICAR"
           ? !incident.publicado
@@ -466,6 +470,7 @@ export default function IncidentReviewPanel({
             onChange={(event) => setStatus(event.target.value)}
           >
             <option value="TODOS">Todos</option>
+            <option value="REVISION">Pendientes de revisión</option>
             <option value="SIN_PUBLICAR">Pendientes de publicación</option>
             <option value="PUBLICADOS">Visibles en el mapa</option>
             <option value="ACTIVO">Activos</option>
@@ -519,10 +524,14 @@ export default function IncidentReviewPanel({
                           {stateLabel(incident.estado)}
                         </span>
                         <span className="badge">
+                          {incidentEvaluationLabel(incident)}
+                        </span>
+                        {incident.reportes?.some(report => report.estado === 'EN_REVISION') && <span className="badge">Aportes en revisión humana</span>}
+                        <span className="badge">
                           Gravedad {incident.nivelRiesgo ?? "por evaluar"}
                         </span>
                         <span className="badge">
-                          {number(incident.validacion * 100)} % de validación
+                          {number(incident.validacion * 100)} % de peso de validación
                         </span>
                       </div>
                     </div>
@@ -530,6 +539,7 @@ export default function IncidentReviewPanel({
                       className="btn btn-primary self-start"
                       onClick={() => {
                         setSelected(incident);
+                        setEditorOpening(value => value + 1);
                         setSuccess("");
                       }}
                     >
@@ -543,6 +553,7 @@ export default function IncidentReviewPanel({
         </section>
       )}
       {selected && (
+        <EditorPanel label={`Revisar incidente ${selected.id}`} selectionKey={`${selected.id}:${editorOpening}`}>
         <ReviewDetail
           key={selected.id}
           incident={selected}
@@ -556,8 +567,8 @@ export default function IncidentReviewPanel({
             onChanged?.();
           }}
         />
+        </EditorPanel>
       )}
     </>
   );
 }
-

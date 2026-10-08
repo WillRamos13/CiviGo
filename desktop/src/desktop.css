@@ -10,3 +10,5 @@
 .page-heading { margin-bottom:24px; }
 .incident-type-icon img { object-fit:contain; }
 .table-wrap { overflow:auto; }
+.editor-panel { display:flow-root;scroll-margin-top:100px; }
+.editor-panel:focus-visible { outline:2px solid var(--brand);outline-offset:4px;border-radius:14px; }

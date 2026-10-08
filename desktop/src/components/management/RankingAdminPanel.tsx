@@ -75,7 +75,7 @@ export default function RankingAdminPanel() {
         </div>
       </form>
       <p className="muted text-sm mt-4">
-        Las monedas del piloto pertenecen a una demostración. Esta acción no
+        Las monedas pertenecen a una demostración. Esta acción no
         registra pagos ni entregas reales.
       </p>
     </section>

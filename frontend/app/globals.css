@@ -557,21 +557,82 @@ textarea::placeholder {
 .map-page {
   padding: 27px 28px;
 }
-.map-heading {
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+.collapsible-panel {
+  background: var(--surface-raised);
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  min-width: 0;
+}
+.panel-toggle {
   display: flex;
+  align-items: center;
   justify-content: space-between;
-  gap: 15px;
-  align-items: flex-start;
-  margin-bottom: 21px;
+  gap: 10px;
+  width: 100%;
+  min-height: 44px;
+  padding: 14px 17px;
+  background: transparent;
+  border: 0;
+  border-radius: 11px;
+  color: inherit;
+  font-size: 15px;
+  font-weight: 700;
+  text-align: left;
 }
-.map-heading h1 {
-  font-size: 25px;
-  margin-bottom: 8px;
+.panel-toggle:hover {
+  background: var(--surface-muted);
 }
-.map-heading p {
-  font-size: 13px;
-  color: var(--muted);
-  margin-bottom: 0;
+.panel-toggle svg {
+  flex-shrink: 0;
+  transition: transform 0.15s;
+}
+.panel-toggle[aria-expanded="true"] svg {
+  transform: rotate(180deg);
+}
+.collapsible-panel-body {
+  padding: 0 17px 17px;
+}
+.collapsible-panel-body[hidden] {
+  display: none;
+}
+.map-side-panel {
+  margin-bottom: 16px;
+}
+.side-panel .map-side-panel .card {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  background: transparent;
+}
+.map-route-panel .card > .card-header:first-child {
+  display: none;
+}
+.map-reports-panel .collapsible-panel-body {
+  max-height: 430px;
+  overflow-y: auto;
+}
+.incident-list {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+}
+.incident-list .incident-row > div {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.map-risk-note {
+  font-size: 11px;
 }
 .map-workspace {
   display: grid;
@@ -598,19 +659,29 @@ textarea::placeholder {
   top: 15px;
   left: 15px;
   z-index: 2;
-  background: var(--surface-raised);
-  color: var(--ink);
-  border: 1px solid var(--line);
   box-shadow: 0 2px 10px rgb(var(--shadow-rgb) / 10%);
   border-radius: 9px;
-  padding: 9px 13px;
-  display: flex;
-  flex-wrap: wrap;
+  width: 245px;
   max-width: calc(100% - 85px);
-  gap: 8px 14px;
   font-size: 11px;
 }
-.map-controls label {
+.map-controls .panel-toggle,
+.risk-legend .panel-toggle {
+  padding: 10px 12px;
+  font-size: 11px;
+}
+.map-controls .collapsible-panel-body,
+.risk-legend .collapsible-panel-body {
+  padding: 0 12px 12px;
+  max-height: 300px;
+  overflow-y: auto;
+}
+.map-layer-options {
+  display: grid;
+  gap: 9px;
+  padding: 4px 0 13px;
+}
+.map-layer-options label {
   display: flex;
   gap: 6px;
   align-items: center;
@@ -619,9 +690,26 @@ textarea::placeholder {
 .map-controls input {
   accent-color: var(--brand);
 }
+.map-type-filter {
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+  margin-bottom: 0;
+}
+.map-type-filter label,
+.map-type-filter select {
+  font-size: 11px;
+}
+.map-type-filter .btn {
+  margin-top: 6px;
+  padding: 4px 0;
+}
+.map-type-filter small {
+  display: block;
+  line-height: 1.5;
+}
 .map-message {
   position: absolute;
-  top: 115px;
+  bottom: 80px;
   left: 15px;
   right: 55px;
   z-index: 2;
@@ -639,14 +727,14 @@ textarea::placeholder {
   bottom: 25px;
   left: 15px;
   z-index: 2;
-  padding: 13px 15px;
   background: var(--surface-raised);
   color: var(--ink);
   border: 1px solid var(--line);
   border-radius: 10px;
   box-shadow: 0 2px 10px rgb(var(--shadow-rgb) / 10%);
   font-size: 10px;
-  max-width: 265px;
+  width: 245px;
+  max-width: calc(100% - 85px);
 }
 .risk-legend strong {
   font-size: 11px;
@@ -1402,21 +1490,8 @@ html[data-theme="dark"] .mapboxgl-ctrl-attrib-button {
   .map-page {
     padding: 22px 16px;
   }
-  .map-heading {
-    flex-direction: column;
-  }
-  .map-heading h1 {
-    font-size: 24px;
-  }
   .map-frame {
     height: 470px;
-  }
-  .map-controls {
-    flex-direction: column;
-    align-items: flex-start;
-  }
-  .map-message {
-    top: 125px;
   }
   .side-panel {
     display: block;
@@ -1455,7 +1530,6 @@ html[data-theme="dark"] .mapboxgl-ctrl-attrib-button {
   }
   .risk-legend {
     bottom: 25px;
-    padding: 10px 12px;
   }
   .stats-row {
     gap: 24px;

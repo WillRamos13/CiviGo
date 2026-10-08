@@ -5,7 +5,11 @@ const path = require("node:path");
 const os = require("node:os");
 const crypto = require("node:crypto");
 const express = require("express");
-const { createStorage, storageStatus } = require("../src/lib/storage");
+const {
+  createStorage,
+  storageStatus,
+  MAX_FILE_SIZE,
+} = require("../src/lib/storage");
 const { createUploadRouter } = require("../src/routes/uploads");
 
 const env = {
@@ -493,4 +497,200 @@ test("Storage paths cannot escape the local directory or delete broad cloud pref
   );
   await local.remove(filePath);
   assert.deepEqual(await fs.readdir(directory), []);
+});
+
+test("Internal local reads are bounded and reject missing files, directories, outside paths and URLs", async (t) => {
+  const directory = await fs.mkdtemp(
+    path.join(os.tmpdir(), "civigo-read-local-"),
+  );
+  t.after(() => fs.rm(directory, { recursive: true, force: true }));
+  const local = createStorage({ env: {}, directory });
+  const filePath = path.join(directory, crypto.randomUUID());
+  await fs.writeFile(filePath, photo);
+  assert.deepEqual(
+    await local.read({ path: filePath, size: photo.length }),
+    photo,
+  );
+  for (const value of [
+    path.join(directory, "missing"),
+    path.join(directory, "..", "outside"),
+    "https://example.test/image.jpg",
+    "http://127.0.0.1/private",
+    undefined,
+  ])
+    await assert.rejects(local.read({ path: value }), { status: 404 });
+  const subdirectory = path.join(directory, "nested");
+  await fs.mkdir(subdirectory);
+  await assert.rejects(local.read({ path: subdirectory }), { status: 404 });
+  await assert.rejects(
+    local.read({ path: filePath, size: MAX_FILE_SIZE + 1 }),
+    { status: 413 },
+  );
+  const handle = await fs.open(filePath, "r+");
+  await handle.truncate(MAX_FILE_SIZE + 1);
+  await handle.close();
+  await assert.rejects(local.read({ path: filePath, size: 8 }), {
+    status: 413,
+  });
+});
+
+test("Internal reads cannot follow a directory symlink outside the upload root", async (t) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "civigo-read-symlink-"));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const directory = path.join(root, "uploads");
+  const outside = path.join(root, "private");
+  await fs.mkdir(directory);
+  await fs.mkdir(outside);
+  await fs.writeFile(path.join(outside, "image"), photo);
+  const link = path.join(directory, "link");
+  await fs.symlink(
+    outside,
+    link,
+    process.platform === "win32" ? "junction" : "dir",
+  );
+  const local = createStorage({ env: {}, directory });
+  await assert.rejects(local.read({ path: path.join(link, "image") }), {
+    status: 404,
+  });
+  assert.deepEqual(await fs.readFile(path.join(outside, "image")), photo);
+});
+
+test("Internal Supabase reads use only authenticated private-bucket requests", async () => {
+  const remote = provider();
+  const storage = createStorage({ env, fetchImpl: remote.fetchImpl });
+  const id = crypto.randomUUID();
+  const row = {
+    path: "supabase://civigo-attachments/uploads/7/" + id,
+    size: photo.length,
+  };
+  assert.deepEqual(await storage.read(row), photo);
+  assert.equal(remote.calls.length, 2);
+  assert.equal(
+    remote.calls[1].url,
+    env.SUPABASE_URL +
+      "/storage/v1/object/authenticated/civigo-attachments/uploads/7/" +
+      id,
+  );
+  assert.equal(remote.calls[1].options.headers.apikey, env.SUPABASE_SECRET_KEY);
+  assert.equal(remote.calls[1].options.headers.Range, undefined);
+  assert.equal(remote.calls[1].options.redirect, "error");
+  for (const value of [
+    "supabase://other/uploads/7/" + id,
+    "supabase://civigo-attachments/uploads/7/../" + id,
+    "supabase://civigo-attachments/uploads/7/",
+  ])
+    await assert.rejects(storage.read({ path: value }), { status: 404 });
+  assert.equal(
+    remote.calls.length,
+    2,
+    "unsafe paths are rejected before provider access",
+  );
+  const publicProvider = provider({ publicBucket: true });
+  await assert.rejects(
+    createStorage({ env, fetchImpl: publicProvider.fetchImpl }).read(row),
+    { code: "STORAGE_PRIVATE_BUCKET_REQUIRED" },
+  );
+  assert.equal(publicProvider.calls.length, 1);
+});
+
+test("Remote reads enforce declared and streamed size, cancel failures and sanitize provider errors", async () => {
+  const row = {
+    path: "supabase://civigo-attachments/uploads/7/" + crypto.randomUUID(),
+  };
+  let canceled = 0;
+  const cases = [
+    [
+      413,
+      () =>
+        new Response(
+          new ReadableStream({
+            cancel() {
+              canceled++;
+            },
+          }),
+          { headers: { "Content-Length": String(MAX_FILE_SIZE + 1) } },
+        ),
+    ],
+    [
+      413,
+      () =>
+        new Response(
+          new ReadableStream({
+            start(controller) {
+              controller.enqueue(new Uint8Array(8 * 1024 * 1024));
+              controller.enqueue(new Uint8Array(8 * 1024 * 1024));
+            },
+            cancel() {
+              canceled++;
+            },
+          }),
+          { headers: { "Content-Length": "1" } },
+        ),
+    ],
+    [503, () => new Response(photo, { status: 206 })],
+    [503, () => new Response(null)],
+    [
+      503,
+      () =>
+        new Response(
+          new ReadableStream({
+            start(controller) {
+              controller.error(new Error("provider-secret-body"));
+            },
+          }),
+        ),
+    ],
+  ];
+  for (const [status, response] of cases) {
+    const storage = createStorage({
+      env,
+      fetchImpl: async (url) =>
+        url.includes("/bucket/")
+          ? Response.json({ public: false })
+          : response(),
+    });
+    await assert.rejects(storage.read(row), (error) => {
+      assert.equal(error.status, status);
+      assert.ok(!error.message.includes("provider-secret-body"));
+      assert.ok(!error.message.includes(env.SUPABASE_SECRET_KEY));
+      return true;
+    });
+  }
+  assert.equal(canceled, 2);
+  const unavailable = createStorage({
+    env,
+    fetchImpl: async () => {
+      throw new Error(env.SUPABASE_SECRET_KEY);
+    },
+  });
+  await assert.rejects(unavailable.read(row), { code: "STORAGE_UNAVAILABLE" });
+});
+
+test("An interrupted private-object stream fails closed without waiting for an unbounded body", async (t) => {
+  const controller = new AbortController();
+  t.mock.method(AbortSignal, "timeout", () => controller.signal);
+  let canceled = false;
+  const remote = createStorage({
+    env,
+    fetchImpl: async (url) => {
+      if (url.includes("/bucket/")) return Response.json({ public: false });
+      return new Response(
+        new ReadableStream({
+          start() {
+            setTimeout(() => controller.abort(), 10);
+          },
+          cancel() {
+            canceled = true;
+          },
+        }),
+      );
+    },
+  });
+  await assert.rejects(
+    remote.read({
+      path: "supabase://civigo-attachments/uploads/7/" + crypto.randomUUID(),
+    }),
+    { code: "STORAGE_UNAVAILABLE" },
+  );
+  assert.equal(canceled, true);
 });

@@ -48,6 +48,7 @@ function report(r, privateView = false) {
     longitud: r.longitud,
     nivelRiesgo: r.nivelRiesgo,
     estado: r.estado,
+    requiereRevision: r.estado === "EN_REVISION",
     incidenteId: r.incidenteId,
     fechaEvento: r.fechaEvento,
     fechaPublicacion: r.incidente?.fechaPublicacion ?? null,
@@ -72,7 +73,10 @@ function incident(i, privateView = false) {
   const verifiedReports = allReports.filter(
     (r) => r.usuario?.correoVerificado === true,
   );
-  const visibleReports = privateView ? allReports : verifiedReports;
+  const publicReports = verifiedReports.filter(
+    (r) => r.estado !== "EN_REVISION",
+  );
+  const visibleReports = privateView ? allReports : publicReports;
   const votes = (i.votos || []).filter(
     (v) => v.usuario?.correoVerificado === true,
   );
@@ -95,8 +99,11 @@ function incident(i, privateView = false) {
     tipoSlug: i.tipoCatalogo?.slug,
     categoria: i.tipoCatalogo?.categoria?.nombre,
     descripcion:
-      !privateView && allReports.length !== verifiedReports.length
-        ? (verifiedReports[0]?.descripcion ?? "")
+      !privateView && allReports.length !== publicReports.length
+        ? (publicReports[0]?.descripcion ??
+          (i.emergencia && i.evaluacion === "PENDIENTE"
+            ? (verifiedReports[0]?.descripcion ?? "")
+            : ""))
         : i.descripcion,
     latitud: i.latitud,
     longitud: i.longitud,

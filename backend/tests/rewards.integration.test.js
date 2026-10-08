@@ -19,7 +19,7 @@ if (connection) {
   process.env.UPLOAD_DIR = path.join(__dirname, "../.test-uploads");
 }
 test(
-  "Los aportes validados conservan gravedad y premios, y las pruebas públicas o posteriores se premian una sola vez",
+  "Los aportes conservan gravedad y premios; las pruebas posteriores esperan revisión y se premian una sola vez",
   { skip: !connection },
   async () => {
     const prisma = require("../src/lib/db"),
@@ -237,7 +237,48 @@ test(
         });
       }
       const attached = await attach();
-      assert.equal(attached.status, 200, JSON.stringify(await attached.json()));
+      const pendingProof = await attached.json();
+      assert.equal(attached.status, 200, JSON.stringify(pendingProof));
+      assert.equal(pendingProof.estado, "EN_REVISION");
+      assert.equal(
+        await prisma.pointEvent.findUnique({
+          where: { clave: "prueba:" + result.reporte.id },
+        }),
+        null,
+      );
+      const administrator = await prisma.user.update({
+        where: { id: users[0].id },
+        data: { rol: "ADMIN" },
+      });
+      let adminCookie;
+      await createSession(administrator, {
+        cookie(name, value) {
+          adminCookie = name + "=" + value;
+        },
+      });
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const reviewed = await fetch(
+          base + "/admin/incidents/" + incident.id + "/review",
+          {
+            method: "POST",
+            headers: {
+              Cookie: adminCookie,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              accion: "VALIDAR",
+              nivelRiesgo: 4,
+              motivo:
+                "Prueba posterior revisada y aceptada en el ensayo local.",
+            }),
+          },
+        );
+        assert.equal(
+          reviewed.status,
+          200,
+          JSON.stringify(await reviewed.json()),
+        );
+      }
       assert.equal(
         (
           await prisma.pointEvent.findUnique({
@@ -271,6 +312,8 @@ test(
           where: { usuarioId: { in: ids } },
         });
         await prisma.report.deleteMany({ where: { usuarioId: { in: ids } } });
+        await prisma.review.deleteMany({ where: { usuarioId: { in: ids } } });
+        await prisma.auditLog.deleteMany({ where: { usuarioId: { in: ids } } });
         if (incidentId)
           await prisma.incident.deleteMany({ where: { id: incidentId } });
         await prisma.user.deleteMany({ where: { id: { in: ids } } });

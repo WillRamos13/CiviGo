@@ -2,7 +2,13 @@
 
 Aplicación de escritorio independiente, hecha con Electron, React, TypeScript y Vite. Los paneles se cargan desde archivos locales; la aplicación utiliza la API de CiviGo en Railway y la misma cuenta administradora existente. El frontend público queda en Vercel.
 
-El administrador puede revisar incidentes y apelaciones, gestionar usuarios y permisos, categorías, negocios, recompensas, cierres de ranking, recuperaciones, antecedentes históricos, reglas, auditoría e integraciones. El acceso a documentos privados pasa por el backend y permite guardarlos mediante el diálogo de Windows. El correo se verifica con Google en el sitio público; no se usan códigos ni verificación telefónica en esta aplicación.
+El administrador puede revisar incidentes y apelaciones, crear usuarios y gestionar sus permisos, categorías, negocios, recompensas, cierres de ranking, recuperaciones, antecedentes históricos, reglas, auditoría e integraciones. Los botones de adjuntos descargan documentos mediante la sesión del escritorio y el diálogo de Windows, con estado de progreso y errores visibles. El correo se verifica con Google en el sitio público; también puede validarlo o revocarlo un administrador, indicando un motivo que queda en auditoría. No se usan códigos ni verificación telefónica.
+
+En **Usuarios → Crear usuario**, completa identidad, correo, teléfono de contacto, fecha de nacimiento y contraseña de al menos diez caracteres. Puedes elegir Ciudadano, Agente o Administrador; el ciudadano requiere Gmail y el agente requiere su ámbito y permisos. Marcar **Correo verificado** exige explicar la comprobación. La creación conserva la sesión actual del administrador. Una validación manual habilita participación, pero no acredita una autenticación real de Google.
+
+Los aportes con imágenes dudosas, no relacionadas o archivos sin analizar aparecen **En revisión humana**, aunque otro aporte del mismo incidente ya esté validado. Consulta sus adjuntos antes de aprobar el incidente; esa aprobación explícita libera los aportes retenidos. Las confirmaciones comunitarias no los liberan.
+
+Al pulsar **Crear usuario**, **Administrar**, **Revisar** o abrir otro editor, la vista se desplaza al formulario y le da foco. Esto también funciona si repites el mismo botón después de volver al listado; escribir en los campos conserva el foco. La versión instalada se muestra en ingreso y cabecera: utiliza **0.2.1** para esta corrección.
 
 ## Ejecutar desde el código
 
@@ -19,7 +25,7 @@ npm run dev
 
 Inicia sesión con una cuenta que tenga el rol `ADMIN` en el backend. No hay usuario, contraseña ni clave de API incorporados en el programa. Una cuenta `USUARIO` o `AGENTE` no puede acceder. El rol se vuelve a comprobar en el servidor y se actualiza durante la sesión.
 
-Si todavía no existe un administrador activo, el propietario puede registrar primero su cuenta en la web y ejecutar una sola vez `npm run admin:bootstrap` desde `backend`, con `ADMIN_EMAIL` definido con el correo de esa cuenta y la conexión de base de datos ya configurada. El script se niega a continuar si hay otro administrador activo; no crea contraseñas ni modifica la información de contacto. Los administradores posteriores se gestionan desde el panel.
+Si todavía no existe un administrador activo, el propietario puede registrar primero su cuenta en la web y ejecutar una sola vez `npm run db:bootstrap` desde `backend`, con `ADMIN_EMAIL` definido con el correo de esa cuenta y la conexión de base de datos ya configurada. El script se niega a continuar si hay otro administrador activo; no crea contraseñas ni modifica la información de contacto. Los administradores posteriores se gestionan desde el panel.
 
 ## Crear los ejecutables
 
@@ -30,8 +36,10 @@ npm run dist
 
 El primer comando genera `release/win-unpacked/CiviGo Administración.exe` junto con sus archivos de ejecución. Conserva toda esa carpeta al distribuirlo. El segundo genera estos dos archivos que puedes entregar por separado:
 
-- `release/CiviGo-Administracion-Instalador-0.1.0.exe`: instalación para el usuario actual de Windows, sin necesidad de permisos de administrador.
-- `release/CiviGo-Administracion-Portable-0.1.0.exe`: aplicación portátil que se abre sin instalarla.
+- `release/CiviGo-Administracion-Instalador-0.2.1.exe`: instalación para el usuario actual de Windows, sin necesidad de permisos de administrador.
+- `release/CiviGo-Administracion-Portable-0.2.1.exe`: aplicación portátil que se abre sin instalarla.
+
+Esta versión necesita el backend actualizado para crear usuarios y validar sus correos. Instalar el escritorio no despliega los cambios en Railway o Vercel. Este bloque no añade migraciones ni variables de entorno.
 
 Los paquetes locales no se publican ni se suben automáticamente. No incluyen certificado de firma de código; Windows puede mostrar la advertencia de editor desconocido. Firmar una futura distribución requiere un certificado del propietario del proyecto.
 
@@ -68,7 +76,7 @@ npm run test:electron
 npm run test:package
 ```
 
-Las pruebas de Node verifican roles, cookies, IPC, URLs, límite de archivos, multipart, sesiones y cancelación de lecturas. La prueba de Electron abre una ventana oculta y usa una API simulada en `127.0.0.1`: recorre las doce pestañas y comprueba la interfaz, aislamiento de Node.js, acceso de administrador, descarga privada, revocación de rol y cierre de sesión. Guarda el resultado y las capturas en `.local/electron-smoke/` y nunca llama a Railway, Google u OpenAI.
+Las pruebas de Node verifican roles, cookies, IPC, URLs, límite de archivos, multipart, sesiones, cancelación de lecturas y enfoque de editores. La prueba de Electron abre una ventana oculta y usa una API simulada en `127.0.0.1`: recorre las doce pestañas, verifica editores visibles con listas de 24 registros, reapertura, creación y guardado de usuarios, aislamiento de Node.js, acceso de administrador, descarga privada, revocación de rol y cierre de sesión. Guarda el resultado y las capturas en `.local/electron-smoke/` y nunca llama a Railway, Google u OpenAI.
 
 `test:package`, después de `pack` o `dist`, repite esa prueba usando los archivos reales de `release/win-unpacked/resources/app.asar`. Utiliza el runtime de desarrollo y la API simulada; no ejecuta ni instala el instalador de Windows ni abre una ventana visible. La conexión al backend real se revisa al iniciar sesión con la cuenta administradora después de configurar el servicio.
 

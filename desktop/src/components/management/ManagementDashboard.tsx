@@ -139,7 +139,7 @@ function DashboardContent() {
           <h1 className="mt-3">Centro de revisión</h1>
           <p className="muted">
             {admin
-              ? "Gestiona la comunidad, los incidentes y la demostración del piloto."
+              ? "Gestiona la comunidad y los incidentes de CiviGo."
               : `Revisa la información de ${usuario?.distrito ?? "la provincia de Ica"} según tus permisos asignados.`}
           </p>
         </div>

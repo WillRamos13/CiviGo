@@ -121,7 +121,7 @@ function createStorage({
       response = await fetchImpl(config.base + suffix, {
         ...options,
         headers: { ...config.headers, ...options.headers },
-        signal: AbortSignal.timeout(15000),
+        signal: options.signal || AbortSignal.timeout(15000),
         // A provider redirect must never forward backend credentials elsewhere.
         redirect: "error",
       });
@@ -147,11 +147,11 @@ function createStorage({
     return response;
   }
 
-  async function privateBucket(config, bucket) {
+  async function privateBucket(config, bucket, signal) {
     const response = await request(
       config,
       "/bucket/" + encodeURIComponent(bucket),
-      { method: "GET" },
+      { method: "GET", ...(signal ? { signal } : {}) },
     );
     let data;
     try {
@@ -220,6 +220,116 @@ function createStorage({
     await response.body?.cancel().catch(() => {});
   }
 
+  // Lectura interna para evaluar adjuntos que la ruta ya autorizó. Nunca acepta
+  // URL de un usuario ni genera enlaces públicos o firmados del proveedor.
+  async function read(row) {
+    if (row?.size > MAX_FILE_SIZE)
+      throw new HttpError(413, "El archivo supera 15 MB.");
+    if (typeof row?.path !== "string")
+      throw new HttpError(404, "Archivo no disponible.");
+    if (!row.path.startsWith("supabase://")) {
+      let handle;
+      try {
+        const resolved = localPath(row.path, directory);
+        const actualRoot = await fs.promises.realpath(directory);
+        const actual = await fs.promises.realpath(resolved);
+        localPath(actual, actualRoot);
+        handle = await fs.promises.open(
+          actual,
+          fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW || 0),
+        );
+        // Recomprueba el destino después de abrirlo y usa el descriptor abierto
+        // para no volver a resolver la ruta al leer cada fragmento.
+        localPath(await fs.promises.realpath(actual), actualRoot);
+        const info = await handle.stat();
+        if (!info.isFile()) throw new HttpError(404, "Archivo no disponible.");
+        if (info.size > MAX_FILE_SIZE)
+          throw new HttpError(413, "El archivo supera 15 MB.");
+        const chunks = [];
+        let size = 0;
+        while (true) {
+          const chunk = Buffer.allocUnsafe(64 * 1024);
+          const { bytesRead } = await handle.read(chunk, 0, chunk.length, null);
+          if (!bytesRead) break;
+          size += bytesRead;
+          if (size > MAX_FILE_SIZE)
+            throw new HttpError(413, "El archivo supera 15 MB.");
+          chunks.push(chunk.subarray(0, bytesRead));
+        }
+        return Buffer.concat(chunks, size);
+      } catch (error) {
+        if (error instanceof HttpError) throw error;
+        throw new HttpError(404, "Archivo no disponible.");
+      } finally {
+        await handle?.close().catch(() => {});
+      }
+    }
+    const { bucket, key } = remotePath(row.path);
+    const config = remoteConfig(env);
+    if (bucket !== config.bucket)
+      throw new HttpError(404, "Archivo no disponible.");
+    const signal = AbortSignal.timeout(15000);
+    await privateBucket(config, bucket, signal);
+    const response = await request(
+      config,
+      "/object/authenticated/" + bucket + "/" + key,
+      { method: "GET", signal },
+    );
+    let reader;
+    let abort;
+    let completed = false;
+    try {
+      // Una respuesta parcial no basta para evaluar una imagen completa.
+      if (response.status !== 200 || !response.body)
+        throw new HttpError(
+          503,
+          "Archivo no disponible.",
+          "STORAGE_UNAVAILABLE",
+        );
+      if (Number(response.headers.get("content-length")) > MAX_FILE_SIZE)
+        throw new HttpError(413, "El archivo supera 15 MB.");
+      reader = response.body.getReader();
+      const aborted = new Promise((resolve, reject) => {
+        abort = () => reject(new Error("storage timeout"));
+        signal.addEventListener("abort", abort, { once: true });
+      });
+      const chunks = [];
+      let size = 0;
+      while (true) {
+        signal.throwIfAborted();
+        const { done, value } = await Promise.race([reader.read(), aborted]);
+        if (done) {
+          completed = true;
+          break;
+        }
+        if (!(value instanceof Uint8Array))
+          throw new HttpError(
+            503,
+            "Archivo no disponible.",
+            "STORAGE_UNAVAILABLE",
+          );
+        size += value.byteLength;
+        if (size > MAX_FILE_SIZE)
+          throw new HttpError(413, "El archivo supera 15 MB.");
+        chunks.push(Buffer.from(value));
+      }
+      return Buffer.concat(chunks, size);
+    } catch (error) {
+      if (error instanceof HttpError) throw error;
+      throw new HttpError(503, "Archivo no disponible.", "STORAGE_UNAVAILABLE");
+    } finally {
+      if (abort) signal.removeEventListener("abort", abort);
+      if (reader) {
+        if (!completed) reader.cancel().catch(() => {});
+        try {
+          reader.releaseLock();
+        } catch {
+          /* Un timeout puede dejar una lectura pendiente hasta su cancelación. */
+        }
+      } else response.body?.cancel().catch(() => {});
+    }
+  }
+
   async function send(row, req, res) {
     if (!row.path.startsWith("supabase://")) {
       const resolved = localPath(row.path, directory);
@@ -264,7 +374,7 @@ function createStorage({
     await pipeline(Readable.fromWeb(response.body), res);
   }
 
-  return { save, remove, send, status: () => storageStatus(env) };
+  return { save, remove, send, read, status: () => storageStatus(env) };
 }
 
 module.exports = { createStorage, storageStatus, UPLOAD_DIR, MAX_FILE_SIZE };

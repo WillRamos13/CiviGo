@@ -1,5 +1,6 @@
 
 import { useState } from "react";
+import EditorPanel from "@/components/EditorPanel";
 import { api } from "@/lib/api";
 import {
   dateTime,
@@ -108,6 +109,7 @@ export default function AppealsPanel() {
   const { data, loading, error, reload } =
     useRemote<Appeal[]>("/admin/appeals");
   const [selected, setSelected] = useState<Appeal | null>(null);
+  const [editorOpening, setEditorOpening] = useState(0);
   const [success, setSuccess] = useState("");
   return (
     <>
@@ -150,6 +152,7 @@ export default function AppealsPanel() {
                         className="btn btn-primary self-start"
                         onClick={() => {
                           setSelected(appeal);
+                          setEditorOpening(value => value + 1);
                           setSuccess("");
                         }}
                       >
@@ -164,6 +167,7 @@ export default function AppealsPanel() {
         </section>
       )}
       {selected && (
+        <EditorPanel label={`Revisar apelación ${selected.id}`} selectionKey={`${selected.id}:${editorOpening}`}>
         <AppealForm
           key={selected.id}
           appeal={selected}
@@ -174,6 +178,7 @@ export default function AppealsPanel() {
             reload();
           }}
         />
+        </EditorPanel>
       )}
     </>
   );

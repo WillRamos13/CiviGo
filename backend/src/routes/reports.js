@@ -76,7 +76,7 @@ router.post(
     if (!inCoverage(p))
       throw new HttpError(
         422,
-        "No tenemos información disponible fuera de la cobertura inicial de Ica.",
+        "No tenemos información disponible fuera de la cobertura de Ica.",
         "OUT_OF_COVERAGE",
       );
     let type = await prisma.incidentType.findFirst({
@@ -177,8 +177,19 @@ router.post(
     // Reserva la cuota antes de esperar a la IA: las peticiones concurrentes
     // aún no figuran en el conteo de reportes persistidos.
     reportQuota("user:" + req.user.id, 3, res);
-    const evaluation = await evaluateReport({ descripcion, fechaEvento }, type);
-    if (evaluation?.tipoPropuesto) {
+    const evaluation = await evaluateReport(
+      { descripcion, fechaEvento, adjuntos: attachments },
+      type,
+    );
+    // Una respuesta textual no acredita los archivos. La sospecha de falsedad,
+    // las imágenes incompatibles/dudosas y los archivos sin analizar requieren
+    // decisión humana antes de validar ese aporte o concederle puntos.
+    const requiresReview =
+      !!evaluation?.posibleFalso ||
+      !!evaluation?.requiereRevision ||
+      (attachments.length > 0 && !evaluation);
+    const acceptedEvaluation = requiresReview ? null : evaluation;
+    if (acceptedEvaluation?.tipoPropuesto) {
       const proposal = evaluation.tipoPropuesto;
       const category = await prisma.category.findUnique({
         where: { slug: proposal.categoriaSlug },
@@ -262,11 +273,13 @@ router.post(
             descripcion,
             ...p,
             distrito,
-            nivelRiesgo: evaluation?.gravedad ?? null,
-            estado: evaluation || type.emergencia ? "ACTIVO" : "PENDIENTE",
-            publicado: !!evaluation || type.emergencia,
-            fechaPublicacion: evaluation || type.emergencia ? new Date() : null,
-            evaluacion: evaluation ? "IA" : "PENDIENTE",
+            nivelRiesgo: acceptedEvaluation?.gravedad ?? null,
+            estado:
+              acceptedEvaluation || type.emergencia ? "ACTIVO" : "PENDIENTE",
+            publicado: !!acceptedEvaluation || type.emergencia,
+            fechaPublicacion:
+              acceptedEvaluation || type.emergencia ? new Date() : null,
+            evaluacion: acceptedEvaluation ? "IA" : "PENDIENTE",
             individual: type.individual,
             historico: type.historico,
             emergencia: type.emergencia,
@@ -276,12 +289,12 @@ router.post(
         });
       else {
         const data = { totalReportes: { increment: 1 } };
-        if (current.evaluacion !== "AGENTE" && evaluation)
+        if (current.evaluacion !== "AGENTE" && acceptedEvaluation)
           data.nivelRiesgo = Math.max(
             current.nivelRiesgo || 0,
-            evaluation.gravedad,
+            acceptedEvaluation.gravedad,
           );
-        if (evaluation && !current.publicado) {
+        if (acceptedEvaluation && !current.publicado) {
           data.publicado = true;
           data.fechaPublicacion = current.fechaPublicacion || new Date();
           data.estado = "ACTIVO";
@@ -298,10 +311,14 @@ router.post(
           ...p,
           gpsLatitud: gps.latitud,
           gpsLongitud: gps.longitud,
-          nivelRiesgo: evaluation?.gravedad ?? null,
+          nivelRiesgo: acceptedEvaluation?.gravedad ?? null,
           incidenteId: current.id,
           fechaEvento,
-          estado: current.estado === "VALIDADO" ? "VALIDADO" : "PENDIENTE",
+          estado: requiresReview
+            ? "EN_REVISION"
+            : current.estado === "VALIDADO"
+              ? "VALIDADO"
+              : "PENDIENTE",
         },
       });
       for (const a of attachments) {
@@ -309,13 +326,32 @@ router.post(
           where: { id: a.id, usuarioId: req.user.id, reporteId: null },
           data: {
             reporteId: created.id,
-            ...(type.individual ? { privado: true, tipo: "EVIDENCIA" } : {}),
+            ...(type.individual || requiresReview
+              ? { privado: true, tipo: "EVIDENCIA" }
+              : {}),
           },
         });
         if (!connected.count)
           throw new HttpError(409, "El archivo ya fue usado en otro reporte.");
       }
-      if (!newIncident) {
+      await db.auditLog.create({
+        data: {
+          usuarioId: req.user.id,
+          accion: "EVALUACION_IA_REPORTE",
+          entidad: "Report",
+          entidadId: String(created.id),
+          datos: {
+            evaluacionRecibida: !!evaluation,
+            requiereRevision: requiresReview,
+            gravedad: evaluation?.gravedad ?? null,
+            motivo:
+              evaluation?.motivo ??
+              "Evaluación no disponible; revisión humana pendiente.",
+            evidencias: evaluation?.evidencias ?? [],
+          },
+        },
+      });
+      if (!newIncident && !requiresReview) {
         if (
           gps.latitud !== null &&
           distance(gps, current) <= rules.confirmacionMetros
@@ -378,13 +414,15 @@ router.post(
             ? "Emergencia publicada por evaluar. Revisa el incidente con urgencia."
             : "Reporte esperando evaluación de IA o personal autorizado.",
         );
-      if (evaluation?.posibleFalso)
+      if (evaluation?.posibleFalso || (evaluation && requiresReview))
         await alertAgents(
           db,
           current,
-          "Posible reporte falso",
+          evaluation.posibleFalso
+            ? "Posible reporte falso"
+            : "Evidencia para revisar",
           evaluation.motivo ||
-            "La IA solicitó revisión humana; no se ha sancionado al autor.",
+            "Los adjuntos no permiten aprobar el reporte automáticamente; no se ha sancionado al autor.",
         );
       if (newIncident && type.persistente) {
         const old = await db.incident.findMany({
@@ -460,8 +498,12 @@ router.post(
       });
       if (changed.count !== ids.length)
         throw new HttpError(400, "Pruebas inválidas.");
-      if (current?.estado === "VALIDADO" && current.validacion >= 1)
-        await rewardValidated(db, current.id);
+      // La validación anterior del incidente no verifica archivos añadidos
+      // después. El personal revisará estas nuevas pruebas antes de premiarlas.
+      await db.report.update({
+        where: { id: r.id },
+        data: { estado: "EN_REVISION" },
+      });
       await alertAgents(
         db,
         r.incidente,

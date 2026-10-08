@@ -76,7 +76,7 @@ function RewardsContent() {
           </p>
         </div>
         <p className="max-w-lg muted">
-          Las monedas son acumulables. Los canjes del piloto son una
+          Las monedas son acumulables. Los canjes son una
           demostración y no implican una entrega real ni un pago.
         </p>
       </section>
@@ -213,7 +213,7 @@ export default function RewardsPanel() {
     <div className="page max-w-6xl">
       <div className="page-heading">
         <div>
-          <span className="badge">Piloto de CiviGo</span>
+          <span className="badge">Comunidad CiviGo</span>
           <h1 className="mt-3">Recompensas</h1>
           <p className="muted">
             Consulta tus monedas y el estado de tus solicitudes.

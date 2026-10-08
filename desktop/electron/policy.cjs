@@ -24,6 +24,7 @@ const readRoutes = [
   /^\/catalog$/, /^\/users\/me$/,
 ];
 const writeRoutes = [
+  ['POST', /^\/admin\/users$/],
   ['POST', new RegExp(`^/admin/(?:incidents/${numeric}/(?:classify|review)|users/${numeric}/adjustments|appeals/${numeric}|recoveries/${numeric}|ranking/settle|lifecycle/run|categories|types|businesses|rewards|redemptions/${numeric})$`)],
   ['PATCH', new RegExp(`^/admin/(?:users/${numeric}|config|categories/${numeric}|types/${numeric}|businesses/${numeric}|rewards/${numeric})$`)],
   ['POST', /^\/history\/import\/(?:preview|commit)$/],

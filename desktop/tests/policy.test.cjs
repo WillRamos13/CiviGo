@@ -17,6 +17,8 @@ test('IPC admite sólo endpoints y métodos concretos del panel administrativo',
   for (const route of ['/admin', '/admin/catalog', '/admin/users', '/admin/incidents', '/admin/integrations', '/catalog', '/users/me']) assert.equal(validateRequest({ route }).method, 'GET');
   assert.equal(validateRequest({ route: '/admin/incidents/25/review', method: 'POST', body: '{"decision":"VALIDAR"}' }).method, 'POST');
   assert.equal(validateRequest({ route: '/admin/config', method: 'PATCH', body: '{}' }).method, 'PATCH');
+  assert.equal(validateRequest({ route: '/admin/users', method: 'POST', body: '{"correoVerificado":true,"motivoVerificacion":"Comprobación administrativa"}' }).method, 'POST');
+  for (const route of ['/admin/users/1', '/users/register', '/admin/users/bulk']) assert.throws(() => validateRequest({ route, method: 'POST', body: '{}' }));
   assert.equal(validateRequest({ route: '/history/import/commit', method: 'POST', body: '{}' }).method, 'POST');
   for (const route of ['https://evil.test', '/admin/../users/login', '/admin//users', '/admin/users?limit=1', '/admin/%75sers', '/admin\\users', '/users/login', '/users/register', '/admin/phone-verifications', '/admin/users/0']) assert.throws(() => validateRequest({ route }));
   assert.throws(() => validateRequest({ route: '/admin/users', method: 'DELETE' }));

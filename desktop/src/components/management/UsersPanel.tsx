@@ -2,6 +2,7 @@
 import { useState } from "react";
 import { api } from "@/lib/api";
 import { useAuth } from "@/components/AuthProvider";
+import EditorPanel from "@/components/EditorPanel";
 import { Feedback, message, number, RemoteStatus, useRemote } from "./common";
 
 interface ManagedUser {
@@ -136,41 +137,58 @@ function UserForm({
   save,
   cancel,
 }: {
-  user: ManagedUser;
+  user: ManagedUser | null;
   districts: string[];
   save: (feedback?: string) => void;
   cancel: () => void;
 }) {
   const { usuario, refresh } = useAuth();
-  const [role, setRole] = useState(user.rol);
-  const [agentType, setAgentType] = useState(user.tipoAgente ?? "SERENAZGO");
-  const [district, setDistrict] = useState(user.distrito ?? "");
-  const [grants, setGrants] = useState(user.permisos ?? []);
-  const [premium, setPremium] = useState(user.premium);
-  const [blocked, setBlocked] = useState(user.bloqueado);
+  const [role, setRole] = useState(user?.rol ?? "USUARIO");
+  const [agentType, setAgentType] = useState(user?.tipoAgente ?? "SERENAZGO");
+  const [district, setDistrict] = useState(user?.distrito ?? "");
+  const [grants, setGrants] = useState(user?.permisos ?? []);
+  const [premium, setPremium] = useState(user?.premium ?? false);
+  const [blocked, setBlocked] = useState(user?.bloqueado ?? false);
+  const [verified, setVerified] = useState(user?.correoVerificado ?? false);
+  const [verificationReason, setVerificationReason] = useState("");
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
   const isAgent = role === "AGENTE";
   const special = agentType === "COLABORADOR";
+  const verificationChanged = verified !== (user?.correoVerificado ?? false);
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (pending) return;
     setPending(true);
     setError("");
     try {
-      await api(`/admin/users/${user.id}`, {
-        method: "PATCH",
+      const fields = new FormData(event.currentTarget);
+      const correo = String(fields.get('correo') ?? '').trim().toLowerCase();
+      if (!user && role === 'USUARIO' && !correo.endsWith('@gmail.com')) throw new Error('Las cuentas ciudadanas requieren una dirección de Gmail.');
+      if (verificationChanged && verificationReason.trim().length < 10) throw new Error('Explica la comprobación del correo con al menos 10 caracteres.');
+      await api(user ? `/admin/users/${user.id}` : '/admin/users', {
+        method: user ? "PATCH" : "POST",
         body: JSON.stringify({
+          ...(!user ? {
+            nombres: String(fields.get('nombres') ?? '').trim(),
+            apellidos: String(fields.get('apellidos') ?? '').trim(),
+            nickname: String(fields.get('nickname') ?? '').trim(),
+            correo,
+            telefono: String(fields.get('telefono') ?? '').trim(),
+            fechaNacimiento: String(fields.get('fechaNacimiento') ?? ''),
+            password: String(fields.get('password') ?? ''),
+          } : {}),
           rol: role,
           tipoAgente: isAgent ? agentType : null,
           distrito: isAgent && !special ? district : null,
           permisos: isAgent ? grants : [],
-          premium,
-          bloqueado: blocked,
+          ...(user ? { premium, bloqueado: blocked } : {}),
+          correoVerificado: verified,
+          ...(verificationChanged ? { motivoVerificacion: verificationReason.trim() } : {}),
         }),
       });
-      if (usuario?.id === user.id) await refresh();
-      save();
+      if (user && usuario?.id === user.id) await refresh();
+      save(user ? undefined : "La cuenta se creó con el rol y los permisos indicados.");
     } catch (reason: unknown) {
       setError(message(reason));
     } finally {
@@ -179,12 +197,23 @@ function UserForm({
   }
   return (
     <section className="card mt-5 brand-border">
-      <h2 className="text-xl font-bold">Administrar @{user.nickname}</h2>
-      <p className="muted mt-1">
+      <h2 className="text-xl font-bold">{user ? `Administrar @${user.nickname}` : 'Crear usuario'}</h2>
+      {user && <p className="muted mt-1">
         {user.nombres} {user.apellidos} · {user.correo}
-      </p>
+      </p>}
       <form onSubmit={submit} className="mt-5">
         <Feedback error={error} />
+        {!user && <>
+          <div className="grid-2">
+            <label className="field">Nombres<input name="nombres" required maxLength={100} autoComplete="given-name" /></label>
+            <label className="field">Apellidos<input name="apellidos" required maxLength={100} autoComplete="family-name" /></label>
+            <label className="field">Nickname<input name="nickname" required minLength={3} maxLength={30} autoComplete="off" /></label>
+            <label className="field">Correo<input name="correo" type="email" required maxLength={254} autoComplete="off" /><small>{role === 'USUARIO' ? 'La cuenta ciudadana debe usar Gmail.' : 'Puede ser un correo institucional válido.'}</small></label>
+            <label className="field">Teléfono<input name="telefono" type="tel" required maxLength={30} placeholder="+51912345678" autoComplete="off" /></label>
+            <label className="field">Fecha de nacimiento<input name="fechaNacimiento" type="date" required min="1900-01-01" /><small>Edad mínima: 12 años.</small></label>
+            <label className="field">Contraseña inicial<input name="password" type="password" required minLength={10} maxLength={128} autoComplete="new-password" /><small>Como mínimo 10 caracteres.</small></label>
+          </div>
+        </>}
         <div className="grid-2">
           <label className="field">
             Rol
@@ -255,6 +284,15 @@ function UserForm({
         )}
         <div className="grid gap-3 mt-6">
           <label className="flex items-center gap-2">
+            <input name="correoVerificado" type="checkbox" checked={verified} onChange={event => setVerified(event.target.checked)} />
+            Correo verificado
+          </label>
+          {verificationChanged && <label className="field">
+            Motivo de la verificación del correo
+            <textarea name="motivoVerificacion" required minLength={10} maxLength={1000} value={verificationReason} onChange={event => setVerificationReason(event.target.value)} placeholder="Describe la comprobación realizada o por qué se revoca la verificación." />
+            <small>El cambio manual y su motivo quedan registrados en la actividad administrativa.</small>
+          </label>}
+          {user && <><label className="flex items-center gap-2">
             <input
               type="checkbox"
               checked={premium}
@@ -269,7 +307,7 @@ function UserForm({
               onChange={(event) => setBlocked(event.target.checked)}
             />
             Cuenta bloqueada
-          </label>
+          </label></>}
         </div>
         <p className="notice mt-4">
           La activación de Premium es una demostración sin cobros. Los
@@ -278,7 +316,7 @@ function UserForm({
         </p>
         <div className="flex flex-wrap gap-3 mt-5">
           <button className="btn btn-primary" disabled={pending}>
-            {pending ? "Guardando…" : "Guardar cambios"}
+            {pending ? "Guardando…" : user ? "Guardar cambios" : "Crear cuenta"}
           </button>
           <button
             type="button"
@@ -290,12 +328,12 @@ function UserForm({
           </button>
         </div>
       </form>
-      <AdjustmentForm
+      {user && <AdjustmentForm
         user={user}
         updated={() =>
           save("El ajuste de participación y monedas quedó registrado.")
         }
-      />
+      />}
     </section>
   );
 }
@@ -305,6 +343,8 @@ export default function UsersPanel() {
   const catalog = useRemote<DistrictCatalog>("/catalog");
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState<ManagedUser | null>(null);
+  const [creating, setCreating] = useState(false);
+  const [editorOpening, setEditorOpening] = useState(0);
   const [success, setSuccess] = useState("");
   const filtered = (users.data ?? []).filter((user) =>
     `${user.nickname} ${user.nombres} ${user.apellidos} ${user.correo}`
@@ -313,6 +353,7 @@ export default function UsersPanel() {
   );
   return (
     <>
+      <button className="btn btn-primary mb-5" onClick={() => { setCreating(true); setSelected(null); setEditorOpening(value => value + 1); setSuccess(''); }}>Crear usuario</button>
       <label className="field max-w-xl mb-5">
         Buscar usuario
         <input
@@ -347,8 +388,8 @@ export default function UsersPanel() {
                       <p className="muted text-sm mt-1">
                         Teléfono {user.telefono} · Correo{" "}
                         {user.correoVerificado
-                          ? "verificado con Google"
-                          : "pendiente de verificación con Google"}
+                          ? "verificado"
+                          : "pendiente de verificación"}
                       </p>
                       <div className="flex flex-wrap gap-2 mt-3">
                         <span className="badge">
@@ -392,6 +433,8 @@ export default function UsersPanel() {
                       className="btn btn-primary self-start"
                       onClick={() => {
                         setSelected(user);
+                        setCreating(false);
+                        setEditorOpening(value => value + 1);
                         setSuccess("");
                       }}
                     >
@@ -404,8 +447,8 @@ export default function UsersPanel() {
           )}
         </section>
       )}
-      {selected && (
-        <>
+      {(selected || creating) && (
+        <EditorPanel label={selected ? `Administrar usuario ${selected.nickname}` : "Crear usuario"} selectionKey={`${selected?.id ?? "new-user"}:${editorOpening}`}>
           {catalog.error && (
             <p className="notice notice-error mt-5">
               No se pudo cargar el catálogo de distritos.{" "}
@@ -415,19 +458,20 @@ export default function UsersPanel() {
             </p>
           )}
           <UserForm
-            key={selected.id}
+            key={selected?.id ?? 'new-user'}
             user={selected}
             districts={catalog.data?.distritos ?? []}
-            cancel={() => setSelected(null)}
+            cancel={() => { setSelected(null); setCreating(false); }}
             save={(feedback) => {
               setSelected(null);
+              setCreating(false);
               setSuccess(
                 feedback ?? "La cuenta y sus permisos se actualizaron.",
               );
               users.reload();
             }}
           />
-        </>
+        </EditorPanel>
       )}
     </>
   );

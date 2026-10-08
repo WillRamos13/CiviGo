@@ -1,15 +1,18 @@
 'use client';
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import mapboxgl from 'mapbox-gl';
 import { MapPin } from 'lucide-react';
 import { getImageProps } from 'next/image';
 import { getIncidentIcon } from '@/lib/incident-icons';
 import { EMPTY_MAP_DATA, MAP_STYLE, bindIncidentMarkerZoom, syncMapLayers, type MapLayerState } from '@/lib/map-layers';
 import { api, errorMessage } from '@/lib/api';
+import { useLiveRefresh } from '@/lib/use-live-refresh';
+import type { IncidentFilterGroup } from '@/lib/incident-filters';
 import type { Incidente, Ruta, Posicion } from '@/lib/types';
 import { RISK_COLORS } from '@/lib/types';
 import RiskLegend from './RiskLegend';
 import OfflineRoute from './OfflineRoute';
+import CollapsiblePanel from './CollapsiblePanel';
 import 'mapbox-gl/dist/mapbox-gl.css';
 type Props = {
     incidentes?: Incidente[];
@@ -18,13 +21,17 @@ type Props = {
     onPosition?: (p: Posicion) => void | boolean;
     posicion?: Posicion | null;
     editor?: boolean;
+    typeFilter?: { value: string; groups: IncidentFilterGroup[]; onChange: (value: string) => void };
 };
 const brandColor = (element: HTMLElement | null) => element ? getComputedStyle(element).getPropertyValue('--map-route-color').trim() || '#1554D8' : '#1554D8';
-export default function MapView({ incidentes = [], ruta = null, onSelect, onPosition, posicion = null, editor = false }: Props) {
+const EMPTY_INCIDENTS: Incidente[] = [];
+export default function MapView({ incidentes = EMPTY_INCIDENTS, ruta = null, onSelect, onPosition, posicion = null, editor = false, typeFilter }: Props) {
     const container = useRef<HTMLDivElement>(null), mapRef = useRef<mapboxgl.Map | null>(null), markers = useRef<mapboxgl.Marker[]>([]), positionMarker = useRef<mapboxgl.Marker | null>(null);
     const callbacks = useRef({ onSelect, onPosition });
     const [loaded, setLoaded] = useState(false), [risk, setRisk] = useState(true), [events, setEvents] = useState(true), [zones, setZones] = useState(true), [error, setError] = useState(''), [roads, setRoads] = useState<GeoJSON.FeatureCollection>(EMPTY_MAP_DATA), [roadError, setRoadError] = useState('');
     const styleReady = useRef(false);
+    const [openPanel, setOpenPanel] = useState<'controls' | 'legend' | null>(null);
+    const filterId = useId();
     const layerState = useRef<MapLayerState>({ roads, incidents: incidentes, route: ruta, risk, events, zones, editor, brand: '#1554D8', routeOutline: '#fff' });
     const token = process.env.NEXT_PUBLIC_MAPBOX_TOKEN
     const [online, setOnline] = useState(true);
@@ -58,18 +65,24 @@ export default function MapView({ incidentes = [], ruta = null, onSelect, onPosi
         // The map is initialized once. Later coordinate changes update its marker.
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [token, editor]);
-    useEffect(() => { if (editor)
-        return; let active = true; const controller = new AbortController(); const get = async () => { try {
-        const data = await api<GeoJSON.FeatureCollection>('/navigation/roads', { signal: controller.signal });
-        if (active) {
+    const loadRoads = useCallback(async (signal: AbortSignal) => { if (editor) return; try {
+        const data = await api<GeoJSON.FeatureCollection>('/navigation/roads', { signal: AbortSignal.any([signal, AbortSignal.timeout(30000)]) });
+        if (!signal.aborted) {
             setRoads(data);
             setRoadError('');
         }
     }
     catch (err) {
-        if (active)
-            setRoadError(errorMessage(err));
-    } }; void get(); const timer = setInterval(get, 30000); return () => { active = false; controller.abort(); clearInterval(timer); }; }, [editor]);
+        if (!signal.aborted)
+            setRoadError(err instanceof Error && err.name === 'TimeoutError' ? 'La actualización está tardando demasiado. Volveremos a intentarlo automáticamente.' : errorMessage(err));
+    } }, [editor]);
+    const refreshRoads = useLiveRefresh(loadRoads, 30000);
+    const previousIncidents = useRef(incidentes);
+    useEffect(() => {
+        if (previousIncidents.current === incidentes) return;
+        previousIncidents.current = incidentes;
+        if (!editor) refreshRoads();
+    }, [incidentes, editor, refreshRoads]);
     useEffect(() => {
         const map = mapRef.current;
         if (!loaded || !map)
@@ -141,5 +154,23 @@ export default function MapView({ incidentes = [], ruta = null, onSelect, onPosi
         } });
         map.easeTo({ center: [posicion.longitud, posicion.latitud], duration: 300 });
     } }, [loaded, posicion, editor]);
-    return <><div className="map-container" ref={container}/>{!online && ruta && <OfflineRoute ruta={ruta}/>}{!token && <div className="map-fallback" style={{ position: 'absolute', inset: 0 }}><MapPin size={38} color="var(--brand)"/></div>}{!editor && <><div className="map-controls"><label><input type="checkbox" checked={risk} onChange={e => setRisk(e.target.checked)}/>Riesgo por tramo</label><label><input type="checkbox" checked={events} onChange={e => setEvents(e.target.checked)}/>Incidentes</label><label><input type="checkbox" checked={zones} onChange={e => setZones(e.target.checked)} disabled={!events}/>Zonas de incidentes</label></div><RiskLegend /></>}{(error || roadError && !editor) && <div className="map-message notice notice-warning">{error || `La capa vial no está disponible: ${roadError}`}</div>}</>;
+    return <><div className="map-container" ref={container}/>{!online && ruta && <OfflineRoute ruta={ruta}/>}{!token && <div className="map-fallback" style={{ position: 'absolute', inset: 0 }}><MapPin size={38} color="var(--brand)"/></div>}{!editor && <>
+        <CollapsiblePanel title={typeFilter?.value ? 'Capas y filtros · 1 filtro' : 'Capas y filtros'} className="map-controls" open={openPanel === 'controls'} onOpenChange={open => setOpenPanel(open ? 'controls' : null)}>
+            <div className="map-layer-options">
+                <label><input type="checkbox" checked={risk} onChange={e => setRisk(e.target.checked)}/>Riesgo por tramo</label>
+                <label><input type="checkbox" checked={events} onChange={e => setEvents(e.target.checked)}/>Incidentes</label>
+                <label><input type="checkbox" checked={zones} onChange={e => setZones(e.target.checked)} disabled={!events}/>Zonas de incidentes</label>
+            </div>
+            {typeFilter && <div className="map-type-filter field">
+                <label htmlFor={filterId}>Filtrar por tipo</label>
+                <select id={filterId} value={typeFilter.value} onChange={e => { typeFilter.onChange(e.target.value); setEvents(true); }}>
+                    <option value="">Todos los tipos</option>
+                    {typeFilter.groups.map(group => <optgroup key={group.key} label={group.name}>{group.types.map(type => <option key={type.key} value={type.key}>{type.name}</option>)}</optgroup>)}
+                </select>
+                {typeFilter.value && <button type="button" className="btn btn-quiet btn-small" onClick={() => typeFilter.onChange('')}>Quitar filtro</button>}
+                <small>Filtra los marcadores, sus zonas y los reportes recientes. El riesgo de las calles considera todos los incidentes.</small>
+            </div>}
+        </CollapsiblePanel>
+        <RiskLegend open={openPanel === 'legend'} onOpenChange={open => setOpenPanel(open ? 'legend' : null)} />
+    </>}{(error || roadError && !editor) && <div className="map-message notice notice-warning">{error || `La capa vial no está disponible: ${roadError}`}</div>}</>;
 }

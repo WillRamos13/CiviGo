@@ -10,6 +10,10 @@ const { config } = require("../lib/catalog");
 const { transaction } = require("../lib/workflows");
 const { publicIncidentEligibility } = require("../lib/publication");
 const router = express.Router();
+router.use("/roads", (req, res, next) => {
+  res.setHeader("Cache-Control", "no-store");
+  next();
+});
 async function incidents() {
   return prisma.incident
     .findMany({

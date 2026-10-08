@@ -11,14 +11,23 @@ app.setPath('userData', local);
 app.setPath('sessionData', path.join(local, 'session'));
 app.disableHardwareAcceleration();
 const archive = process.argv.includes('--package');
+if (archive) assert.equal(require('../release/win-unpacked/resources/app.asar/package.json').version, require('../package.json').version);
 const { bootstrap } = require(archive ? path.join(__dirname, '../release/win-unpacked/resources/app.asar/electron/main.cjs') : '../electron/main.cjs');
 const token = 'b'.repeat(64);
 const actor = { id: 1, nickname: 'admin-fixture', nombres: 'Administrador', apellidos: 'Local', correo: 'admin@example.test', telefono: '+51900000001', correoVerificado: true, rol: 'ADMIN', premium: false, credibilidad: 100, monedas: 0, permisos: [], bloqueado: false };
 const calls = [];
+const managedUsers = Array.from({ length: 24 }, (_, index) => ({ ...actor, id: 100 + index, nickname: `vecino-fixture-${index}`, correo: `vecino${index}@gmail.com`, rol: 'USUARIO', correoVerificado: false, credibilidad: null, faltas: 0 }));
+const incidentFixture = { id: 15, tipo: 'Bache', tipoNombre: 'Bache', descripcion: 'Incidente de prueba local', estado: 'ACTIVO', nivelRiesgo: 2, individual: false, publicado: true, validacion: 0.5, evaluacion: 'IA', fechaCreacion: '2026-01-01T12:00:00Z', fechaEvento: '2026-01-01T12:00:00Z', totalReportes: 1, reportes: [{ id: 8, descripcion: 'Adjunto de prueba', estado: 'EN_REVISION', fechaCreacion: '2026-01-01T12:00:00Z', adjuntos: [{ id: 'private-fixture', nombre: 'prueba.pdf', mimeType: 'application/pdf', privado: true }] }] };
+const incidentFixtures = [incidentFixture, ...Array.from({ length: 23 }, (_, index) => ({ ...incidentFixture, id: 150 + index }))];
+const recoveryFixtures = Array.from({ length: 24 }, (_, index) => ({ id: 9 + index, usuario: { nickname: `fixture-${index}`, correo: `fixture${index}@gmail.com` }, telefonoNuevo: '+51912345678', motivo: 'Documento de prueba local', adjuntoId: 'private-fixture', estado: 'PENDIENTE', creadoEn: '2026-01-01T12:00:00Z' }));
+const appealFixtures = Array.from({ length: 24 }, (_, index) => ({ id: 7 + index, usuario: { nickname: `fixture-${index}` }, reporte: { id: 8 + index, tipo: 'Bache', estado: 'FALSO' }, motivo: 'Solicito revisión del caso de prueba local.', estado: 'PENDIENTE', creadoEn: '2026-01-01T12:00:00Z' }));
+const businessFixtures = Array.from({ length: 24 }, (_, index) => ({ id: 10 + index, nombre: `Negocio de prueba ${index}`, descripcion: 'Comercio ficticio local', direccion: 'Dirección de prueba', horario: '', sitioWeb: '', telefono: '', latitud: -14.0678, longitud: -75.7286, activo: true, visualizaciones: 0 }));
+const rewardFixtures = Array.from({ length: 24 }, (_, index) => ({ id: 20 + index, nombre: `Cupón de prueba ${index}`, descripcion: 'Recompensa de demostración local', costoMonedas: 50, stock: 1, activo: true }));
+const categories = [{ id: 1, nombre: 'Infraestructura', slug: 'infraestructura', orden: 1, tipos: Array.from({ length: 24 }, (_, index) => ({ id: 30 + index, nombre: `Bache de prueba ${index}`, slug: `bache-fixture-${index}`, categoriaId: 1, emergencia: false, historico: false, fotoObligatoria: false, individual: false, ubicacionRemota: false, persistente: true, activo: true })) }];
 let backendLogin = false;
 const server = http.createServer(async (request, response) => {
   let body = ''; for await (const chunk of request) body += chunk;
-  calls.push({ path: request.url, cookie: !!request.headers.cookie, origin: request.headers.origin });
+  calls.push({ path: request.url, method: request.method, cookie: !!request.headers.cookie, origin: request.headers.origin, ...(body && request.headers['content-type']?.includes('application/json') ? { body: JSON.parse(body) } : {}) });
   response.setHeader('Content-Type', 'application/json');
   if (request.url === '/api/users/login') {
     backendLogin = true;
@@ -29,9 +38,26 @@ const server = http.createServer(async (request, response) => {
   if (request.url === '/api/users/logout') { backendLogin = false; return response.end('{"ok":true}'); }
   if (!backendLogin || request.headers.cookie !== `civigo_session=${token}`) { response.statusCode = 401; return response.end('{"error":"Sesión requerida"}'); }
   if (request.url === '/api/users/me') return response.end(JSON.stringify({ usuario: actor }));
+  if (request.url === '/api/admin/users' && request.method === 'POST') {
+    const value = JSON.parse(body);
+    const created = { id: 2, ...value, password: undefined, premium: false, bloqueado: false, monedas: 0, credibilidad: null, faltas: 0 };
+    managedUsers.unshift(created);
+    response.statusCode = 201;
+    return response.end(JSON.stringify({ usuario: created }));
+  }
+  if (request.url === '/api/admin/users/2' && request.method === 'PATCH') {
+    Object.assign(managedUsers[0], JSON.parse(body));
+    return response.end(JSON.stringify({ usuario: managedUsers[0] }));
+  }
+  if (request.url === '/api/admin/users') return response.end(JSON.stringify(managedUsers));
+  if (request.url === '/api/admin/incidents') return response.end(JSON.stringify(incidentFixtures));
+  if (request.url === '/api/admin/recoveries') return response.end(JSON.stringify(recoveryFixtures));
+  if (request.url === '/api/admin/appeals') return response.end(JSON.stringify(appealFixtures));
+  if (request.url === '/api/admin/businesses') return response.end(JSON.stringify(businessFixtures));
+  if (request.url === '/api/admin/rewards') return response.end(JSON.stringify(rewardFixtures));
   if (request.url === '/api/admin') return response.end(JSON.stringify({ estadisticas: { usuarios: 2, incidentes: 0 }, servicios: { ia: { configurado: true }, correoGoogle: { configurado: true } } }));
-  if (request.url === '/api/catalog') return response.end(JSON.stringify({ categorias: [], config: {}, distritos: ['Ica'] }));
-  if (request.url === '/api/admin/catalog') return response.end('{"categorias":[]}');
+  if (request.url === '/api/catalog') return response.end(JSON.stringify({ categorias: categories, config: {}, distritos: ['Ica'] }));
+  if (request.url === '/api/admin/catalog') return response.end(JSON.stringify({ categorias: categories }));
   if (request.url === '/api/admin/integrations') return response.end(JSON.stringify({ proveedores: [], frontend: { variables: [], plataforma: 'Vercel', indicacion: 'Fixture local' }, navegacion: 'Fixture local', pagos: 'Demostración' }));
   if (request.url === '/api/admin/config') return response.end(JSON.stringify({ agrupacionMetros: 50, agrupacionHoras: 2, confirmacionMetros: 50, confirmaciones: 3, resoluciones: 5, influenciaVecina: 0.15, puntosReporte: 10, puntosConfirmacion: 5, puntosPrueba: 5, premiosRanking: [100, 75, 50, 30, 20, 10, 8, 6, 4, 2], anuncioMetros: 50, intervaloAnuncioMetros: 500, duracionAnuncioSegundos: 5, maxVideoBytes: 15 * 1024 * 1024 }));
   if (request.url === '/api/uploads/private-fixture') {
@@ -54,6 +80,24 @@ async function capture(window, name) {
   await new Promise(resolve => setTimeout(resolve, 100));
   await fs.writeFile(path.join(local, name), (await window.webContents.capturePage()).toPNG());
 }
+async function openEditor(window, buttonLabel, index = 0) {
+  await waitUntil(window, `Array.from(document.querySelectorAll('button')).filter(button => button.textContent === ${JSON.stringify(buttonLabel)}).length > ${index}`);
+  await window.webContents.executeJavaScript(`(() => {
+    const button = Array.from(document.querySelectorAll('button')).filter(button => button.textContent === ${JSON.stringify(buttonLabel)})[${index}];
+    button.scrollIntoView({ block: 'center' });
+    button.focus({ preventScroll: true });
+    button.click();
+  })()`);
+  await waitUntil(window, `(() => {
+    const editor = document.activeElement;
+    if (!editor?.matches('.editor-panel')) return false;
+    const bounds = editor.getBoundingClientRect();
+    const header = document.querySelector('.desktop-header').getBoundingClientRect();
+    const title = editor.querySelector('h2')?.getBoundingClientRect();
+    return bounds.top >= header.bottom && bounds.top < innerHeight - 60 && title && title.top >= header.bottom && title.bottom <= innerHeight;
+  })()`);
+  assert.equal(await window.webContents.executeJavaScript(`document.activeElement.getAttribute('role')`), 'region');
+}
 async function run() {
   await fs.mkdir(path.join(local, 'session'), { recursive: true });
   server.listen(0, '127.0.0.1'); await once(server, 'listening');
@@ -75,6 +119,7 @@ async function run() {
   const logged = await window.webContents.executeJavaScript(`window.civigoDesktop.login({ correo:'admin@example.test', password:'fixture' })`);
   assert.equal(logged.ok, true); assert.equal(logged.data.rol, 'ADMIN');
   await waitUntil(window, 'document.body.innerText.includes("Centro de revisión")');
+  await waitUntil(window, '!document.body.innerText.includes("Cargando")');
   const markup = await window.webContents.executeJavaScript('document.body.innerText');
   assert.equal(markup.includes('Categorías y tipos'), true);
   assert.equal(markup.includes('Verificar teléfonos'), false);
@@ -101,6 +146,72 @@ async function run() {
   assert.equal(blocked.ok, false); assert.equal(blocked.error.status, 400);
   const savedPath = path.join(local, 'descarga-fixture.pdf');
   dialog.showSaveDialog = async () => ({ canceled: false, filePath: savedPath });
+  await window.webContents.executeJavaScript(`Array.from(document.querySelectorAll('nav[aria-label="Herramientas de administración"] button')).find(button=>button.textContent==='Usuarios').click()`);
+  await waitUntil(window, `Array.from(document.querySelectorAll('button')).some(button=>button.textContent==='Crear usuario')`);
+  await waitUntil(window, `Array.from(document.querySelectorAll('button')).filter(button=>button.textContent==='Administrar').length === 24`);
+  assert.equal(await window.webContents.executeJavaScript(`Array.from(document.querySelectorAll('button')).filter(button=>button.textContent==='Administrar').length`), 24);
+  await openEditor(window, 'Crear usuario');
+  await openEditor(window, 'Crear usuario');
+  await waitUntil(window, `!!document.querySelector('input[name="password"]')`);
+  await window.webContents.executeJavaScript(`(() => {
+    const fields = { nombres:'Ana', apellidos:'Ejemplo', nickname:'ana_smoke', correo:'ana.smoke@gmail.com', telefono:'+51912345678', fechaNacimiento:'1990-01-01', password:'smoke-fixture-password' };
+    for (const [name,value] of Object.entries(fields)) document.querySelector('input[name="'+name+'"]').value=value;
+    document.querySelector('input[name="correoVerificado"]').click();
+  })()`);
+  await waitUntil(window, `!!document.querySelector('textarea[name="motivoVerificacion"]')`);
+  await window.webContents.executeJavaScript(`(() => {
+    const field=document.querySelector('textarea[name="motivoVerificacion"]');
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value').set.call(field,'Titular comprobado por el administrador de la prueba.');
+    field.dispatchEvent(new Event('input',{bubbles:true}));
+  })()`);
+  await capture(window, 'crear-usuario.png');
+  await window.webContents.executeJavaScript(`document.querySelector('input[name="password"]').form.requestSubmit()`);
+  await waitUntil(window, `document.body.innerText.includes('La cuenta se creó')`);
+  const creation = calls.find(call => call.path === '/api/admin/users' && call.method === 'POST');
+  assert.equal(creation.body.correoVerificado, true);
+  assert.equal(creation.body.nickname, 'ana_smoke');
+  assert.equal(creation.body.motivoVerificacion.length >= 10, true);
+  await openEditor(window, 'Administrar');
+  await openEditor(window, 'Administrar');
+  await waitUntil(window, `!!document.querySelector('input[name="correoVerificado"]')`);
+  await window.webContents.executeJavaScript(`document.querySelector('input[name="correoVerificado"]').click()`);
+  await waitUntil(window, `!!document.querySelector('textarea[name="motivoVerificacion"]')`);
+  await window.webContents.executeJavaScript(`(() => {
+    const field=document.querySelector('textarea[name="motivoVerificacion"]');
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value').set.call(field,'Se revoca la comprobación para esta prueba local.');
+    field.dispatchEvent(new Event('input',{bubbles:true}));
+  })()`);
+  await window.webContents.executeJavaScript(`document.querySelector('input[name="correoVerificado"]').form.requestSubmit()`);
+  await waitUntil(window, `document.body.innerText.includes('La cuenta y sus permisos se actualizaron.')`);
+  assert.equal(calls.find(call => call.path === '/api/admin/users/2' && call.method === 'PATCH').body.correoVerificado, false);
+  await openEditor(window, 'Administrar', 1);
+  assert.equal(await window.webContents.executeJavaScript(`document.activeElement.getAttribute('aria-label')`), 'Administrar usuario vecino-fixture-0');
+  await openEditor(window, 'Administrar', 2);
+  assert.equal(await window.webContents.executeJavaScript(`document.activeElement.getAttribute('aria-label')`), 'Administrar usuario vecino-fixture-1');
+  await window.webContents.executeJavaScript(`document.querySelector('.editor-panel button[type="button"]').click()`);
+  await waitUntil(window, `!document.querySelector('.editor-panel')`);
+  for (const [tab, button] of [['Apelaciones', 'Revisar apelación'], ['Negocios', 'Registrar negocio'], ['Recompensas', 'Crear recompensa'], ['Categorías y tipos', 'Editar reglas'], ['Recuperaciones', 'Aprobar cambio']]) {
+    await window.webContents.executeJavaScript(`Array.from(document.querySelectorAll('nav[aria-label="Herramientas de administración"] button')).find(button => button.textContent === ${JSON.stringify(tab)}).click()`);
+    await waitUntil(window, `!document.body.innerText.includes('Cargando')`);
+    await openEditor(window, button);
+    assert.deepEqual(await window.webContents.executeJavaScript('window.__smokeErrors'), [], tab + ' abre su editor sin fallar en React');
+  }
+  for (const panel of ['Incidentes', 'Recuperaciones']) {
+    await window.webContents.executeJavaScript(`Array.from(document.querySelectorAll('nav[aria-label="Herramientas de administración"] button')).find(button=>button.textContent===${JSON.stringify(panel)}).click()`);
+    await waitUntil(window, `!document.body.innerText.includes('Cargando')`);
+    if (panel === 'Incidentes') {
+      await waitUntil(window, `Array.from(document.querySelectorAll('button')).some(button=>button.textContent==='Revisar')`);
+      assert.equal(await window.webContents.executeJavaScript(`Array.from(document.querySelectorAll('button')).filter(button => button.textContent === 'Revisar').length`), 24);
+      await openEditor(window, 'Revisar');
+      await openEditor(window, 'Revisar');
+    }
+    await waitUntil(window, `Array.from(document.querySelectorAll('button')).some(button=>button.textContent?.startsWith('Descargar '))`);
+    await window.webContents.executeJavaScript(`Array.from(document.querySelectorAll('button')).find(button=>button.textContent?.startsWith('Descargar ')).click()`);
+    await waitUntil(window, `document.body.innerText.includes('Archivo guardado.')`);
+    assert.equal(await fs.readFile(savedPath, 'utf8'), '%PDF-local-fixture');
+    await fs.unlink(savedPath);
+  }
+  assert.deepEqual(await window.webContents.executeJavaScript('window.__smokeErrors'), []);
   const downloaded = await window.webContents.executeJavaScript(`window.civigoDesktop.download('private-fixture')`);
   assert.equal(downloaded.ok, true); assert.equal(downloaded.data.guardado, true);
   assert.equal(await fs.readFile(savedPath, 'utf8'), '%PDF-local-fixture');
@@ -126,7 +237,7 @@ async function run() {
   assert.equal(calls.filter(call => call.cookie).every(call => call.origin === 'https://civigo.online'), true);
   // CSP rejection must happen before an attempted remote network request.
   assert.equal(await window.webContents.executeJavaScript(`fetch('https://invalid.example.test').then(()=>false,()=>true)`), true);
-  await fs.writeFile(path.join(local, archive ? 'package-smoke-result.json' : 'smoke-result.json'), JSON.stringify({ passed: true, packagedArchive: archive, calls: calls.length, panels: panels.length, isolation: { node: isolation.node, process: isolation.process, cookie: isolation.cookie }, authenticatedDownloads: true, logoutPreventsStaleDownload: true, revokedRoleRemovesPanel: true }, null, 2));
+  await fs.writeFile(path.join(local, archive ? 'package-smoke-result.json' : 'smoke-result.json'), JSON.stringify({ passed: true, packagedArchive: archive, calls: calls.length, panels: panels.length, isolation: { node: isolation.node, process: isolation.process, cookie: isolation.cookie }, createUserFromPanel: true, auditedEmailVerificationFromPanel: true, downloadFromIncidentAndRecoveryPanels: true, authenticatedDownloads: true, logoutPreventsStaleDownload: true, revokedRoleRemovesPanel: true }, null, 2));
   window.destroy(); server.closeAllConnections(); server.close();
   console.log('Electron smoke: acceso ADMIN, interfaz local, IPC, adjuntos privados, CSP y cierre de sesión verificados.');
   app.exit(0);

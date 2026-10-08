@@ -51,7 +51,11 @@ async function refreshCredibility(db, usuarioId) {
 async function rewardValidated(db, incidenteId) {
   const rules = await config(db);
   const reports = await db.report.findMany({
-    where: { incidenteId, usuario: { correoVerificado: true } },
+    where: {
+      incidenteId,
+      usuario: { correoVerificado: true },
+      estado: { notIn: ["EN_REVISION", "FALSO", "RETIRADO"] },
+    },
     orderBy: { fechaCreacion: "asc" },
     include: {
       adjuntos: {
@@ -304,6 +308,16 @@ async function reviewIncident(db, incident, user, input) {
       evaluacion: "AGENTE",
       motivoRetiro: null,
     };
+    // La aprobación explícita del personal libera los aportes retenidos por
+    // evidencia dudosa. Confirmaciones comunitarias no pueden hacer esto.
+    await db.report.updateMany({
+      where: {
+        incidenteId: incident.id,
+        estado: "EN_REVISION",
+        usuario: { correoVerificado: true },
+      },
+      data: { estado: "PENDIENTE" },
+    });
     await rewardValidated(db, incident.id);
   }
   if (accion === "GRAVEDAD") data = { nivelRiesgo, evaluacion: "AGENTE" };
@@ -340,6 +354,7 @@ async function reviewIncident(db, incident, user, input) {
       where: {
         incidenteId: incident.id,
         usuario: { correoVerificado: true },
+        estado: { not: "EN_REVISION" },
       },
       data: {
         estado: incident.validacion >= 1 ? "VALIDADO" : "PENDIENTE",

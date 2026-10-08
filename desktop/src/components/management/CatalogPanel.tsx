@@ -1,5 +1,6 @@
 
 import { useState } from "react";
+import EditorPanel from "@/components/EditorPanel";
 import IncidentIcon from "@/components/IncidentIcon";
 import { api } from "@/lib/api";
 import { Feedback, message, RemoteStatus, useRemote } from "./common";
@@ -99,6 +100,8 @@ export default function CatalogPanel() {
     orden: number;
   } | null>(null);
   const [draft, setDraft] = useState<TypeDraft | null>(null);
+  const [categoryOpening, setCategoryOpening] = useState(0);
+  const [typeOpening, setTypeOpening] = useState(0);
   const [pending, setPending] = useState(false);
   const [failure, setFailure] = useState("");
   const [success, setSuccess] = useState("");
@@ -155,6 +158,7 @@ export default function CatalogPanel() {
           className="btn btn-primary"
           onClick={() => {
             setCategory({ nombre: "", orden: data?.categorias.length ?? 0 });
+            setCategoryOpening(value => value + 1);
             setFailure("");
             setSuccess("");
           }}
@@ -165,6 +169,7 @@ export default function CatalogPanel() {
       <Feedback error={failure} success={success} />
       <RemoteStatus loading={loading} error={error} retry={reload} />
       {category && (
+        <EditorPanel label={category.id ? "Editar categoría" : "Crear categoría"} selectionKey={`${category.id ?? "new-category"}:${categoryOpening}`}>
         <form className="card mb-5 brand-border" onSubmit={saveCategory}>
           <h2 className="font-bold text-xl mb-4">
             {category.id ? "Editar categoría" : "Nueva categoría"}
@@ -213,6 +218,7 @@ export default function CatalogPanel() {
             </button>
           </div>
         </form>
+        </EditorPanel>
       )}
       {!loading && !error && data && (
         <div className="space-y-5">
@@ -229,6 +235,7 @@ export default function CatalogPanel() {
                         nombre: item.nombre,
                         orden: item.orden,
                       });
+                      setCategoryOpening(value => value + 1);
                       setFailure("");
                     }}
                   >
@@ -248,6 +255,7 @@ export default function CatalogPanel() {
                         persistente: false,
                         activo: true,
                       });
+                      setTypeOpening(value => value + 1);
                       setFailure("");
                     }}
                   >
@@ -305,6 +313,7 @@ export default function CatalogPanel() {
                             persistente: type.persistente,
                             activo: type.activo,
                           });
+                          setTypeOpening(value => value + 1);
                           setFailure("");
                         }}
                       >
@@ -319,6 +328,7 @@ export default function CatalogPanel() {
         </div>
       )}
       {draft && (
+        <EditorPanel label={draft.id ? "Editar tipo de incidente" : "Crear tipo de incidente"} selectionKey={`${draft.id ?? "new-type"}:${typeOpening}`}>
         <form className="card mt-5 brand-border" onSubmit={saveType}>
           <h2 className="text-xl font-bold mb-4">
             {draft.id ? "Editar tipo de incidente" : "Nuevo tipo de incidente"}
@@ -395,6 +405,7 @@ export default function CatalogPanel() {
             </button>
           </div>
         </form>
+        </EditorPanel>
       )}
     </>
   );

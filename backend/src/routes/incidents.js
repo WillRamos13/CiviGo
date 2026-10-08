@@ -23,6 +23,10 @@ const {
   alertAgents,
 } = require("../lib/workflows");
 const router = express.Router();
+router.use((req, res, next) => {
+  res.setHeader("Cache-Control", "no-store");
+  next();
+});
 const include = {
   tipoCatalogo: { include: { categoria: true } },
   reportes: {

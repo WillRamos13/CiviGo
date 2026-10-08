@@ -1,5 +1,6 @@
 
 import { useState } from "react";
+import EditorPanel from "@/components/EditorPanel";
 import { api } from "@/lib/api";
 import {
   dateTime,
@@ -39,6 +40,7 @@ export default function RewardsAdminPanel() {
   const rewards = useRemote<Reward[]>("/admin/rewards");
   const redemptions = useRemote<Redemption[]>("/admin/redemptions");
   const [draft, setDraft] = useState<Reward | null>(null);
+  const [editorOpening, setEditorOpening] = useState(0);
   const [pending, setPending] = useState(false);
   const [failure, setFailure] = useState("");
   const [success, setSuccess] = useState("");
@@ -93,13 +95,14 @@ export default function RewardsAdminPanel() {
     <>
       <div className="flex flex-wrap justify-between gap-3 mb-5">
         <p className="muted max-w-xl">
-          Gestiona el catálogo y las solicitudes del piloto. Todos los productos
+          Gestiona el catálogo y las solicitudes de canje. Todos los productos
           y cupones se manejan como demostración.
         </p>
         <button
           className="btn btn-primary"
           onClick={() => {
             setDraft({ ...newReward });
+            setEditorOpening(value => value + 1);
             setFailure("");
             setSuccess("");
           }}
@@ -135,7 +138,7 @@ export default function RewardsAdminPanel() {
                   </div>
                   <button
                     className="btn btn-secondary self-start"
-                    onClick={() => setDraft({ ...reward })}
+                    onClick={() => { setDraft({ ...reward }); setEditorOpening(value => value + 1); }}
                   >
                     Editar
                   </button>
@@ -146,6 +149,7 @@ export default function RewardsAdminPanel() {
         </section>
       )}
       {draft && (
+        <EditorPanel label={draft.id ? "Editar recompensa" : "Crear recompensa"} selectionKey={`${draft.id ?? "new-reward"}:${editorOpening}`}>
         <form className="card mt-5 brand-border" onSubmit={save}>
           <h2 className="font-bold text-xl mb-4">
             {draft.id ? "Editar recompensa" : "Nueva recompensa"}
@@ -232,6 +236,7 @@ export default function RewardsAdminPanel() {
             </button>
           </div>
         </form>
+        </EditorPanel>
       )}
       <section className="card mt-6">
         <h2 className="font-bold text-xl mb-4">Solicitudes de canje</h2>

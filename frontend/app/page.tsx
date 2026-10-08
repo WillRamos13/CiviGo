@@ -29,15 +29,15 @@ export default function Home() {
           <div className="stats-row">
             <div className="stat">
               <strong>Ica</strong>
-              <span>Provincia de cobertura inicial</span>
+              <span>Provincia de cobertura</span>
             </div>
             <div className="stat">
               <strong>3</strong>
               <span>Formas de recorrer tu ciudad</span>
             </div>
             <div className="stat">
-              <strong>100</strong>
-              <span>Participantes previstos en el piloto</span>
+              <strong>50 m</strong>
+              <span>Confirmaciones cerca del incidente</span>
             </div>
           </div>
         </div>
@@ -117,8 +117,8 @@ export default function Home() {
         </div>
       </div>
       <p className="muted" style={{ fontSize: 11 }}>
-        Proyecto académico en desarrollo. Los niveles describen los reportes
-        registrados; la cobertura inicial corresponde a la provincia de Ica.
+        Los niveles describen los reportes registrados. CiviGo ofrece
+        información en la provincia de Ica.
       </p>
     </div>
   );

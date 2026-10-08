@@ -1,6 +1,7 @@
 
 import { useState } from "react";
-import { api, currentPosition } from "@/lib/api";
+import EditorPanel from "@/components/EditorPanel";
+import { api } from "@/lib/api";
 import { Feedback, message, number, RemoteStatus, useRemote } from "./common";
 
 interface Business {
@@ -33,22 +34,10 @@ export default function BusinessesPanel() {
   const { data, loading, error, reload } =
     useRemote<Business[]>("/admin/businesses");
   const [draft, setDraft] = useState<Business | null>(null);
+  const [editorOpening, setEditorOpening] = useState(0);
   const [pending, setPending] = useState(false);
-  const [locating, setLocating] = useState(false);
   const [failure, setFailure] = useState("");
   const [success, setSuccess] = useState("");
-  async function locate() {
-    setLocating(true);
-    setFailure("");
-    try {
-      const position = await currentPosition();
-      setDraft((value) => (value ? { ...value, ...position } : null));
-    } catch (reason: unknown) {
-      setFailure(message(reason));
-    } finally {
-      setLocating(false);
-    }
-  }
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!draft || pending) return;
@@ -89,6 +78,7 @@ export default function BusinessesPanel() {
           className="btn btn-primary"
           onClick={() => {
             setDraft({ ...emptyBusiness });
+            setEditorOpening(value => value + 1);
             setFailure("");
             setSuccess("");
           }}
@@ -137,6 +127,7 @@ export default function BusinessesPanel() {
                         sitioWeb: business.sitioWeb ?? "",
                         telefono: business.telefono ?? "",
                       });
+                      setEditorOpening(value => value + 1);
                       setFailure("");
                     }}
                   >
@@ -149,6 +140,7 @@ export default function BusinessesPanel() {
         </section>
       )}
       {draft && (
+        <EditorPanel label={draft.id ? "Editar negocio" : "Registrar negocio"} selectionKey={`${draft.id ?? "new-business"}:${editorOpening}`}>
         <form className="card mt-5 brand-border" onSubmit={submit}>
           <h2 className="text-xl font-bold mb-5">
             {draft.id ? "Editar negocio" : "Nuevo negocio"}
@@ -258,16 +250,8 @@ export default function BusinessesPanel() {
                 />
               </label>
             </div>
-            <button
-              type="button"
-              className="btn btn-secondary mt-3"
-              disabled={locating}
-              onClick={locate}
-            >
-              {locating ? "Obteniendo ubicación…" : "Usar mi ubicación actual"}
-            </button>
             <p className="muted text-sm mt-2">
-              Verifica las coordenadas: la cercanía durante el recorrido se
+              Introduce y verifica las coordenadas del negocio: la cercanía durante el recorrido se
               calcula desde este punto.
             </p>
           </fieldset>
@@ -282,11 +266,11 @@ export default function BusinessesPanel() {
             Anuncio habilitado
           </label>
           <p className="notice mt-4">
-            Este registro pertenece al piloto de demostración. No registra
+            Este registro es de demostración. No registra
             cobros ni convenios reales.
           </p>
           <div className="flex gap-3 mt-5">
-            <button className="btn btn-primary" disabled={pending || locating}>
+            <button className="btn btn-primary" disabled={pending}>
               {pending ? "Guardando…" : "Guardar negocio"}
             </button>
             <button
@@ -299,6 +283,7 @@ export default function BusinessesPanel() {
             </button>
           </div>
         </form>
+        </EditorPanel>
       )}
     </>
   );

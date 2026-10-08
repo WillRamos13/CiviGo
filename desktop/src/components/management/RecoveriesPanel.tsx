@@ -1,6 +1,8 @@
 
 import { useState } from "react";
-import { api, API_URL } from "@/lib/api";
+import EditorPanel from "@/components/EditorPanel";
+import { api } from "@/lib/api";
+import AttachmentDownload from "@/components/AttachmentDownload";
 import {
   dateTime,
   Feedback,
@@ -27,6 +29,7 @@ export default function RecoveriesPanel() {
     recovery: Recovery;
     state: "ACEPTADA" | "RECHAZADA";
   } | null>(null);
+  const [editorOpening, setEditorOpening] = useState(0);
   const [pending, setPending] = useState(false);
   const [failure, setFailure] = useState("");
   const [success, setSuccess] = useState("");
@@ -53,7 +56,7 @@ export default function RecoveriesPanel() {
       <p className="notice mb-5">
         La revisión de documentos de identidad está reservada a administradores.
         Una recuperación aprobada cierra las sesiones de la cuenta. La
-        participación exige correo verificado con Google.
+        participación exige correo verificado.
       </p>
       <Feedback error={failure} success={success} />
       <RemoteStatus loading={loading} error={error} retry={reload} />
@@ -90,14 +93,9 @@ export default function RecoveriesPanel() {
                         {stateLabel(recovery.estado)}
                       </span>
                       {recovery.adjuntoId && (
-                        <a
-                          className="btn btn-secondary ml-3 mt-3"
-                          href={`${API_URL}/uploads/${encodeURIComponent(recovery.adjuntoId)}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                        >
-                          Revisar documento privado
-                        </a>
+                        <AttachmentDownload id={recovery.adjuntoId} className="btn btn-secondary mt-3">
+                          Descargar documento privado
+                        </AttachmentDownload>
                       )}
                     </div>
                     {recovery.estado === "PENDIENTE" && (
@@ -105,18 +103,14 @@ export default function RecoveriesPanel() {
                         <button
                           className="btn btn-primary"
                           disabled={pending}
-                          onClick={() =>
-                            setSelection({ recovery, state: "ACEPTADA" })
-                          }
+                          onClick={() => { setSelection({ recovery, state: "ACEPTADA" }); setEditorOpening(value => value + 1); }}
                         >
                           Aprobar cambio
                         </button>
                         <button
                           className="btn btn-secondary"
                           disabled={pending}
-                          onClick={() =>
-                            setSelection({ recovery, state: "RECHAZADA" })
-                          }
+                          onClick={() => { setSelection({ recovery, state: "RECHAZADA" }); setEditorOpening(value => value + 1); }}
                         >
                           Rechazar
                         </button>
@@ -130,6 +124,7 @@ export default function RecoveriesPanel() {
         </section>
       )}
       {selection && (
+        <EditorPanel label={`Revisar recuperación ${selection.recovery.id}`} selectionKey={`${selection.recovery.id}:${selection.state}:${editorOpening}`}>
         <section className="card mt-5 brand-border">
           <h2 className="font-bold text-lg">
             {selection.state === "ACEPTADA" ? "Aprobar" : "Rechazar"} solicitud
@@ -137,7 +132,7 @@ export default function RecoveriesPanel() {
           </h2>
           <p className="mt-3">
             {selection.state === "ACEPTADA"
-              ? `El teléfono de la cuenta cambiará a ${selection.recovery.telefonoNuevo} y se cerrarán sus sesiones. La participación exige correo verificado con Google.`
+              ? `El teléfono de la cuenta cambiará a ${selection.recovery.telefonoNuevo} y se cerrarán sus sesiones. La participación exige correo verificado.`
               : "La cuenta conservará su teléfono actual."}
           </p>
           <div className="flex gap-3 mt-5">
@@ -157,6 +152,7 @@ export default function RecoveriesPanel() {
             </button>
           </div>
         </section>
+        </EditorPanel>
       )}
     </>
   );
