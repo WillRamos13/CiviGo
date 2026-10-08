@@ -5,6 +5,7 @@ import { useState, useRef, useEffect } from 'react';
 import { useAuth } from './AuthProvider';
 import { post, errorMessage } from '@/lib/api';
 import { assistantHistory, assistantReply, type AssistantTurn } from '@/lib/assistant';
+import AssistantReply from './AssistantReply';
 
 const preguntas = ['¿Cómo hago un reporte?', '¿Cómo calculo una ruta?', '¿Qué significan los puntos de riesgo?', '¿Qué incidentes hay ahora?'];
 
@@ -62,7 +63,7 @@ function AccountChatBot() {
                 {messages.length === 0 ? preguntas.map(p => <button type="button" className="btn btn-secondary btn-small" key={p} disabled={busy} onClick={() => void ask(p)}>{p}</button>) : messages.map((m, i) => <div key={i}>
                     <p style={{ fontSize: 11, fontWeight: 700, margin: '12px 0 6px' }}>{m.pregunta}</p>
                     {!m.ia && <span className="badge">Guía de CiviGo</span>}
-                    <p className="notice" style={{ fontSize: 12, whiteSpace: 'pre-wrap' }}>{m.respuesta}</p>
+                    <AssistantReply text={m.respuesta}/>
                     {m.aviso && <p className="muted" style={{ fontSize: 11 }}>{m.aviso}</p>}
                 </div>)}
             </div>

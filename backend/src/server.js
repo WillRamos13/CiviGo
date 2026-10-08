@@ -60,6 +60,7 @@ app.use("/api/reports", require("./routes/reports"));
 app.use("/api/incidents", require("./routes/incidents"));
 app.use("/api/admin", require("./routes/admin"));
 app.use("/api/navigation", require("./routes/navigation"));
+app.use("/api/announcements", require("./routes/announcements"));
 app.use("/api", require("./routes/community"));
 app.use("/api", require("./routes/participation"));
 app.use("/api", require("./routes/operations"));

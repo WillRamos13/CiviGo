@@ -5,11 +5,13 @@ const { auth } = require("../lib/auth");
 const { asyncRoute, HttpError, coordinates, id, text } = require("../lib/http");
 const { getRoads, searchPlaces, coveredSegments } = require("../lib/roads");
 const { scoreSegments } = require("../lib/risk");
-const { planRoutes, MODES } = require("../lib/navigation");
+const { MODES } = require("../lib/navigation");
 const { config } = require("../lib/catalog");
 const { transaction } = require("../lib/workflows");
 const { publicIncidentEligibility } = require("../lib/publication");
+const { createTrafficService } = require("../lib/navigation-traffic");
 const router = express.Router();
+const traffic = createTrafficService({ db: prisma });
 router.use("/roads", (req, res, next) => {
   res.setHeader("Cache-Control", "no-store");
   next();
@@ -92,14 +94,58 @@ router.post(
         req.body.destino?.longitud,
       );
     res.json(
-      planRoutes(
-        { ...req.body, origen, destino },
-        await incidents(),
-        new Date(),
-        getRoads(),
-        await config(),
-      ),
+      await traffic.plan({ ...req.body, origen, destino }, await incidents(), {
+        rules: await config(),
+      }),
     );
+  }),
+);
+router.get(
+  "/traffic/status",
+  asyncRoute(async (req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    res.json(await traffic.status());
+  }),
+);
+router.get(
+  "/traffic/incidents",
+  asyncRoute(async (req, res) => {
+    let bounds = null;
+    if (req.query.bbox !== undefined) {
+      bounds = String(req.query.bbox).split(",").map(Number);
+      if (
+        bounds.length !== 4 ||
+        !bounds.every(Number.isFinite) ||
+        bounds[0] >= bounds[2] ||
+        bounds[1] >= bounds[3] ||
+        Math.abs(bounds[0]) > 180 ||
+        Math.abs(bounds[2]) > 180 ||
+        Math.abs(bounds[1]) > 90 ||
+        Math.abs(bounds[3]) > 90
+      )
+        throw new HttpError(400, "El área de consulta no es válida.");
+    }
+    res.setHeader("Cache-Control", "no-store");
+    res.json(await traffic.incidents(await incidents(), bounds));
+  }),
+);
+router.get(
+  "/traffic/tiles/flow/:z/:x/:y.png",
+  asyncRoute(async (req, res) => {
+    try {
+      const tile = await traffic.tile(
+        Number(req.params.z),
+        Number(req.params.x),
+        Number(req.params.y),
+      );
+      res.setHeader("Cache-Control", "public, max-age=120");
+      res.setHeader("X-Traffic-Updated-At", tile.actualizadoEn);
+      res.type("png").send(tile.data);
+    } catch (error) {
+      if (error.name === "TrafficUnavailable")
+        throw new HttpError(503, error.message, error.code);
+      throw error;
+    }
   }),
 );
 function savedInput(body) {

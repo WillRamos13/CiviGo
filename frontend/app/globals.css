@@ -791,6 +791,169 @@ textarea::placeholder {
   border-radius: 3px;
   background: linear-gradient(90deg, #dc2626, #f97316, #eab308);
 }
+
+/* The immersive layout applies only to /mapa; cartography keeps MAP_STYLE. */
+.map-experience {
+  --map-panel: #fff;
+  --map-panel-glow: #eff6ff;
+  --map-panel-border: #b9d0ed;
+  --map-route-color: #087cff;
+  --map-route-outline: #fff;
+  min-height: 100dvh;
+}
+html[data-theme="dark"] .map-experience {
+  --map-panel: #071e32;
+  --map-panel-glow: #163f56;
+  --map-panel-border: #39617e;
+  --ink: #f2f6ff;
+  --muted: #bed0e3;
+  --line: #31516b;
+  --surface: #05192e;
+  --surface-raised: #0d2840;
+  --field-bg: #041b2e;
+  --brand: #53a5ff;
+}
+.map-experience .app-header { height: 86px; padding: 0 28px; gap: 24px; background: var(--surface); border-bottom: 1px solid var(--map-panel-border); }
+.map-experience .app-header .brand { min-width: 195px; font-size: 30px; }
+.map-experience .app-header .brand-logo { width: 48px; height: auto; }
+.map-experience .app-body { display: grid; grid-template-columns: 245px minmax(0, 1fr); min-height: calc(100dvh - 86px); }
+.map-experience .sidebar { width: auto; height: calc(100dvh - 86px); top: 86px; padding: 26px 17px 22px; gap: 16px; overflow-y: auto; background: var(--surface); border-right: 1px solid var(--map-panel-border); }
+.map-experience .nav-item { min-height: 48px; padding: 12px 14px; margin: 5px 0; border-radius: 11px; font-size: 14px; }
+.map-experience .nav-item.active { color: white; background: linear-gradient(115deg, #0779df, #0753a5); }
+.map-experience .sidebar-label { font-size: 11px; margin-bottom: 8px; color: var(--ink); }
+.map-experience .sidebar nav { gap: 4px; }
+.map-experience .app-content { padding: 0; min-width: 0; }
+.map-sidebar-account { margin-top: auto; border: 1px solid var(--map-panel-border); border-radius: 14px; padding: 9px; display: flex; align-items: center; gap: 3px; min-width: 0; }
+.map-sidebar-account .profile-link { flex: 1; min-width: 0; gap: 9px; }
+.map-sidebar-account .profile-link > span:last-child { white-space: nowrap; text-overflow: ellipsis; overflow: hidden; max-width: 122px; font-size: 11px; }
+.map-announcements { border: 1px solid var(--map-panel-border); border-radius: 16px; background: linear-gradient(120deg, var(--map-panel), var(--map-panel-glow)); min-height: 54px; flex: 1; max-width: 660px; margin: 0 auto; display: flex; align-items: center; justify-content: center; padding: 5px 10px; min-width: 0; }
+.announcement-content { border: 0; background: transparent; color: var(--ink); display: flex; align-items: center; justify-content: center; gap: 18px; font-size: 12px; text-align: center; flex: 1; min-width: 0; padding: 5px; text-decoration: none; }
+button.announcement-content { cursor: pointer; }
+.announcement-content > span { overflow: hidden; text-overflow: ellipsis; }
+.announcement-content strong { font-weight: 600; }
+.announcement-description { display: block; font-size: 10px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 450px; }
+.map-experience .map-page { padding: 15px 22px; }
+.map-experience .map-workspace { display: block; }
+.map-experience .map-frame { height: calc(100dvh - 116px); min-height: 560px; border: 1px solid var(--map-panel-border); border-radius: 19px; box-shadow: 0 0 0 1px rgb(48 149 212 / 15%); }
+.map-floating-panels { position: absolute; top: 22px; right: 22px; z-index: 3; width: 294px; max-height: calc(100% - 108px); display: flex; flex-direction: column; gap: 15px; pointer-events: none; }
+.map-floating-panels > * { pointer-events: auto; }
+.map-experience .map-side-panel { margin: 0; flex-shrink: 0; }
+.map-experience .map-route-panel { flex-shrink: 1; min-height: 0; overflow: hidden; display: flex; flex-direction: column; }
+.map-experience .map-route-panel .panel-toggle { flex-shrink: 0; }
+.map-experience .collapsible-panel { border-color: var(--map-panel-border); background: linear-gradient(130deg, var(--map-panel-glow), var(--map-panel) 70%); box-shadow: 0 3px 15px rgb(0 30 55 / 35%); border-radius: 17px; }
+.map-experience .panel-toggle { padding: 14px 16px 10px; color: var(--ink); font-size: 14px; }
+.map-experience .map-controls { width: 218px; left: 22px; top: 20px; }
+.map-experience .map-controls .panel-toggle { padding: 13px 15px; font-size: 12px; }
+.map-experience .map-controls .collapsible-panel-body { max-height: min(390px, 65vh); }
+.map-experience .risk-legend { left: 20px; bottom: 31px; width: 252px; border-radius: 17px; }
+.map-experience .risk-legend .panel-toggle { font-size: 11px; padding: 10px 13px; }
+.map-experience .risk-legend .collapsible-panel-body { padding: 0 13px 10px; }
+.map-experience .risk-legend .incident-area-legend { display: none; }
+.map-experience .risk-legend strong { font-size: 11px; }
+.map-experience .map-route-panel .collapsible-panel-body { flex: 1 1 auto; max-height: calc(100dvh - 350px); min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 0 15px 14px; scrollbar-width: thin; }
+.map-floating-panels .card { background: transparent; border: 0; padding: 0; margin: 0; }
+.map-experience .field { margin-bottom: 9px; }
+.map-experience .field label { font-size: 11px; margin-bottom: 5px; }
+.map-experience .field input, .map-experience .field select { font-size: 11px; padding: 8px 10px; min-height: 33px; border-color: var(--map-panel-border); }
+.map-experience .route-mode { gap: 5px; margin: 10px 0; }
+.map-experience .route-mode button { min-height: 48px; border-radius: 10px; padding: 7px 3px; }
+.map-experience .route-mode button.selected { color: white; background: linear-gradient(130deg, #0b88ef, #0751a4); border-color: #31a7ff; }
+.map-experience .btn-primary { background: #087bff; color: white; border-color: #087bff; }
+.map-experience .map-reports-panel .collapsible-panel-body { max-height: 178px; padding: 0 14px 8px; scrollbar-width: thin; }
+.map-experience .map-reports-panel .card-header { margin: 0; font-size: 11px; }
+.map-experience .incident-row { gap: 9px; padding: 9px 0; background: transparent; }
+.map-experience .incident-row strong { font-size: 12px; }
+.map-experience .incident-row p { font-size: 10px; line-height: 1.3; margin: 3px 0; }
+.map-experience .incident-row .badge { font-size: 8px; padding: 2px 4px; }
+.map-experience .map-footer { position: absolute; bottom: 0; left: 0; right: 0; padding: 6px 12px; z-index: 2; background: var(--map-panel); color: var(--muted); font-size: 9px; }
+.map-experience .mapboxgl-ctrl-bottom-right { bottom: 30px; right: 18px; display: flex; }
+.map-experience .mapboxgl-ctrl-group { background: var(--map-panel); box-shadow: 0 2px 9px rgb(0 30 55 / 40%); border: 1px solid var(--map-panel-border); display: flex; border-radius: 12px; overflow: hidden; }
+.map-experience .mapboxgl-ctrl-group button { width: 37px; height: 39px; border: 0; border-left: 1px solid var(--map-panel-border); }
+html[data-theme="dark"] .map-experience .mapboxgl-ctrl-icon { filter: invert(1); }
+.map-recenter { position: absolute; right: 24px; bottom: 87px; z-index: 3; background: var(--map-panel); border: 1px solid var(--map-panel-border); border-radius: 12px; padding: 10px; }
+.external-traffic-marker { background: #0e7490 !important; color: white !important; border-color: #cffafe; }
+.traffic-scale { display: flex; gap: 5px; margin-bottom: 10px; font-size: 9px; }
+.traffic-scale span { border-top: 5px solid #22c55e; flex: 1; padding-top: 4px; }
+.traffic-scale span:nth-child(2) { border-color: #f59e0b; }
+.traffic-scale span:nth-child(3) { border-color: #ef4444; }
+.traffic-legend p { font-size: 9px; margin: 6px 0 0; }
+.external-traffic-detail { position: absolute; left: 20px; top: 90px; z-index: 4; background: var(--map-panel); border: 1px solid var(--map-panel-border); border-radius: 12px; padding: 14px; max-width: 260px; font-size: 12px; box-shadow: 0 3px 15px #1235; }
+.external-traffic-detail > button { float: right; }
+.external-traffic-detail p { margin: 7px 0; }
+.map-experience .map-message { left: 20px; right: 330px; bottom: 220px; font-size: 10px; padding: 8px 10px; }
+.navigation-guidance { font-size: 12px; }
+.next-maneuver { display: flex; gap: 12px; align-items: center; margin: 8px 0 12px; }
+.next-maneuver > svg { flex-shrink: 0; color: var(--brand); }
+.next-maneuver strong { font-size: 24px; }
+.next-maneuver p { margin: 3px 0; line-height: 1.4; }
+.navigation-summary { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; border-block: 1px solid var(--line); padding: 10px 0; }
+.navigation-summary strong { font-size: 21px; color: var(--brand); }
+.navigation-notice { line-height: 1.4; margin: 10px 0; display: flex; gap: 5px; }
+.navigation-actions { display: flex; gap: 5px; align-items: center; margin: 12px 0; flex-wrap: wrap; }
+.spin { animation: navigation-spin 1s linear infinite; flex-shrink: 0; }
+@keyframes navigation-spin { to { transform: rotate(360deg); } }
+@media (max-width: 1150px) {
+  .map-experience .app-body { grid-template-columns: 200px minmax(0, 1fr); }
+  .map-experience .app-header .brand { min-width: 152px; font-size: 25px; }
+  .map-experience .sidebar { padding-inline: 10px; }
+  .map-experience .nav-item { font-size: 12px; padding-inline: 10px; }
+  .map-experience .map-page { padding: 12px; }
+  .map-floating-panels { width: 252px; top: 15px; right: 15px; }
+  .map-experience .map-controls { width: 180px; left: 15px; top: 15px; }
+  .map-experience .map-message { right: 280px; }
+}
+@media (max-width: 900px) {
+  .map-experience .app-body { grid-template-columns: 1fr; }
+  .map-experience .sidebar:not(.is-open) { display: none; }
+  .map-experience .sidebar.is-open { position: fixed; z-index: 25; display: flex; width: 245px; left: 0; top: 72px; bottom: 0; height: calc(100dvh - 72px); }
+  .map-experience .mobile-menu { display: inline-flex; }
+  .map-experience .app-header { height: 72px; padding: 0 12px; gap: 10px; }
+  .map-experience .app-body { min-height: calc(100dvh - 72px); }
+  .map-experience .app-header .brand { min-width: 105px; font-size: 23px; gap: 7px; }
+  .map-experience .app-header .brand-logo { width: 34px; height: auto; }
+  .map-experience .map-frame { height: calc(100dvh - 97px); }
+}
+@media (max-width: 600px) {
+  .map-experience .app-header { height: 64px; }
+  .map-experience .app-body { min-height: calc(100dvh - 64px); }
+  .map-experience .app-header .brand { font-size: 18px; min-width: 82px; }
+  .map-experience .app-header .brand-logo { width: 25px; height: auto; }
+  .map-announcements { min-height: 38px; border-radius: 10px; padding: 2px 4px; }
+  .announcement-content { font-size: 9px; gap: 5px; padding: 2px; }
+  .announcement-content svg { width: 14px; flex-shrink: 0; }
+  .announcement-description { display: none; }
+  .map-announcements .icon-btn { padding: 0; min-width: 15px; width: 15px; }
+  .map-experience .header-actions { gap: 0; }
+  .map-experience .header-actions > .btn { padding: 7px; font-size: 9px; min-width: 0; }
+  .map-experience .header-actions > .btn-quiet { display: none; }
+  .map-experience .header-actions .icon-btn { min-width: 28px; width: 28px; padding: 3px; }
+  .map-experience .map-page { padding: 6px; }
+  .map-experience .map-frame { height: calc(100dvh - 76px); min-height: 640px; border-radius: 13px; }
+  .map-floating-panels { width: 185px; top: 10px; right: 8px; gap: 8px; max-height: calc(100% - 82px); }
+  .map-experience .map-side-panel .panel-toggle { font-size: 10px; padding: 10px 9px 7px; }
+  .map-experience .map-route-panel .collapsible-panel-body { max-height: 310px; padding: 0 8px 8px; }
+  .map-experience .map-reports-panel .collapsible-panel-body { max-height: 140px; padding: 0 8px 5px; }
+  .map-experience .map-controls { width: 142px; left: 8px; top: 10px; max-width: calc(100% - 207px); }
+  .map-experience .map-controls .panel-toggle { font-size: 10px; padding: 10px 8px; }
+  .map-experience .map-controls .collapsible-panel-body { padding: 0 8px 8px; max-height: 380px; }
+  .map-experience .map-layer-options label { white-space: normal; font-size: 9px; }
+  .map-experience .map-type-filter small { font-size: 8px; }
+  .map-experience .risk-legend { left: 8px; bottom: 35px; width: 157px; max-width: calc(100% - 204px); }
+  .map-experience .risk-legend .panel-toggle { font-size: 9px; padding: 8px; }
+  .map-experience .risk-legend .collapsible-panel-body { padding: 0 8px 8px; }
+  .map-experience .risk-legend strong { font-size: 9px; }
+  .map-experience .field input { padding: 6px 7px; font-size: 10px; }
+  .map-experience .route-mode button { font-size: 9px; min-height: 42px; }
+  .map-experience .map-footer { font-size: 7px; gap: 4px; padding-inline: 6px; }
+  .map-experience .map-message { left: 8px; right: 207px; bottom: 215px; font-size: 8px; padding: 6px; overflow-wrap: anywhere; }
+  .map-experience .mapboxgl-ctrl-bottom-right { bottom: 30px; right: 8px; }
+  .map-recenter { right: 18px; bottom: 87px; }
+  .navigation-guidance { font-size: 10px; }
+  .next-maneuver { gap: 7px; }
+  .next-maneuver strong { font-size: 19px; }
+  .next-maneuver > svg { width: 22px; }
+  .navigation-actions .btn { font-size: 9px; padding: 6px; }
+}
 .incident-marker {
   border: 3px solid var(--marker-badge-border);
   box-shadow: 0 3px 9px rgb(var(--shadow-rgb) / 25%);

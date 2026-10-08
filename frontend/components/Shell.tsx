@@ -22,6 +22,7 @@ import { errorMessage } from "@/lib/api";
 import ChatBot from "./ChatBot";
 import OfflineSupport from "./OfflineSupport";
 import ThemeToggle from "./ThemeToggle";
+import MapAnnouncements from "./MapAnnouncements";
 const links = [
   { href: "/mapa", label: "Explorar mapa", icon: Map },
   { href: "/reportar", label: "Reportar incidente", icon: MapPin },
@@ -51,8 +52,10 @@ export default function Shell({ children }: { children: React.ReactNode }) {
   }, [open]);
   const role = usuario?.rol.toLowerCase();
   const agent = role === "agente";
+  const mapExperience = path === "/mapa";
+  const signOut = async () => { try { setError(""); await logout(); } catch (error) { setError(errorMessage(error)); } };
   return (
-    <div className="app-shell">
+    <div className={`app-shell ${mapExperience ? "map-experience" : ""}`}>
       <a className="skip-link" href="#contenido-principal">
         Saltar al contenido
       </a>
@@ -72,12 +75,12 @@ export default function Shell({ children }: { children: React.ReactNode }) {
             Civi<span className="brand-go">Go</span>
           </span>
         </Link>
-        <span className="coverage-pill">
+        {mapExperience ? <MapAnnouncements /> : <span className="coverage-pill">
           <span /> Ica, Perú
-        </span>
+        </span>}
         <div className="header-actions">
           <ThemeToggle />
-          {usuario ? (
+          {usuario ? (mapExperience ? null : (
             <>
               <Link href="/perfil" className="profile-link" aria-label={`Mi perfil: ${usuario.nickname}`}>
                 <span className="avatar">
@@ -101,7 +104,7 @@ export default function Shell({ children }: { children: React.ReactNode }) {
                 <LogOut size={18} />
               </button>
             </>
-          ) : (
+          )) : (
             <>
               <Link href="/ingresar" className="btn btn-quiet">
                 Ingresar
@@ -127,7 +130,7 @@ export default function Shell({ children }: { children: React.ReactNode }) {
         <aside id="navegacion-principal" className={`sidebar ${open ? "is-open" : ""}`}>
           <div className="sidebar-label">TU CIUDAD, EN COMUNIDAD</div>
           <nav aria-label="Navegación principal">
-            {links.map(({ href, label, icon: Icon }) => (
+            {links.filter(link => !mapExperience || link.href !== "/perfil").map(({ href, label, icon: Icon }) => (
               <Link
                 key={href}
                 href={href}
@@ -152,7 +155,8 @@ export default function Shell({ children }: { children: React.ReactNode }) {
               </Link>
             )}
           </nav>
-          <div className="community-note">
+          {mapExperience && usuario && <div className="map-sidebar-account"><Link href="/perfil" className="profile-link"><span className="avatar">{usuario.nickname.charAt(0).toUpperCase()}</span><span>{usuario.nickname}</span></Link><button className="icon-btn" aria-label="Cerrar sesión" onClick={signOut}><LogOut size={20}/></button></div>}
+          {!mapExperience && <><div className="community-note">
             <span className="eyebrow">HECHO PARA ICA</span>
             <h3>Una mejor ciudad empieza contigo.</h3>
             <p>
@@ -166,6 +170,7 @@ export default function Shell({ children }: { children: React.ReactNode }) {
             <br />
             <span>Publicidad y canjes en demostración</span>
           </div>
+          </>}
         </aside>
         <main id="contenido-principal" className="app-content" tabIndex={-1}>
           {offline && (

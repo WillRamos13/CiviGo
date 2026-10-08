@@ -14,6 +14,8 @@ import RankingAdminPanel from "./RankingAdminPanel";
 import HistoricalImportPanel from "./HistoricalImportPanel";
 import AuditPanel from "./AuditPanel";
 import IntegrationsPanel from "./IntegrationsPanel";
+import AnnouncementsPanel from "./AnnouncementsPanel";
+import TrafficModerationPanel from "./TrafficModerationPanel";
 
 
 type Tab =
@@ -22,6 +24,8 @@ type Tab =
   | "usuarios"
   | "catalogo"
   | "negocios"
+  | "anuncios"
+  | "trafico"
   | "premios"
   | "ranking"
   | "recuperaciones"
@@ -41,6 +45,8 @@ const tabs: {
 
   { id: "catalogo", label: "Categorías y tipos", adminOnly: true },
   { id: "negocios", label: "Negocios", adminOnly: true },
+  { id: "anuncios", label: "Anuncios y novedades", adminOnly: true },
+  { id: "trafico", label: "Avisos de tráfico", adminOnly: true },
   { id: "premios", label: "Recompensas", adminOnly: true },
   { id: "ranking", label: "Cierre de ranking", adminOnly: true },
   { id: "recuperaciones", label: "Recuperaciones", adminOnly: true },
@@ -180,6 +186,8 @@ function DashboardContent() {
 
           {admin && active === "catalogo" && <CatalogPanel />}
           {admin && active === "negocios" && <BusinessesPanel />}
+          {admin && active === "anuncios" && <AnnouncementsPanel />}
+          {admin && active === "trafico" && <TrafficModerationPanel />}
           {admin && active === "premios" && <RewardsAdminPanel />}
           {admin && active === "ranking" && <RankingAdminPanel />}
           {admin && active === "recuperaciones" && <RecoveriesPanel />}

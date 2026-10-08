@@ -163,10 +163,20 @@ test(
           grouped = first.json.incidente.id;
           assert.equal(first.json.incidente.nivelRiesgo, null);
           assert.equal(first.json.incidente.publicado, true);
+          assert.equal(first.json.reporte.estado, "EN_REVISION");
+          assert.equal(first.json.revision.motivo, "IA_NO_DISPONIBLE");
           const second = await postReport(actors[1], "persona-sospechosa");
           assert.equal(second.status, 201);
           assert.equal(second.json.incidente.id, grouped);
-          assert(Math.abs(second.json.incidente.validacion - 2 / 3) < 1e-8);
+          assert.equal(second.json.incidente.validacion, 0.5);
+          // La falta de IA no convierte el aporte retenido en confirmación.
+          // El usuario registra por separado su presencia en la emergencia.
+          const confirmation = await request(
+            "/incidents/" + grouped + "/confirmar",
+            { method: "POST", cookie: actors[1].cookie, body: p },
+          );
+          assert.equal(confirmation.status, 200);
+          assert(Math.abs(confirmation.json.validacion - 2 / 3) < 1e-8);
           const duplicate = await request(
             "/incidents/" + grouped + "/confirmar",
             { method: "POST", cookie: actors[1].cookie, body: p },
@@ -194,7 +204,17 @@ test(
           );
           const third = await postReport(actors[2], "persona-sospechosa");
           assert.equal(third.status, 201);
-          assert(Math.abs(third.json.incidente.validacion - 5 / 6) < 1e-8);
+          assert(Math.abs(third.json.incidente.validacion - 2 / 3) < 1e-8);
+          const thirdConfirmation = await request(
+            "/incidents/" + grouped + "/confirmar",
+            {
+              method: "POST",
+              cookie: actors[2].cookie,
+              body: p,
+            },
+          );
+          assert.equal(thirdConfirmation.status, 200);
+          assert(Math.abs(thirdConfirmation.json.validacion - 5 / 6) < 1e-8);
           const fourth = await request("/incidents/" + grouped + "/confirmar", {
             method: "POST",
             cookie: actors[3].cookie,

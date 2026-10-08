@@ -3,6 +3,8 @@
 const providerEnvironment = {
   AI_API_KEY: "",
   OPENAI_API_KEY: "",
+  TOMTOM_API_KEY: "",
+  TOMTOM_ENABLED: "false",
   AI_BASE_URL: "",
   AI_MODEL: "",
   AI_REPORT_MODEL: "",

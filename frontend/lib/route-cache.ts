@@ -9,10 +9,11 @@ export function isPosition(value: unknown): value is Posicion {
 }
 export function routeMode(value: unknown): RouteMode { return value === 'cycling' || value === 'driving' ? value : 'walking'; }
 export function isRoute(value: unknown): value is Ruta {
-    if (!object(value) || typeof value.id !== 'string' || !value.id || typeof value.nombre !== 'string' || !['corta', 'segura', 'equilibrada'].includes(String(value.tipo))) return false;
+    if (!object(value) || typeof value.id !== 'string' || !value.id || typeof value.nombre !== 'string' || !['corta', 'rapida', 'segura', 'equilibrada'].includes(String(value.tipo))) return false;
     if (!finite(value.distancia) || value.distancia < 0 || !finite(value.duracion) || value.duracion < 0 || !finite(value.puntosRiesgo) || value.puntosRiesgo < 0 || !finite(value.nivelRiesgo) || !Number.isInteger(value.nivelRiesgo) || value.nivelRiesgo < 0 || value.nivelRiesgo > 5) return false;
     if (!object(value.geometria) || value.geometria.type !== 'LineString' || !Array.isArray(value.geometria.coordinates) || value.geometria.coordinates.length < 2 || value.geometria.coordinates.length > 100000) return false;
     if (!value.geometria.coordinates.every(c => Array.isArray(c) && finite(c[0]) && finite(c[1]) && Math.abs(c[0]) <= 180 && Math.abs(c[1]) <= 90)) return false;
+    if (value.pasos !== undefined && (!Array.isArray(value.pasos) || !value.pasos.every(s => object(s) && typeof s.id === 'string' && typeof s.instruccion === 'string' && finite(s.distanciaAcumulada) && s.distanciaAcumulada >= 0 && finite(s.indiceInicio) && s.indiceInicio >= 0 && finite(s.indiceFin) && s.indiceFin >= s.indiceInicio))) return false;
     return Array.isArray(value.advertencias) && value.advertencias.every(w => typeof w === 'string' || (object(w) && typeof w.mensaje === 'string'));
 }
 export function parseRouteCache(raw: string | null, limit = 20): CachedRoute[] {

@@ -108,10 +108,32 @@ export interface Posicion {
     latitud: number;
     longitud: number;
 }
+export interface LocationFix extends Posicion {
+    accuracy?: number;
+    heading?: number;
+    speed?: number;
+    timestamp?: number;
+}
+export type RouteCriterion = 'segura' | 'rapida' | 'equilibrada';
+export interface RouteStep {
+    id: string;
+    tipo: string;
+    maniobra: string;
+    instruccion: string;
+    calle: string;
+    distancia: number;
+    duracion: number;
+    distanciaAcumulada: number;
+    duracionAcumulada: number;
+    coordenadas: number[];
+    indiceInicio: number;
+    indiceFin: number;
+    geometria: GeoJSON.LineString;
+}
 export interface Ruta {
     id: string;
     nombre: string;
-    tipo: 'corta' | 'segura' | 'equilibrada';
+    tipo: 'corta' | RouteCriterion;
     distancia: number;
     duracion: number;
     geometria: GeoJSON.LineString;
@@ -120,6 +142,15 @@ export interface Ruta {
     advertencias: (string | {
         mensaje: string;
     })[];
+    pasos?: RouteStep[];
+    modo?: 'walking' | 'cycling' | 'driving';
+    origen?: Posicion;
+    destino?: Posicion;
+    criterios?: RouteCriterion[];
+    riesgoConocido?: boolean;
+    llegadaEstimada?: string;
+    copiaGuardada?: boolean;
+    trafico?: { disponible: boolean; fuente: string | null; actualizadoEn: string | null; demoraSegundos: number; motivo: string };
 }
 export interface Mensaje {
     id: number;

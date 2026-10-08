@@ -511,7 +511,8 @@ test(
           assert.equal(response.json.incidente.id, row.id);
           assert.ok(response.json.incidente.validacion < 1);
           assert.equal(response.json.incidente.estado, "PENDIENTE");
-          assert.equal(response.json.reporte.incidente.confirmaciones, 1);
+          assert.equal(response.json.reporte.incidente.confirmaciones, 0);
+          assert.equal(response.json.reporte.estado, "EN_REVISION");
           const active = await actor("group_active", true);
           const activeRow = await incident({
             tipo: type.nombre,
@@ -551,7 +552,7 @@ test(
           );
           assert.equal(resubmitted.json.incidente.id, activeRow.id);
           assert.equal(resubmitted.json.incidente.estado, "ACTIVO");
-          assert.equal(resubmitted.json.reporte.estado, "PENDIENTE");
+          assert.equal(resubmitted.json.reporte.estado, "EN_REVISION");
         },
       );
       await t.test(

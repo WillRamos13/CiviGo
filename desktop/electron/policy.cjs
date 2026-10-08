@@ -22,8 +22,12 @@ const numeric = '[1-9][0-9]{0,9}';
 const readRoutes = [
   /^\/admin(?:\/(?:incidents|users|catalog|businesses|config|rewards|redemptions|appeals|recoveries|audit|integrations))?$/,
   /^\/catalog$/, /^\/users\/me$/,
+  /^\/announcements\/(?:manage|traffic-moderation)$/, /^\/navigation\/traffic\/incidents$/,
 ];
 const writeRoutes = [
+  ['POST', /^\/announcements\/(?:manage|traffic-moderation)$/],
+  ['PATCH', new RegExp(`^/announcements/manage/${numeric}$`)],
+  ['DELETE', new RegExp(`^/announcements/manage/${numeric}$`)],
   ['POST', /^\/admin\/users$/],
   ['POST', new RegExp(`^/admin/(?:incidents/${numeric}/(?:classify|review)|users/${numeric}/adjustments|appeals/${numeric}|recoveries/${numeric}|ranking/settle|lifecycle/run|categories|types|businesses|rewards|redemptions/${numeric})$`)],
   ['PATCH', new RegExp(`^/admin/(?:users/${numeric}|config|categories/${numeric}|types/${numeric}|businesses/${numeric}|rewards/${numeric})$`)],

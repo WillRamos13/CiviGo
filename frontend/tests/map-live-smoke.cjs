@@ -63,10 +63,23 @@ const server = http.createServer((request, response) => {
     return response.end(JSON.stringify(incidents.find(item => item.id === id) || incident));
   }
   if (request.url === '/api/navigation/roads') return response.end(JSON.stringify({ type: 'FeatureCollection', features: [] }));
+  if (request.url === '/api/announcements') return response.end(JSON.stringify([{id: 1, tipo: 'NOVEDAD', titulo: 'Novedad de prueba', mensaje: 'Conoce tu entorno', enlace: null, negocio: null}, {id: 2, tipo: 'NEGOCIO', titulo: 'Negocio local', mensaje: 'Visita nuestra ficha', enlace: null, negocio: {id: 1, nombre: 'Negocio local de prueba', descripcion: 'Fixture', latitud: -14.06, longitud: -75.72}}]));
+  if (request.url === '/api/businesses' || request.url === '/api/navigation/favorites') return response.end('[]');
+  if (request.url === '/api/navigation/history') return response.end('{}');
+  if (request.url === '/api/navigation/traffic/status') return response.end(JSON.stringify({configurado:false,habilitado:false,controlCuotaDisponible:true}));
+  if (request.url === '/api/navigation/traffic/incidents') return response.end(JSON.stringify({incidentes:[],trafico:{disponible:false,fuente:null,actualizadoEn:null,motivo:'Sin tráfico actualizado: TomTom no está configurado.'}}));
+  if (request.url === '/api/navigation/plan') {
+    let raw = ''; request.on('data',chunk => {raw += chunk;});
+    request.on('end', () => {
+      const body = JSON.parse(raw); requests[requests.length-1].planBody = body;
+      const coordinates = [[body.origen.longitud,body.origen.latitud], [body.destino.longitud,body.origen.latitud], [body.destino.longitud,body.destino.latitud]];
+      const rutas = ['segura','rapida','equilibrada'].map((tipo,index) => ({id:`fixture-${tipo}-${revision}`, nombre:tipo === 'segura' ? 'Más segura' : tipo === 'rapida' ? 'Más rápida' : 'Equilibrada',tipo,modo:body.modo,origen:body.origen,destino:body.destino, criterios:[tipo],distancia:2100,duracion:600+index*100,puntosRiesgo:index,nivelRiesgo:index,advertencias:[],geometria:{type:'LineString',coordinates},pasos:[{id:'salida',tipo:'salida',maniobra:'salida',instruccion:'Continúa',calle:'Calle uno',distancia:1000,duracion:300,distanciaAcumulada:0,duracionAcumulada:0,indiceInicio:0,indiceFin:1,coordenadas:coordinates[0],geometria:{type:'LineString',coordinates:coordinates.slice(0,2)}},{id:'giro',tipo:'izquierda',maniobra:'izquierda',instruccion:'Gira a la izquierda hacia calle dos',calle:'Calle dos',distancia:1100,duracion:300,distanciaAcumulada:1000,duracionAcumulada:300,indiceInicio:1,indiceFin:2,coordenadas:coordinates[1],geometria:{type:'LineString',coordinates:coordinates.slice(1)}},{id:'llegada',tipo:'llegada',maniobra:'llegada',instruccion:'Llegaste a tu destino',calle:'',distancia:0,duracion:0,distanciaAcumulada:2100,duracionAcumulada:600,indiceInicio:2,indiceFin:2,coordenadas:coordinates[2],geometria:{type:'LineString',coordinates:coordinates.slice(1)}}]}));
+      response.end(JSON.stringify({rutas,seleccionadaId:rutas.find(r=>r.tipo===body.criterio)?.id}));
+    }); return;
+  }
   if (request.url === '/api/catalog') return response.end(JSON.stringify(catalog));
   if (request.url === '/api/users/me') {
-    response.statusCode = 401;
-    return response.end(JSON.stringify({ error: 'Sesión requerida' }));
+    return response.end(JSON.stringify({usuario:{id:901,nickname:'Usuario prueba',correo:'fixture@example.invalid',telefono:'',correoVerificado:true,rol:'USUARIO',premium:false,credibilidad:100,monedas:0}}));
   }
   response.statusCode = 404;
   response.end(JSON.stringify({ error: 'No existe esta ruta en el fixture local' }));
@@ -87,7 +100,7 @@ async function both(expression, timeout) {
 }
 async function capture(window, name) {
   await window.webContents.executeJavaScript('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))');
-  await delay(100);
+  await delay(400);
   await fs.writeFile(path.join(local, name), (await window.webContents.capturePage()).toPNG());
 }
 async function panelState(window, selector, expanded) {
@@ -175,7 +188,7 @@ async function run() {
   server.listen(fixturePort, '127.0.0.1');
   await once(server, 'listening');
   await app.whenReady();
-  await Promise.all([createClient(1, 1400, 1000), createClient(2, 390, 844)]);
+  await Promise.all([createClient(1, 1400, 768), createClient(2, 390, 844)]);
   await capture(windows[1], 'mapa-vacio.png');
   stages.push({ test: 'Dos clientes independientes, inicialmente vacíos', passed: true });
 
@@ -227,7 +240,7 @@ async function run() {
     })`);
     assert.deepEqual(cleanPage, { largeHeading: false, pilot: false, filterInMap: true, duplicateFilter: false });
     await panelState(window, controls, false);
-    await panelState(window, legend, false);
+    await panelState(window, legend, true);
     await assertViewport(window, index === 0 ? 1400 : 390);
     await window.webContents.executeJavaScript('window.scrollTo(0, 0)');
     await capture(window, `mapa-paneles-plegados-${viewport}.png`);
@@ -253,7 +266,11 @@ async function run() {
     await capture(window, `mapa-filtros-${viewport}.png`);
 
     await togglePanel(window, legend);
+    await panelState(window, legend, false);
+    await togglePanel(window, legend);
     await panelState(window, legend, true);
+    await panelState(window, controls, true);
+    await togglePanel(window, controls);
     await panelState(window, controls, false);
     await assertViewport(window, index === 0 ? 1400 : 390);
     await capture(window, `mapa-leyenda-${viewport}.png`);
@@ -328,6 +345,50 @@ async function run() {
   await panelState(windows[0], legend, true);
   await capture(windows[0], 'mapa-leyenda-oscuro-escritorio.png');
   stages.push({ test: 'Modo oscuro se activa desde ThemeToggle y mantiene controles dentro de pantalla', passed: true });
+
+
+  // Full browser navigation with synthetic GPS, keeping every request local.
+  const navigationWindow = windows[0];
+  await togglePanel(navigationWindow, '.map-route-panel > .panel-toggle');
+  await panelState(navigationWindow, '.map-route-panel > .panel-toggle', true);
+  await navigationWindow.webContents.executeJavaScript(`
+    window.__gpsStopped = 0;
+    Object.defineProperty(navigator, 'geolocation', {configurable:true, value:{watchPosition(ok){window.__gps=ok;return 99;},clearWatch(){window.__gpsStopped++;}}});
+    Array.from(document.querySelectorAll('.map-route-panel button')).find(b=>b.textContent.includes('Ingresar coordenadas')).click();
+  `);
+  for (const [label,value] of [['Latitud Origen','-14.06'],['Longitud Origen','-75.73'],['Latitud Destino','-14.05'],['Longitud Destino','-75.72']]) {
+    await navigationWindow.webContents.executeJavaScript(`(() => {const input=document.querySelector('input[aria-label="${label}"]'); Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input, '${value}');input.dispatchEvent(new Event('input',{bubbles:true}));})()`);
+  }
+  await waitUntil(navigationWindow, `Array.from(document.querySelectorAll('.map-route-panel button')).some(b=>b.textContent === 'Buscar recorridos' && !b.disabled)`);
+  await navigationWindow.webContents.executeJavaScript(`Array.from(document.querySelectorAll('.map-route-panel button')).find(b=>b.textContent === 'Buscar recorridos').click()`);
+  await waitUntil(navigationWindow, `document.querySelector('.route-option')?.innerText.includes('Más segura')`);
+  await navigationWindow.webContents.executeJavaScript(`document.querySelector('.route-option').click()`);
+  await waitUntil(navigationWindow, `Array.from(document.querySelectorAll('.map-route-panel button')).some(b=>b.textContent.includes('Iniciar recorrido'))`);
+  await navigationWindow.webContents.executeJavaScript(`Array.from(document.querySelectorAll('.map-route-panel button')).find(b=>b.textContent.includes('Iniciar recorrido')).click()`);
+  await waitUntil(navigationWindow, `typeof window.__gps === 'function'`);
+  const emitFix = (latitud,longitud,timestamp=Date.now()) => navigationWindow.webContents.executeJavaScript(`window.__gps({coords:{latitude:${latitud},longitude:${longitud},accuracy:10,heading:90,speed:1.2},timestamp:${timestamp}})`);
+  await emitFix(-14.06,-75.729);
+  await waitUntil(navigationWindow, `document.querySelector('.navigation-guidance')?.innerText.includes('Gira a la izquierda')`);
+  await capture(navigationWindow, 'mapa-navegacion.png');
+  stages.push({test:'Recorrido con giro, ETA, voz y controles a partir de GPS',passed:true});
+  await emitFix(-14.065,-75.728); await emitFix(-14.065,-75.727);
+  await waitUntil(navigationWindow, `document.querySelector('.navigation-guidance')?.innerText.includes('Recorrido actualizado')`);
+  const replan = requests.filter(r=>r.planBody?.criterio).at(-1)?.planBody;
+  assert.equal(replan.criterio,'segura'); assert.equal(replan.origen.latitud,-14.065); assert.equal(replan.origen.longitud,-75.727);
+  assert.equal(replan.destino.latitud,-14.05); assert.equal(replan.destino.longitud,-75.72);
+  assert.equal(await navigationWindow.webContents.executeJavaScript('window.__gpsStopped'),0);
+  stages.push({test:'Desvío recalcula automáticamente desde GPS conservando destino y criterio sin reiniciar watch',passed:true});
+  await emitFix(-14.05,-75.72,Date.now()); await emitFix(-14.05,-75.72,Date.now()+6000);
+  await waitUntil(navigationWindow, `!document.querySelector('.navigation-guidance') && document.body.innerText.includes('Llegaste a tu destino. Recorrido finalizado.')`);
+  assert.equal(await navigationWindow.webContents.executeJavaScript('window.__gpsStopped'),1);
+  stages.push({test:'Llegada confirmada finaliza recorrido y libera GPS',passed:true});
+  await waitUntil(navigationWindow, `!!document.querySelector('button[aria-label="Anuncio siguiente"]')`);
+  await navigationWindow.webContents.executeJavaScript(`document.querySelector('button[aria-label="Anuncio siguiente"]').click()`);
+  if (!await navigationWindow.webContents.executeJavaScript(`document.querySelector('.announcement-content')?.textContent.includes('Negocio local')`)) await navigationWindow.webContents.executeJavaScript(`document.querySelector('button[aria-label="Anuncio siguiente"]').click()`);
+  await navigationWindow.webContents.executeJavaScript(`document.querySelector('button.announcement-content').click()`);
+  await waitUntil(navigationWindow, `document.querySelector('[role="dialog"][aria-label="Ficha del negocio"]')?.textContent.includes('Negocio local de prueba')`);
+  await navigationWindow.webContents.executeJavaScript(`document.querySelector('button[aria-label="Cerrar ficha"]').click()`);
+  stages.push({test:'Anuncios rotan y abren la ficha comercial existente',passed:true});
 
   for (const [index, window] of windows.entries()) {
     assert.deepEqual(await window.webContents.executeJavaScript(`window.__smokeErrors`), [], `Errores de React en cliente ${index + 1}`);

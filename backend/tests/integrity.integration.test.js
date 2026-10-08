@@ -131,7 +131,17 @@ test(
           const row = await prisma.incident.findUnique({
             where: { id: grouped },
           });
-          assert.equal(row.validacion, 1);
+          assert.equal(row.validacion, 0.5);
+          assert.equal(
+            await prisma.vote.count({ where: { incidenteId: grouped } }),
+            0,
+          );
+          assert.equal(
+            await prisma.report.count({
+              where: { incidenteId: grouped, estado: "EN_REVISION" },
+            }),
+            5,
+          );
           assert.equal(row.publicado, false);
           assert.equal(row.estado, "PENDIENTE");
           assert.equal(

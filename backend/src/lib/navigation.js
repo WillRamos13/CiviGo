@@ -10,6 +10,7 @@ const {
 } = require("./roads");
 const MODES = new Set(["walking", "cycling", "driving"]);
 const { createHash } = require("node:crypto");
+const { stepsFromEdges } = require("./navigation-steps");
 class Heap {
   constructor() {
     this.items = [];
@@ -20,7 +21,7 @@ class Heap {
     let i = a.length - 1;
     while (i) {
       const p = (i - 1) >> 1;
-      if (a[p].cost <= value.cost) break;
+      if (Heap.compare(a[p], value) <= 0) break;
       a[i] = a[p];
       i = p;
     }
@@ -35,14 +36,17 @@ class Heap {
       let i = 0;
       while (i * 2 + 1 < a.length) {
         let c = i * 2 + 1;
-        if (c + 1 < a.length && a[c + 1].cost < a[c].cost) c++;
-        if (a[c].cost >= last.cost) break;
+        if (c + 1 < a.length && Heap.compare(a[c + 1], a[c]) < 0) c++;
+        if (Heap.compare(a[c], last) >= 0) break;
         a[i] = a[c];
         i = c;
       }
       a[i] = last;
     }
     return first;
+  }
+  static compare(a, b) {
+    return a.cost - b.cost || (a.time || 0) - (b.time || 0);
   }
 }
 function error(status, message, code) {
@@ -174,28 +178,43 @@ function graphFor(segments, origin, destination, mode) {
   }
   return { graph, origin: a.projection, destination: b.projection };
 }
-function shortestPath(graph, profile, scale = 1) {
+function shortestPath(graph, profile, mode = "walking", penalties = new Map()) {
   const costs = new Map([["@origin", 0]]),
+    times = new Map([["@origin", 0]]),
     previous = new Map(),
     heap = new Heap();
-  heap.push({ node: "@origin", cost: 0 });
+  heap.push({ node: "@origin", cost: 0, time: 0 });
   while (heap.items.length) {
     const current = heap.pop();
-    if (current.cost !== costs.get(current.node)) continue;
+    if (
+      current.cost !== costs.get(current.node) ||
+      current.time !== times.get(current.node)
+    )
+      continue;
     if (current.node === "@destination") break;
     for (const edge of graph.get(current.node) || []) {
       const s = edge.segment;
-      let penalty = 0;
-      if (profile !== "corta")
-        penalty =
-          (profile === "segura" ? s.points / 3 : s.points / 10) +
-          (s.pending ? (profile === "segura" ? 2 : 0.6) : 0) +
-          (s.emergencies.length ? (profile === "segura" ? 6 : 2.5) : 0);
-      const cost = current.cost + edge.length * (1 + penalty * scale);
-      if (cost < (costs.get(edge.to) ?? Infinity)) {
+      const seconds = edge.length / speed(edge, mode);
+      const risk =
+        s.points + (s.pending ? 5 : 0) + (s.emergencies.length ? 10 : 0);
+      // Safety is lexicographic: minimum cumulative exposure, then time. There
+      // is deliberately no maximum detour or fixed safety-vs-time multiplier.
+      const base =
+        profile === "segura"
+          ? edge.length * risk
+          : profile === "corta"
+            ? edge.length
+            : seconds * (profile === "equilibrada" ? 1 + risk / 5 : 1);
+      const cost = current.cost + base * (penalties.get(s.id) || 1);
+      const time = times.get(current.node) + seconds;
+      if (
+        cost < (costs.get(edge.to) ?? Infinity) ||
+        (cost === costs.get(edge.to) && time < times.get(edge.to))
+      ) {
         costs.set(edge.to, cost);
+        times.set(edge.to, time);
         previous.set(edge.to, { from: current.node, edge });
-        heap.push({ node: edge.to, cost });
+        heap.push({ node: edge.to, cost, time });
       }
     }
   }
@@ -233,14 +252,22 @@ function routeFrom(edges, type, mode, snaps, updated) {
   const geometria = { type: "LineString", coordinates: [] };
   let distancia = 0,
     duracion = 0,
-    exposure = 0;
+    exposure = 0,
+    safetyCost = 0;
   const warnings = new Set();
+  let pending = false;
   const incidentIds = new Set(),
     segments = new Set();
   for (const edge of edges) {
+    pending ||= edge.segment.pending;
     distancia += edge.length;
     duracion += edge.length / speed(edge, mode);
     exposure += edge.length * edge.segment.points;
+    safetyCost +=
+      edge.length *
+      (edge.segment.points +
+        (edge.segment.pending ? 5 : 0) +
+        (edge.segment.emergencies.length ? 10 : 0));
     segments.add(edge.segment.id);
     for (const c of edge.coordinates)
       if (
@@ -269,32 +296,52 @@ function routeFrom(edges, type, mode, snaps, updated) {
   return {
     id: `${type}-${mode}-${createHash("sha256").update(JSON.stringify(geometria.coordinates)).digest("hex").slice(0, 16)}`,
     nombre: {
-      corta: "Ruta más corta",
-      segura: "Ruta más segura disponible",
+      corta: "Ruta más corta (guardada)",
+      rapida: "Ruta más rápida disponible",
+      segura: pending
+        ? "Menor riesgo estimado (datos por evaluar)"
+        : "Ruta de menor riesgo registrado",
       equilibrada: "Ruta equilibrada",
     }[type],
     tipo: type,
+    criterios: [type],
+    modo: mode,
     distancia,
     duracion,
     geometria,
     puntosRiesgo,
     nivelRiesgo: levelFromPoints(puntosRiesgo),
+    exposicionTotal: exposure,
+    costoSeguridad: safetyCost,
+    riesgoConocido: !pending,
     advertencias: [...warnings],
     incidentes: [...incidentIds],
     tramos: [...segments],
     actualizadoEn: updated,
     fuente: "OpenStreetMap",
     riesgoMetodo: "Promedio de puntos por distancia recorrida",
+    pasos: stepsFromEdges(
+      edges,
+      mode,
+      (edge, selectedMode) => edge.length / speed(edge, selectedMode),
+    ),
+    llegadaEstimada: new Date(
+      new Date(updated).getTime() + duracion * 1000,
+    ).toISOString(),
+    trafico: {
+      disponible: false,
+      fuente: null,
+      actualizadoEn: null,
+      demoraSegundos: 0,
+      motivo:
+        mode === "driving"
+          ? "Sin tráfico actualizado; duración estimada con la red local."
+          : "El tráfico vehicular no se aplica a este transporte.",
+    },
   };
 }
-function planRoutes(
-  {
-    origen,
-    destino,
-    modo = "walking",
-    maxDesvioSeguro = 0.5,
-    maxDesvioEquilibrado = 0.25,
-  },
+function routeCandidates(
+  { origen, destino, modo = "walking" },
   incidents,
   now = new Date(),
   roads = getRoads(),
@@ -319,58 +366,141 @@ function planRoutes(
     rules,
   ).filter((s) => covered.has(s.id) && allows(s, modo) && !s.blocked);
   const snaps = graphFor(segments, origen, destino, modo);
-  const short = shortestPath(snaps.graph, "corta");
-  if (!short)
+  const fast = shortestPath(snaps.graph, "rapida", modo);
+  if (!fast)
     throw error(
       422,
       "Las calles disponibles no conectan esos puntos para el transporte seleccionado. Elige otros puntos o transporte.",
       "NO_ROUTE",
     );
-  const baseline = routeFrom(short, "corta", modo, snaps, now.toISOString());
-  const rutas = [baseline];
-  const shapes = new Set([JSON.stringify(baseline.geometria.coordinates)]);
-  for (const [type, raw] of [
-    ["segura", maxDesvioSeguro],
-    ["equilibrada", maxDesvioEquilibrado],
-  ]) {
-    if (typeof raw !== "number" || !Number.isFinite(raw) || raw < 0 || raw > 2)
-      throw error(400, "El desvío permitido debe estar entre 0 y 200%.");
-    const limit = raw;
-    const options = [];
-    for (const scale of [1, 0.5, 0.2, 0.05, 0]) {
-      const edges = shortestPath(snaps.graph, type, scale);
-      if (!edges) continue;
-      const route = routeFrom(edges, type, modo, snaps, now.toISOString());
-      if (route.duracion <= baseline.duracion * (1 + limit) + 1)
-        options.push(route);
-    }
-    options.sort(
-      (a, b) => a.puntosRiesgo - b.puntosRiesgo || a.distancia - b.distancia,
+  const candidates = [],
+    shapes = new Set();
+  const add = (edges, type) => {
+    if (!edges) return;
+    const route = routeFrom(edges, type, modo, snaps, now.toISOString());
+    const shape = JSON.stringify(route.geometria.coordinates);
+    if (shapes.has(shape)) return;
+    shapes.add(shape);
+    candidates.push({ ...route, origen, destino });
+  };
+  add(fast, "rapida");
+  add(shortestPath(snaps.graph, "segura", modo), "segura");
+  add(shortestPath(snaps.graph, "equilibrada", modo), "equilibrada");
+  // A few legal local alternatives allow live travel times to change the fast
+  // and balanced selections. Limits bound computation and provider requests,
+  // never the allowed distance of the minimum-risk path.
+  const rankedEdges = [...fast]
+    .filter((edge) => edge.length > 1)
+    .sort((a, b) => b.length - a.length);
+  for (const edge of rankedEdges.slice(0, 3)) {
+    if (candidates.length >= 6) break;
+    add(
+      shortestPath(
+        snaps.graph,
+        "rapida",
+        modo,
+        new Map([[edge.segment.id, 20]]),
+      ),
+      "rapida",
     );
-    const chosen = options[0];
-    if (chosen) {
-      const shape = JSON.stringify(chosen.geometria.coordinates);
-      if (!shapes.has(shape)) {
-        rutas.push(chosen);
-        shapes.add(shape);
-      }
-    }
   }
   return {
-    rutas,
+    candidates,
     cobertura: "Provincia de Ica",
     fuente: "OpenStreetMap",
     atribucion: roads.atribucion,
     datosCallesActualizadosEn: roads.actualizadoEn,
     actualizadoEn: now.toISOString(),
-    mensaje:
-      rutas.length === 1
-        ? "Las alternativas coinciden dentro de los límites de desvío. Puedes ampliar el tiempo adicional permitido."
-        : undefined,
-    limitesDesvio: {
-      segura: maxDesvioSeguro,
-      equilibrada: maxDesvioEquilibrado,
-    },
   };
 }
-module.exports = { planRoutes, graphFor, shortestPath, Heap, MODES, routeFrom };
+function selectRoutes(candidates, criterio = "rapida") {
+  const selected = [],
+    shapes = new Map();
+  const fastest = Math.min(...candidates.map((route) => route.duracion));
+  const leastRisk = Math.min(
+    ...candidates.map((route) => route.exposicionTotal),
+  );
+  const maxRisk = Math.max(...candidates.map((route) => route.exposicionTotal));
+  for (const type of ["rapida", "segura", "equilibrada"]) {
+    const score = (route) =>
+      type === "rapida"
+        ? route.duracion
+        : type === "segura"
+          ? (route.costoSeguridad ?? route.exposicionTotal)
+          : route.duracion / Math.max(1, fastest) +
+            (route.exposicionTotal - leastRisk) /
+              Math.max(1, maxRisk - leastRisk);
+    const candidate = [...candidates].sort(
+      (a, b) =>
+        score(a) - score(b) ||
+        a.duracion - b.duracion ||
+        a.distancia - b.distancia,
+    )[0];
+    if (!candidate) continue;
+    const shape = JSON.stringify(candidate.geometria.coordinates);
+    if (shapes.has(shape)) {
+      shapes.get(shape).criterios.push(type);
+      continue;
+    }
+    const route = {
+      ...candidate,
+      tipo: type,
+      criterios: [type],
+      nombre:
+        type === "segura"
+          ? candidate.riesgoConocido
+            ? "Ruta de menor riesgo registrado"
+            : "Menor riesgo estimado (datos por evaluar)"
+          : type === "rapida"
+            ? "Ruta más rápida disponible"
+            : "Ruta equilibrada",
+    };
+    shapes.set(shape, route);
+    selected.push(route);
+  }
+  const chosen =
+    selected.find((route) => route.criterios.includes(criterio)) || selected[0];
+  return {
+    rutas: selected,
+    seleccionadaId: chosen?.id,
+    criterio: ["rapida", "segura", "equilibrada"].includes(criterio)
+      ? criterio
+      : "rapida",
+    mensaje:
+      selected.length < 3
+        ? "Algunos criterios coinciden en el mismo recorrido; se muestran únicamente rutas distintas."
+        : undefined,
+  };
+}
+function planRoutes(
+  input,
+  incidents,
+  now = new Date(),
+  roads = getRoads(),
+  rules = {},
+) {
+  const { candidates, ...meta } = routeCandidates(
+    input,
+    incidents,
+    now,
+    roads,
+    rules,
+  );
+  return {
+    ...meta,
+    ...selectRoutes(candidates, input.criterio),
+    trafico: candidates[0]?.trafico,
+  };
+}
+module.exports = {
+  planRoutes,
+  routeCandidates,
+  selectRoutes,
+  graphFor,
+  shortestPath,
+  Heap,
+  MODES,
+  routeFrom,
+  directionFor,
+  speed,
+};

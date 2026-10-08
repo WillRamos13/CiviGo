@@ -1,7 +1,7 @@
 'use client';
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import mapboxgl from 'mapbox-gl';
-import { MapPin } from 'lucide-react';
+import { MapPin, LocateFixed } from 'lucide-react';
 import { getImageProps } from 'next/image';
 import { getIncidentIcon } from '@/lib/incident-icons';
 import { EMPTY_MAP_DATA, MAP_STYLE, bindIncidentMarkerZoom, syncMapLayers, type MapLayerState } from '@/lib/map-layers';
@@ -10,6 +10,9 @@ import { useLiveRefresh } from '@/lib/use-live-refresh';
 import type { IncidentFilterGroup } from '@/lib/incident-filters';
 import type { Incidente, Ruta, Posicion } from '@/lib/types';
 import { RISK_COLORS } from '@/lib/types';
+import type { TrafficResponse, TrafficStatus, ExternalTrafficIncident } from '@/lib/traffic';
+import { trafficAffectsRoute } from '@/lib/traffic';
+import { syncTrafficLayer } from '@/lib/map-traffic-layers';
 import RiskLegend from './RiskLegend';
 import OfflineRoute from './OfflineRoute';
 import CollapsiblePanel from './CollapsiblePanel';
@@ -21,16 +24,28 @@ type Props = {
     onPosition?: (p: Posicion) => void | boolean;
     posicion?: Posicion | null;
     editor?: boolean;
+    navigating?: boolean;
+    heading?: number;
+    centerVersion?: number;
+    onTrafficChange?: () => void;
     typeFilter?: { value: string; groups: IncidentFilterGroup[]; onChange: (value: string) => void };
 };
 const brandColor = (element: HTMLElement | null) => element ? getComputedStyle(element).getPropertyValue('--map-route-color').trim() || '#1554D8' : '#1554D8';
 const EMPTY_INCIDENTS: Incidente[] = [];
-export default function MapView({ incidentes = EMPTY_INCIDENTS, ruta = null, onSelect, onPosition, posicion = null, editor = false, typeFilter }: Props) {
+export default function MapView({ incidentes = EMPTY_INCIDENTS, ruta = null, onSelect, onPosition, posicion = null, editor = false, typeFilter, navigating = false, heading, centerVersion = 0, onTrafficChange }: Props) {
     const container = useRef<HTMLDivElement>(null), mapRef = useRef<mapboxgl.Map | null>(null), markers = useRef<mapboxgl.Marker[]>([]), positionMarker = useRef<mapboxgl.Marker | null>(null);
     const callbacks = useRef({ onSelect, onPosition });
     const [loaded, setLoaded] = useState(false), [risk, setRisk] = useState(true), [events, setEvents] = useState(true), [zones, setZones] = useState(true), [error, setError] = useState(''), [roads, setRoads] = useState<GeoJSON.FeatureCollection>(EMPTY_MAP_DATA), [roadError, setRoadError] = useState('');
     const styleReady = useRef(false);
-    const [openPanel, setOpenPanel] = useState<'controls' | 'legend' | null>(null);
+    const [controlsOpen, setControlsOpen] = useState(false), [legendOpen, setLegendOpen] = useState(true), [traffic, setTraffic] = useState(false);
+    const [trafficStatus, setTrafficStatus] = useState<TrafficStatus | null>(null), [trafficData, setTrafficData] = useState<TrafficResponse | null>(null), [externalSelected, setExternalSelected] = useState<ExternalTrafficIncident | null>(null);
+    const [trafficError, setTrafficError] = useState('');
+    const externalMarkers = useRef<mapboxgl.Marker[]>([]), trafficSnapshot = useRef(''), followCamera = useRef(true), cameraState = useRef({navigating, posicion, heading});
+    const trafficCallback = useRef(onTrafficChange);
+    const trafficLayerState = useRef({enabled: false, url: ''});
+    const activeTrafficRoute = useRef(ruta);
+    useEffect(() => { activeTrafficRoute.current = ruta; }, [ruta]);
+    useEffect(() => { cameraState.current = {navigating, posicion, heading}; trafficCallback.current = onTrafficChange; }, [navigating, posicion, heading, onTrafficChange]);
     const filterId = useId();
     const layerState = useRef<MapLayerState>({ roads, incidents: incidentes, route: ruta, risk, events, zones, editor, brand: '#1554D8', routeOutline: '#fff' });
     const token = process.env.NEXT_PUBLIC_MAPBOX_TOKEN
@@ -49,19 +64,22 @@ export default function MapView({ incidentes = EMPTY_INCIDENTS, ruta = null, onS
         const map = new mapboxgl.Map({ container: container.current, accessToken: token, style: MAP_STYLE, center: [posicion?.longitud ?? -75.7286, posicion?.latitud ?? -14.0678], zoom: editor ? 17 : 13.3, attributionControl: true });
         mapRef.current = map;
         const stopMarkerZoom = bindIncidentMarkerZoom(map);
-        map.addControl(new mapboxgl.NavigationControl(), 'top-right');
-        map.addControl(new mapboxgl.GeolocateControl({ positionOptions: { enableHighAccuracy: true }, trackUserLocation: !editor, showUserHeading: true }), 'top-right');
+        map.addControl(new mapboxgl.NavigationControl(), editor ? 'top-right' : 'bottom-right');
+        map.addControl(new mapboxgl.GeolocateControl({ positionOptions: { enableHighAccuracy: true }, trackUserLocation: false, showUserHeading: true }), editor ? 'top-right' : 'bottom-right');
+        map.on('dragstart', () => { followCamera.current = false; });
+        map.on('rotatestart', e => { if (e.originalEvent) followCamera.current = false; });
         map.on('style.load', () => {
             styleReady.current = true;
             syncMapLayers(map, layerState.current);
+            if (!editor) syncTrafficLayer(map, trafficLayerState.current.enabled, trafficLayerState.current.url);
             setLoaded(true);
             setError('');
         });
-        map.on('error', e => { if (e.error?.message?.includes('token') || e.error?.message?.includes('401') || e.error?.message?.includes('403'))
+        map.on('error', e => { if ('sourceId' in e && e.sourceId === 'tomtom-flow') setTrafficError('La capa de tráfico no se pudo actualizar. Puedes consultar el riesgo y los recorridos locales.'); else if (e.error?.message?.includes('token') || e.error?.message?.includes('401') || e.error?.message?.includes('403'))
             setError('No se pudo cargar Mapbox. Revisa el token público y sus restricciones.'); });
         if (editor)
             map.on('click', e => callbacks.current.onPosition?.({ latitud: e.lngLat.lat, longitud: e.lngLat.lng }));
-        return () => { stopMarkerZoom(); styleReady.current = false; markers.current.forEach(m => m.remove()); markers.current = []; positionMarker.current?.remove(); positionMarker.current = null; map.remove(); mapRef.current = null; };
+        return () => { stopMarkerZoom(); styleReady.current = false; markers.current.forEach(m => m.remove()); markers.current = []; externalMarkers.current.forEach(m => m.remove()); externalMarkers.current = []; positionMarker.current?.remove(); positionMarker.current = null; map.remove(); mapRef.current = null; };
         // The map is initialized once. Later coordinate changes update its marker.
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [token, editor]);
@@ -139,25 +157,65 @@ export default function MapView({ incidentes = EMPTY_INCIDENTS, ruta = null, onS
             markers.current.push(marker);
         }
     }, [loaded, incidentes, events, editor]);
-    useEffect(() => { const map = mapRef.current; if (!loaded || !map)
+    useEffect(() => { const map = mapRef.current; if (!loaded || !map || navigating)
         return; if (ruta?.geometria.coordinates.length) {
         const bounds = new mapboxgl.LngLatBounds();
         ruta.geometria.coordinates.forEach(c => bounds.extend([c[0], c[1]]));
-        map.fitBounds(bounds, { padding: 60, maxZoom: 16, duration: 700 });
-    } }, [loaded, ruta]);
+        map.fitBounds(bounds, { padding: {top: 60, bottom: 100, left: 60, right: Math.min(340, Math.max(60, map.getContainer().clientWidth * .4))}, maxZoom: 16, bearing: 0, pitch: 0, duration: 700 });
+    } }, [loaded, ruta, navigating]);
     useEffect(() => { const map = mapRef.current; if (!loaded || !map || !posicion)
-        return; positionMarker.current?.remove(); positionMarker.current = new mapboxgl.Marker({ color: brandColor(container.current), draggable: editor }).setLngLat([posicion.longitud, posicion.latitud]).addTo(map); if (editor) {
-        positionMarker.current.on('dragend', () => { const coords = positionMarker.current?.getLngLat(); if (coords) {
+        return; if (!positionMarker.current) { positionMarker.current = new mapboxgl.Marker({ color: brandColor(container.current), draggable: editor }).setLngLat([posicion.longitud, posicion.latitud]).addTo(map); } else positionMarker.current.setLngLat([posicion.longitud, posicion.latitud]); if (editor) {
+        positionMarker.current.off('dragend', onDrag);
+        function onDrag() { const coords = positionMarker.current?.getLngLat(); if (coords) {
             const accepted = callbacks.current.onPosition?.({ latitud: coords.lat, longitud: coords.lng });
-            if (accepted === false)
-                positionMarker.current?.setLngLat([posicion.longitud, posicion.latitud]);
-        } });
+            if (accepted === false) positionMarker.current?.setLngLat([posicion!.longitud, posicion!.latitud]);
+        } }
+        positionMarker.current.on('dragend', onDrag);
         map.easeTo({ center: [posicion.longitud, posicion.latitud], duration: 300 });
-    } }, [loaded, posicion, editor]);
+        return () => { positionMarker.current?.off('dragend', onDrag); };
+    } else if (navigating && followCamera.current) map.easeTo({center: [posicion.longitud, posicion.latitud], zoom: Math.max(16, map.getZoom()), bearing: heading ?? 0, pitch: 35, duration: 700}); }, [loaded, posicion, editor, navigating, heading]);
+    const centerOnPosition = () => { followCamera.current = true; const map = mapRef.current, state = cameraState.current; if (map && state.posicion) map.easeTo({center: [state.posicion.longitud, state.posicion.latitud], zoom: 16.5, bearing: state.navigating ? state.heading ?? 0 : 0, pitch: state.navigating ? 35 : 0, duration: 500}); };
+    useEffect(() => {
+        if (!navigating) return;
+        followCamera.current = true;
+        const map = mapRef.current, state = cameraState.current;
+        if (map && state.posicion) map.easeTo({center: [state.posicion.longitud, state.posicion.latitud], zoom: 16.5, bearing: state.heading ?? 0, pitch: 35, duration: 500});
+    }, [centerVersion, navigating]);
+    const loadTraffic = useCallback(async (signal: AbortSignal) => {
+        if (editor) return;
+        try {
+            const status = await api<TrafficStatus>('/navigation/traffic/status', {signal});
+            if (signal.aborted) return; setTrafficStatus(status);
+            const data = await api<TrafficResponse>('/navigation/traffic/incidents', {signal});
+            if (signal.aborted) return; setTrafficData(data); setExternalSelected(current => current ? data.incidentes.find(i => i.id === current.id) ?? null : null);
+            const currentRoute = activeTrafficRoute.current;
+            const snapshot = JSON.stringify(data.incidentes.filter(i => trafficAffectsRoute(i, currentRoute, 80)).map(i => [i.id, i.tipo, i.demoraSegundos]));
+            if (trafficSnapshot.current && snapshot !== trafficSnapshot.current) trafficCallback.current?.();
+            trafficSnapshot.current = snapshot;
+        } catch { if (!signal.aborted) setTrafficData({incidentes: [], trafico: {disponible: false, fuente: null, actualizadoEn: null, motivo: 'No se pudo actualizar el tráfico. Se mantienen disponibles los recorridos de CiviGo.'}}); }
+    }, [editor]);
+    useLiveRefresh(loadTraffic, 120000);
+    const tilesExhausted = trafficStatus?.cuotas?.tiles?.restantes === 0;
+    const trafficReady = trafficStatus?.configurado && trafficStatus.habilitado && trafficStatus.controlCuotaDisponible && !tilesExhausted;
+    useEffect(() => {
+        trafficLayerState.current = {enabled: Boolean(traffic && trafficReady && !editor), url: `${window.location.origin}/api/navigation/traffic/tiles/flow/{z}/{x}/{y}.png`};
+        const map = mapRef.current; if (!loaded || !map || editor) return;
+        syncTrafficLayer(map, trafficLayerState.current.enabled, trafficLayerState.current.url);
+    }, [loaded, traffic, trafficReady, editor]);
+    useEffect(() => {
+        const map = mapRef.current; externalMarkers.current.forEach(m => m.remove()); externalMarkers.current = [];
+        if (!loaded || !map || !events || editor) return;
+        for (const item of trafficData?.incidentes ?? []) {
+            const button = document.createElement('button'); button.type = 'button'; button.className = 'incident-marker external-traffic-marker'; button.textContent = '!'; button.setAttribute('aria-label', `${item.titulo} · TomTom`); button.addEventListener('click', () => setExternalSelected(item));
+            const marker = new mapboxgl.Marker({element: button}).setLngLat([item.longitud, item.latitud]).addTo(map); button.setAttribute('role', 'button'); externalMarkers.current.push(marker);
+        }
+    }, [loaded, trafficData, events, editor]);
     return <><div className="map-container" ref={container}/>{!online && ruta && <OfflineRoute ruta={ruta}/>}{!token && <div className="map-fallback" style={{ position: 'absolute', inset: 0 }}><MapPin size={38} color="var(--brand)"/></div>}{!editor && <>
-        <CollapsiblePanel title={typeFilter?.value ? 'Capas y filtros · 1 filtro' : 'Capas y filtros'} className="map-controls" open={openPanel === 'controls'} onOpenChange={open => setOpenPanel(open ? 'controls' : null)}>
+        <CollapsiblePanel title={typeFilter?.value ? 'Capas y filtros · 1 filtro' : 'Capas y filtros'} className="map-controls" open={controlsOpen} onOpenChange={setControlsOpen}>
             <div className="map-layer-options">
-                <label><input type="checkbox" checked={risk} onChange={e => setRisk(e.target.checked)}/>Riesgo por tramo</label>
+                <label><input type="checkbox" checked={risk} onChange={e => { setRisk(e.target.checked); if (e.target.checked) setTraffic(false); }}/>Riesgo por tramo</label>
+                <label><input type="checkbox" checked={traffic} onChange={e => {setTraffic(e.target.checked); setTrafficError(''); if (e.target.checked) setRisk(false);}} disabled={!trafficReady}/>Tráfico · TomTom</label>
+                {!trafficReady && <small className="muted">{tilesExhausted ? 'Se alcanzó la cuota de la capa de tráfico. Los recorridos locales siguen disponibles.' : trafficData?.trafico.motivo || 'Tráfico en tiempo real no disponible.'}</small>}
                 <label><input type="checkbox" checked={events} onChange={e => setEvents(e.target.checked)}/>Incidentes</label>
                 <label><input type="checkbox" checked={zones} onChange={e => setZones(e.target.checked)} disabled={!events}/>Zonas de incidentes</label>
             </div>
@@ -171,6 +229,8 @@ export default function MapView({ incidentes = EMPTY_INCIDENTS, ruta = null, onS
                 <small>Filtra los marcadores, sus zonas y los reportes recientes. El riesgo de las calles considera todos los incidentes.</small>
             </div>}
         </CollapsiblePanel>
-        <RiskLegend open={openPanel === 'legend'} onOpenChange={open => setOpenPanel(open ? 'legend' : null)} />
+        {traffic ? <CollapsiblePanel title="Tráfico · TomTom" className="risk-legend traffic-legend" open={legendOpen} onOpenChange={setLegendOpen}>{trafficError && <p role="status">{trafficError}</p>}<div className="traffic-scale"><span>Fluido</span><span>Lento</span><span>Congestionado</span></div><small>{trafficData?.trafico.actualizadoEn ? `Datos ${new Date(trafficData.trafico.actualizadoEn).toLocaleTimeString('es-PE', {hour: '2-digit', minute: '2-digit', timeZone: 'America/Lima'})}` : 'Sin actualización disponible'}</small><p>Los avisos temporales no suman puntos de riesgo. © TomTom</p></CollapsiblePanel> : <RiskLegend open={legendOpen} onOpenChange={setLegendOpen} />}
+        {posicion && <button className="map-recenter icon-btn" aria-label="Centrar mi ubicación" onClick={centerOnPosition}><LocateFixed size={20}/></button>}
+        {externalSelected && events && <div className="external-traffic-detail"><button className="icon-btn" aria-label="Cerrar aviso de tráfico" onClick={() => setExternalSelected(null)}>×</button><strong>{externalSelected.titulo}</strong><p>{externalSelected.descripcion}</p><small>TomTom · aviso temporal · no suma riesgo histórico</small></div>}
     </>}{(error || roadError && !editor) && <div className="map-message notice notice-warning">{error || `La capa vial no está disponible: ${roadError}`}</div>}</>;
 }

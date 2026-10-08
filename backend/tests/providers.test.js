@@ -69,7 +69,7 @@ test("El adaptador IA valida gravedad, tipos propuestos y respuestas dañadas", 
       assert.equal(request.text?.format?.type, "json_schema");
       assert.equal(request.model, "gpt-6.1-sol");
       assert.equal(request.max_output_tokens, 4096);
-      assert.deepEqual(request.reasoning, { effort: "low" });
+      assert.deepEqual(request.reasoning, { effort: "medium" });
       return {
         ok: true,
         json: async () => ({

@@ -318,6 +318,20 @@ test(
           assert.equal(result.incidente.estado, "PENDIENTE");
           assert.equal(result.incidente.evaluacion, "PENDIENTE");
           assert.equal(result.reporte.estado, "EN_REVISION");
+          assert.equal(result.revision.motivo, "IMAGEN_NO_RELACIONADA");
+          assert.match(result.revision.mensaje, /no corresponde/);
+          const authorNotice = await prisma.notification.findFirst({
+            where: {
+              usuarioId: author.id,
+              incidenteId: result.incidente.id,
+              tipo: "REPORTE_EN_REVISION",
+            },
+          });
+          assert.ok(
+            authorNotice,
+            "El autor recibe un aviso accionable sin sanción automática.",
+          );
+          assert.match(authorNotice.mensaje, /Mis reportes/);
           const visible = await request("/incidents");
           assert.equal(
             visible.json.some((row) => row.id === result.incidente.id),
@@ -338,6 +352,7 @@ test(
           const result = await submit(author, selected, [file]);
           assert.equal(result.incidente.publicado, false);
           assert.equal(result.reporte.estado, "EN_REVISION");
+          assert.equal(result.revision.motivo, "EVIDENCIA_NO_CONCLUYENTE");
           await assertNoSanction(author);
           await assertReviewAlert(result.incidente.id, admin);
         },
@@ -559,6 +574,7 @@ test(
             });
           assert.equal(await countProof(), 0);
           const file = await upload(author, photo, "image/png", "EVIDENCIA");
+          const analysesBeforeAdditionalProof = requests.length;
           const updated = await request(
             `/reports/${original.reporte.id}/evidence`,
             author,
@@ -566,6 +582,11 @@ test(
           );
           assert.equal(updated.status, 200, JSON.stringify(updated.json));
           assert.equal(updated.json.estado, "EN_REVISION");
+          assert.equal(
+            requests.length,
+            analysesBeforeAdditionalProof,
+            "Las pruebas posteriores pasan solo a revisión humana.",
+          );
           assert.equal(await countProof(), 0);
           await assertReviewAlert(original.incidente.id, admin);
           assert.equal((await request(`/uploads/${file.id}`)).status, 403);

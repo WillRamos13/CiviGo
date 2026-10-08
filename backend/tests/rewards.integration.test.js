@@ -174,6 +174,8 @@ test(
       assert.equal(response.status, 201, JSON.stringify(result));
       assert.equal(result.incidente.id, incident.id);
       assert.equal(result.incidente.nivelRiesgo, 4);
+      assert.equal(result.reporte.estado, "EN_REVISION");
+      assert.equal(result.revision.motivo, "IA_NO_DISPONIBLE");
       const original = await prisma.pointEvent.findMany({
         where: { clave: { in: reports.map((r) => "reporte:" + r.id) } },
         orderBy: { id: "asc" },
@@ -194,7 +196,7 @@ test(
             puntos: 0,
           },
         }),
-        1,
+        0,
       );
       assert.equal(
         (
@@ -288,6 +290,17 @@ test(
         3,
       );
       assert.equal((await attach()).status, 400);
+      assert.equal(
+        await prisma.pointEvent.count({
+          where: {
+            usuarioId: users[4].id,
+            tipo: "REPORTE_VALIDADO",
+            puntos: 0,
+          },
+        }),
+        1,
+        "El quinto aporte sólo recibe su evento de validación después de la revisión humana",
+      );
       assert.equal(
         await prisma.pointEvent.count({
           where: { usuarioId: users[4].id, tipo: "PRUEBA_VALIDADA" },

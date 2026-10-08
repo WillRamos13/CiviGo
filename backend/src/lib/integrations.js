@@ -21,6 +21,13 @@ function integrationChecklist(env = process.env, state = services()) {
           "Configura la clave privada en Railway. AI_REPORT_MODEL elige el modelo para evaluar reportes (gpt-6.1-sol por defecto); AI_CHAT_MODEL elige el del chatbot (gpt-4.1-mini por defecto). AI_MODEL sigue como alternativa compatible para ambos.",
       },
       {
+        id: "trafico",
+        nombre: "TomTom",
+        configurado: !!env.TOMTOM_API_KEY?.trim() && env.TOMTOM_ENABLED === "true",
+        variablesPendientes: [...missing(["TOMTOM_API_KEY"]), ...(env.TOMTOM_ENABLED === "true" ? [] : ["TOMTOM_ENABLED"])],
+        indicacion: "Guarda TOMTOM_API_KEY únicamente en Railway y habilita TOMTOM_ENABLED=true después de aplicar las migraciones. Las cuotas se comprueban en la base. Las rutas a pie y bicicleta usan OpenStreetMap; los tiempos de tráfico compatibles se calculan para automóvil.",
+      },
+      {
         id: "correo",
         nombre: "Resend",
         configurado: !!state.correo?.configurado,
@@ -78,7 +85,7 @@ function integrationChecklist(env = process.env, state = services()) {
         "BACKEND_URL apunta a Railway. El token público de Mapbox habilita el mapa; las claves privadas permanecen en el backend.",
     },
     navegacion:
-      "Las rutas y búsquedas locales usan la red de OpenStreetMap; el GPS usa los permisos del navegador.",
+      "Más segura, más rápida y equilibrada sobre OpenStreetMap. TomTom aporta tráfico y avisos temporales sin sumar riesgo histórico. El GPS y la voz funcionan mientras la página está abierta.",
     pagos: "Premium y canjes permanecen en demostración, sin pagos reales.",
   };
 }

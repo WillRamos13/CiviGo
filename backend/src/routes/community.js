@@ -156,6 +156,11 @@ router.post(
       1000,
     );
     const history = conversationHistory(req.body?.historial);
+    res.setHeader("Cache-Control", "no-store");
+    const consultation = require("../lib/chatbot-context").incidentConsultation(
+      prompt,
+      history,
+    );
     chatbotQuota(
       req.user ? "user:" + req.user.id : "anonymous:" + req.ip,
       req.user ? 12 : 6,
@@ -172,18 +177,29 @@ router.post(
     const where = {
       publicado: true,
       AND: [publicIncidentEligibility()],
-      OR: [
-        {
-          historico: false,
-          estado: { in: ["ACTIVO", "VALIDADO", "PENDIENTE"] },
-        },
-        {
-          historico: true,
-          fechaEvento: { gte: cutoff },
-          estado: { in: ["ACTIVO", "VALIDADO", "PENDIENTE", "RESUELTO"] },
-        },
-      ],
+      ...(consultation === "HISTORICOS"
+        ? { historico: true, fechaEvento: { gte: cutoff } }
+        : {
+            // Imported antecedents can retain a legacy ACTIVO state. The
+            // source separates them from current citizen reports.
+            fuente: { equals: "CIUDADANO", mode: "insensitive" },
+            OR: [
+              { historico: false },
+              { historico: true, fechaEvento: { gte: cutoff } },
+            ],
+          }),
+      estado: {
+        in:
+          consultation === "HISTORICOS"
+            ? ["ACTIVO", "VALIDADO", "PENDIENTE", "RESUELTO"]
+            : ["ACTIVO", "VALIDADO", "PENDIENTE"],
+      },
     };
+    if (consultation === "HISTORICOS")
+      where.OR = [
+        { estado: "RESUELTO" },
+        { NOT: { fuente: { equals: "CIUDADANO", mode: "insensitive" } } },
+      ];
     try {
       [rules, count, recent] = await Promise.all([
         config(),
@@ -224,7 +240,7 @@ router.post(
         " metros o una revisión autorizada. La confianza sube de 50% a 100%; las confirmaciones no aumentan la gravedad.";
     if (/ruta|caminar|bicicleta|auto/.test(message))
       respuesta =
-        "Crea una cuenta para comparar recorridos a pie, en bicicleta o automóvil. Las opciones disponibles consideran distancia y los incidentes registrados por tramo. Si aparece una alerta durante el recorrido, tú decides si cambias de ruta.";
+        "Crea una cuenta para comparar la ruta más segura, la más rápida y la equilibrada a pie, en bicicleta o automóvil. El tráfico de automóvil y los desvíos se calculan automáticamente. Al iniciar, el GPS sigue tu avance, ofrece indicaciones por voz y recalcula si te desvías; puedes silenciarlo.";
     if (/punto|riesgo|segur/.test(message))
       respuesta =
         "Cada incidente aporta gravedad × validación × antigüedad aplicable. Se suma por tramo y sus conexiones reciben " +
@@ -233,11 +249,19 @@ router.post(
     if (/premium|moneda|premio|ranking/.test(message))
       respuesta =
         "El ranking utiliza los puntos del mes y puede entregar monedas acumulables. Premium es una demostración sin cobros, con favoritos adicionales y opción de ocultar publicidad. No mejora la credibilidad ni el cálculo de seguridad.";
-    if (/ahora|actual|reciente/.test(message))
+    if (
+      /ahora|actual|reciente|histor|antecedente|que (?:esta pasando|ocurre|hay)/.test(
+        message.normalize("NFD").replace(/[\u0300-\u036f]/g, ""),
+      )
+    )
       respuesta = currentInformationAvailable
-        ? "Hay " +
-          count +
-          " incidentes públicos disponibles para consulta, incluidos los históricos vigentes. Su fecha del hecho y evaluación indican qué información describe cada reporte; no significa que todos estén ocurriendo ahora. Consulta el mapa para ver sus detalles."
+        ? consultation === "HISTORICOS"
+          ? "Hay " +
+            count +
+            " incidentes históricos públicos dentro de los últimos tres años. Son antecedentes; no representan hechos que estén ocurriendo ahora. Consulta el mapa para sus detalles."
+          : "Hay " +
+            count +
+            " incidentes públicos activos disponibles para consulta. Su estado no confirma que el hecho siga ocurriendo en este instante. Consulta la fecha del hecho y su evaluación en el mapa."
         : "No puedo consultar la información actual de incidentes en este momento. Puedes intentarlo de nuevo más adelante; mientras tanto puedo explicar cómo funciona CiviGo.";
     const ai = await require("../lib/providers").assist(
       prompt,
@@ -248,6 +272,7 @@ router.post(
         incidentesPublicados: count,
         informacionActualDisponible: currentInformationAvailable,
         consultadoEn: new Date().toISOString(),
+        consulta: consultation,
       },
       history,
     );

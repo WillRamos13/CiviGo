@@ -6,9 +6,11 @@ El administrador puede revisar incidentes y apelaciones, crear usuarios y gestio
 
 En **Usuarios → Crear usuario**, completa identidad, correo, teléfono de contacto, fecha de nacimiento y contraseña de al menos diez caracteres. Puedes elegir Ciudadano, Agente o Administrador; el ciudadano requiere Gmail y el agente requiere su ámbito y permisos. Marcar **Correo verificado** exige explicar la comprobación. La creación conserva la sesión actual del administrador. Una validación manual habilita participación, pero no acredita una autenticación real de Google.
 
+En **Anuncios y novedades**, crea tarjetas de negocios o novedades, ordénalas y programa inicio y fin en hora de Perú. Los anuncios abren la ficha del negocio existente; Premium puede ocultar publicidad sin ocultar novedades. En **Avisos de tráfico**, oculta o restaura avisos TomTom con un motivo; esas decisiones quedan auditadas y no modifican incidentes ciudadanos.
+
 Los aportes con imágenes dudosas, no relacionadas o archivos sin analizar aparecen **En revisión humana**, aunque otro aporte del mismo incidente ya esté validado. Consulta sus adjuntos antes de aprobar el incidente; esa aprobación explícita libera los aportes retenidos. Las confirmaciones comunitarias no los liberan.
 
-Al pulsar **Crear usuario**, **Administrar**, **Revisar** o abrir otro editor, la vista se desplaza al formulario y le da foco. Esto también funciona si repites el mismo botón después de volver al listado; escribir en los campos conserva el foco. La versión instalada se muestra en ingreso y cabecera: utiliza **0.2.1** para esta corrección.
+Al pulsar **Crear usuario**, **Administrar**, **Revisar** o abrir otro editor, la vista se desplaza al formulario y le da foco. Esto también funciona si repites el mismo botón después de volver al listado; escribir en los campos conserva el foco. La versión instalada se muestra en ingreso y cabecera: utiliza **0.3.0** para esta corrección.
 
 ## Ejecutar desde el código
 
@@ -36,10 +38,10 @@ npm run dist
 
 El primer comando genera `release/win-unpacked/CiviGo Administración.exe` junto con sus archivos de ejecución. Conserva toda esa carpeta al distribuirlo. El segundo genera estos dos archivos que puedes entregar por separado:
 
-- `release/CiviGo-Administracion-Instalador-0.2.1.exe`: instalación para el usuario actual de Windows, sin necesidad de permisos de administrador.
-- `release/CiviGo-Administracion-Portable-0.2.1.exe`: aplicación portátil que se abre sin instalarla.
+- `release/CiviGo-Administracion-Instalador-0.3.0.exe`: instalación para el usuario actual de Windows, sin necesidad de permisos de administrador.
+- `release/CiviGo-Administracion-Portable-0.3.0.exe`: aplicación portátil que se abre sin instalarla.
 
-Esta versión necesita el backend actualizado para crear usuarios y validar sus correos. Instalar el escritorio no despliega los cambios en Railway o Vercel. Este bloque no añade migraciones ni variables de entorno.
+Esta versión necesita el backend actualizado y la novena migración aplicada para anuncios, moderación y contadores de tráfico. Instalar el escritorio no despliega los cambios en Railway o Vercel. Aplica la migración con `npm run db:migrate` desde backend. Para tráfico, configura `TOMTOM_API_KEY` y `TOMTOM_ENABLED=true` exclusivamente en Railway.
 
 Los paquetes locales no se publican ni se suben automáticamente. No incluyen certificado de firma de código; Windows puede mostrar la advertencia de editor desconocido. Firmar una futura distribución requiere un certificado del propietario del proyecto.
 
@@ -76,7 +78,7 @@ npm run test:electron
 npm run test:package
 ```
 
-Las pruebas de Node verifican roles, cookies, IPC, URLs, límite de archivos, multipart, sesiones, cancelación de lecturas y enfoque de editores. La prueba de Electron abre una ventana oculta y usa una API simulada en `127.0.0.1`: recorre las doce pestañas, verifica editores visibles con listas de 24 registros, reapertura, creación y guardado de usuarios, aislamiento de Node.js, acceso de administrador, descarga privada, revocación de rol y cierre de sesión. Guarda el resultado y las capturas en `.local/electron-smoke/` y nunca llama a Railway, Google u OpenAI.
+Las pruebas de Node verifican roles, cookies, IPC, URLs, límite de archivos, multipart, sesiones, cancelación de lecturas y enfoque de editores. La prueba de Electron abre una ventana oculta y usa una API simulada en `127.0.0.1`: recorre las catorce pestañas, verifica editores visibles con listas de 24 registros, reapertura, creación y guardado de usuarios, CRUD de anuncios, programación y moderación de avisos, aislamiento de Node.js, acceso de administrador, descarga privada, revocación de rol y cierre de sesión. Guarda el resultado y las capturas en `.local/electron-smoke/` y nunca llama a Railway, Google u OpenAI.
 
 `test:package`, después de `pack` o `dist`, repite esa prueba usando los archivos reales de `release/win-unpacked/resources/app.asar`. Utiliza el runtime de desarrollo y la API simulada; no ejecuta ni instala el instalador de Windows ni abre una ventana visible. La conexión al backend real se revisa al iniciar sesión con la cuenta administradora después de configurar el servicio.
 

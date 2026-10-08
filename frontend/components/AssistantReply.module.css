@@ -1,0 +1,9 @@
+.reply { font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
+.reply p { margin: 0 0 9px; color: inherit; }
+.reply p:last-child, .reply ul:last-child, .reply ol:last-child { margin-bottom: 0; }
+.reply ul, .reply ol { padding-left: 18px; margin: 6px 0 10px; }
+.reply ul { list-style: disc; }
+.reply ol { list-style: decimal; }
+.reply li { margin: 4px 0; }
+.reply strong { font-weight: 700; }
+.reply code { font-size: 11px; padding: 1px 4px; border-radius: 4px; background: color-mix(in srgb, currentColor 8%, transparent); color: inherit; }

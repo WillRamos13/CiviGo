@@ -32,8 +32,8 @@ test("Chatbot HTTP usa memoria corta, contexto público, guía honesta y cuota s
         evaluacion: "AGENTE",
         estado: "ACTIVO",
         historico: true,
-        fuente: "IMPORTACION",
-        fechaEvento: new Date("2025-09-01T12:00:00Z"),
+        fuente: "CIUDADANO",
+        fechaEvento: new Date("2026-10-08T01:06:00Z"),
         descripcion: "fixture-descripcion-privada",
         autor: "fixture-autor-privado",
       },
@@ -73,6 +73,7 @@ test("Chatbot HTTP usa memoria corta, contexto público, guía honesta y cuota s
     // módulo central de proveedores; tampoco sustituye su contrato HTTP.
     t.mock.method(providers, "assist", (...args) => ai.assist(...args));
     let providerDown = false;
+    let inScope = true;
     let providerCalls = 0;
     let payload;
     const warnings = [];
@@ -103,7 +104,12 @@ test("Chatbot HTTP usa memoria corta, contexto público, guía honesta y cuota s
               content: [
                 {
                   type: "output_text",
-                  text: "Selecciona el tipo y confirma la ubicación.",
+                  text: JSON.stringify({
+                    enAmbito: inScope,
+                    respuesta: inScope
+                      ? "Selecciona el tipo y confirma la ubicación."
+                      : "Una pijamaparty es una fiesta de pijamas.",
+                  }),
                 },
               ],
             },
@@ -143,15 +149,66 @@ test("Chatbot HTTP usa memoria corta, contexto público, guía honesta y cuota s
     }
 
     await t.test(
+      "consultas ajenas se redirigen y los históricos se consultan solo expresamente",
+      async () => {
+        actor = { id: 2 };
+        process.env.AI_API_KEY = "fixture-openai-key-no-real";
+        inScope = false;
+        const unrelated = await ask({ mensaje: "¿Qué es una pijamaparty?" });
+        assert.equal(unrelated.status, 200);
+        assert.match(unrelated.body.respuesta, /fuera de este ámbito/);
+        assert.ok(!unrelated.body.respuesta.includes("fiesta de pijamas"));
+        assert.equal(unrelated.headers.get("cache-control"), "no-store");
+        inScope = true;
+        const historical = await ask({
+          mensaje: "¿Qué incidentes históricos hay?",
+        });
+        assert.equal(historical.status, 200);
+        assert.equal(incidentQuery.where.historico, true);
+        assert.ok(
+          incidentQuery.where.OR.some(
+            (condition) => condition.estado === "RESUELTO",
+          ),
+        );
+        assert.ok(
+          incidentQuery.where.OR.some(
+            (condition) => condition.NOT?.fuente.equals === "CIUDADANO",
+          ),
+        );
+        assert.ok(incidentQuery.where.fechaEvento.gte instanceof Date);
+        assert.ok(payload.instructions.includes('"consulta":"HISTORICOS"'));
+        const current = await ask({
+          mensaje: "¿Y ahora?",
+          historial: [{ role: "user", content: "Incidentes históricos" }],
+        });
+        assert.equal(current.status, 200);
+        assert.equal(incidentQuery.where.historico, undefined);
+        assert.deepEqual(incidentQuery.where.fuente, {
+          equals: "CIUDADANO",
+          mode: "insensitive",
+        });
+        assert.deepEqual(incidentQuery.where.estado.in, [
+          "ACTIVO",
+          "VALIDADO",
+          "PENDIENTE",
+        ]);
+        assert.equal(incidentQuery.where.OR[1].historico, true);
+        assert.equal(incidentQuery.where.fechaEvento, undefined);
+        delete process.env.AI_API_KEY;
+        actor = { id: 1 };
+      },
+    );
+    await t.test(
       "sin clave ofrece guía con reglas vigentes sin simular IA",
       async () => {
+        const callsBefore = providerCalls;
         const result = await ask({ mensaje: "¿Cómo confirmo?" });
         assert.equal(result.status, 200);
         assert.equal(result.body.modo, "guia");
         assert.equal(result.body.ia, false);
         assert.match(result.body.respuesta, /4 confirmaciones/);
         assert.match(result.body.respuesta, /75 metros/);
-        assert.equal(providerCalls, 0);
+        assert.equal(providerCalls, callsBefore);
         assert.equal(incidentQuery.where.publicado, true);
         assert.equal(incidentQuery.take, 20);
         assert.equal(incidentQuery.select.descripcion, undefined);
@@ -185,8 +242,13 @@ test("Chatbot HTTP usa memoria corta, contexto público, guía honesta y cuota s
           { role: "user", content: "¿Y después?" },
         ]);
         assert.ok(payload.instructions.includes('"confirmaciones":4'));
-        assert.ok(payload.instructions.includes('"historico":true'));
-        assert.ok(payload.instructions.includes("2025-09-01"));
+        assert.ok(payload.instructions.includes('"historico":false'));
+        assert.ok(payload.instructions.includes("2026-10-08"));
+        assert.ok(
+          payload.instructions.includes('"conservaRiesgoHistorico":true'),
+        );
+        assert.equal(incidentQuery.where.historico, undefined);
+        assert.ok(payload.instructions.includes("America/Lima"));
         assert.ok(!JSON.stringify(payload).includes("privado"));
         assert.ok(!JSON.stringify(payload).includes("dato-no-confiable"));
         assert.equal(result.body.historial, undefined);
@@ -270,10 +332,10 @@ test("Chatbot HTTP usa memoria corta, contexto público, guía honesta y cuota s
         assert.ok(!JSON.stringify(result.body).includes("fixture-error"));
         databaseDown = false;
         const restored = await ask({ mensaje: "¿Qué hay ahora?" });
-        assert.match(restored.body.respuesta, /97 incidentes públicos/);
+        assert.match(restored.body.respuesta, /97 incidentes públicos activos/);
         assert.match(
           restored.body.respuesta,
-          /no significa que todos estén ocurriendo ahora/,
+          /no confirma que el hecho siga ocurriendo/,
         );
       },
     );

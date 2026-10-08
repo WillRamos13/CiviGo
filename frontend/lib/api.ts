@@ -48,4 +48,5 @@ export async function getReportes() { return api<import('./types').Reporte[]>('/
 export async function crearReporte(data: unknown) { return post<{
     reporte: import('./types').Reporte;
     incidente: import('./types').Incidente;
+    revision?: { requerida: true; motivo: 'IMAGEN_NO_RELACIONADA' | 'EVIDENCIA_NO_CONCLUYENTE' | 'IA_NO_DISPONIBLE' | 'REVISION_SOLICITADA'; mensaje: string };
 }>('/reports', data); }

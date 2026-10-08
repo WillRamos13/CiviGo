@@ -185,9 +185,28 @@ router.post(
     // las imágenes incompatibles/dudosas y los archivos sin analizar requieren
     // decisión humana antes de validar ese aporte o concederle puntos.
     const requiresReview =
+      !evaluation ||
       !!evaluation?.posibleFalso ||
-      !!evaluation?.requiereRevision ||
-      (attachments.length > 0 && !evaluation);
+      !!evaluation?.requiereRevision;
+    const reviewReason = !evaluation
+      ? "IA_NO_DISPONIBLE"
+      : evaluation.evidencias?.some(
+            (item) => item.resultado === "NO_RELACIONADA",
+          )
+        ? "IMAGEN_NO_RELACIONADA"
+        : evaluation.evidencias?.some(
+              (item) => item.resultado === "NO_CONCLUYENTE",
+            )
+          ? "EVIDENCIA_NO_CONCLUYENTE"
+          : "REVISION_SOLICITADA";
+    const reviewMessage =
+      reviewReason === "IMAGEN_NO_RELACIONADA"
+        ? "Una imagen no corresponde al incidente descrito. Tu aporte queda en revisión humana; no se ha declarado falso. Puedes aportar pruebas adecuadas desde Mis reportes o solicitar revisión."
+        : reviewReason === "EVIDENCIA_NO_CONCLUYENTE"
+          ? "Una prueba no permite evaluar el incidente con suficiente claridad. Tu aporte queda en revisión humana. Puedes aportar pruebas adecuadas desde Mis reportes o solicitar revisión."
+          : reviewReason === "IA_NO_DISPONIBLE"
+            ? "No fue posible completar el análisis automático. Tu aporte queda en revisión humana y no ha sido aprobado por la IA."
+            : "Tu aporte requiere revisión humana antes de validarse. Puedes consultar su estado y aportar pruebas desde Mis reportes; no se ha sancionado tu cuenta.";
     const acceptedEvaluation = requiresReview ? null : evaluation;
     if (acceptedEvaluation?.tipoPropuesto) {
       const proposal = evaluation.tipoPropuesto;
@@ -343,6 +362,7 @@ router.post(
           datos: {
             evaluacionRecibida: !!evaluation,
             requiereRevision: requiresReview,
+            motivoRevision: requiresReview ? reviewReason : null,
             gravedad: evaluation?.gravedad ?? null,
             motivo:
               evaluation?.motivo ??
@@ -351,8 +371,19 @@ router.post(
           },
         },
       });
-      if (!newIncident && !requiresReview) {
+      if (requiresReview)
+        await db.notification.create({
+          data: {
+            usuarioId: req.user.id,
+            incidenteId: current.id,
+            titulo: "Reporte #" + created.id + " en revisión",
+            mensaje: reviewMessage,
+            tipo: "REPORTE_EN_REVISION",
+          },
+        });
+      if (!newIncident) {
         if (
+          !requiresReview &&
           gps.latitud !== null &&
           distance(gps, current) <= rules.confirmacionMetros
         )
@@ -451,6 +482,15 @@ router.post(
         true,
       ),
       incidente: incident(result.incidente),
+      ...(requiresReview
+        ? {
+            revision: {
+              requerida: true,
+              motivo: reviewReason,
+              mensaje: reviewMessage,
+            },
+          }
+        : {}),
     });
   }),
 );

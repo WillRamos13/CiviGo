@@ -316,6 +316,51 @@ model Business {
   activo      Boolean        @default(true)
   demo        Boolean        @default(true)
   impresiones AdImpression[]
+  anunciosMapa MapAnnouncement[]
+}
+
+model MapAnnouncement {
+  id              Int       @id @default(autoincrement())
+  tipo            String    @default("NOVEDAD")
+  titulo          String
+  mensaje         String    @default("")
+  enlace          String?
+  negocioId       Int?
+  negocio         Business? @relation(fields: [negocioId], references: [id], onDelete: Cascade)
+  activo          Boolean   @default(true)
+  orden           Int       @default(0)
+  inicio          DateTime?
+  fin             DateTime?
+  creadoEn        DateTime  @default(now())
+  actualizadoEn   DateTime  @updatedAt
+
+  @@index([activo, orden])
+}
+
+model ExternalTrafficModeration {
+  id            Int      @id @default(autoincrement())
+  proveedor     String   @default("TOMTOM")
+  externoId     String
+  oculto        Boolean  @default(true)
+  motivo        String
+  usuarioId     Int
+  datos         Json?
+  creadoEn      DateTime @default(now())
+  actualizadoEn DateTime @updatedAt
+
+  @@unique([proveedor, externoId])
+  @@index([proveedor, oculto])
+}
+
+model ExternalApiUsage {
+  id            Int      @id @default(autoincrement())
+  proveedor     String
+  producto      String
+  mes           String
+  usadas        Int      @default(0)
+  actualizadoEn DateTime @updatedAt
+
+  @@unique([proveedor, producto, mes])
 }
 
 model AdImpression {

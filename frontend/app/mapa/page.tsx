@@ -1,6 +1,5 @@
 'use client';
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import Link from 'next/link';
 import { RefreshCw, ShieldAlert } from 'lucide-react';
 import MapView from '@/components/MapView';
 import IncidentPanel from '@/components/IncidentPanel';
@@ -13,7 +12,9 @@ import { isHistoricalAntecedent, incidentSource } from '@/lib/incidents';
 import { useLiveRefresh } from '@/lib/use-live-refresh';
 import { buildIncidentFilterGroups, filterIncidentsByType } from '@/lib/incident-filters';
 import type { Incidente, Ruta, Posicion, Catalogo } from '@/lib/types';
-import { nearRoute, isRouteWarning, watchRoutePosition } from '@/lib/navigation';
+import { nearRoute, isRouteWarning } from '@/lib/navigation';
+import { useNavigation } from '@/lib/use-navigation';
+import { BUSINESS_DETAILS_EVENT, type MapBusiness } from '@/components/MapAnnouncements';
 interface Business {
     id: number;
     nombre: string;
@@ -36,14 +37,19 @@ export default function Mapa() {
 }
 function AccountMap() {
     const { usuario } = useAuth();
-    const [incidents, setIncidents] = useState<Incidente[]>([]), [selected, setSelected] = useState<Incidente | null>(null), [route, setRoute] = useState<Ruta | null>(null), [following, setFollowing] = useState(false), [error, setError] = useState(''), [updated, setUpdated] = useState(''), [loading, setLoading] = useState(true), [routeAlert, setRouteAlert] = useState(''), [recalculate, setRecalculate] = useState(0), [position, setPosition] = useState<Posicion | null>(null), [ad, setAd] = useState<Business | null>(null), [businessDetail, setBusinessDetail] = useState<Business | null>(null), [adMessage, setAdMessage] = useState(''), [category, setCategory] = useState('');
+    const [incidents, setIncidents] = useState<Incidente[]>([]), [selected, setSelected] = useState<Incidente | null>(null), [route, setRoute] = useState<Ruta | null>(null), [following, setFollowing] = useState(false), [error, setError] = useState(''), [updated, setUpdated] = useState(''), [loading, setLoading] = useState(true), [routeAlert, setRouteAlert] = useState(''), [recalculate, setRecalculate] = useState(0), [ad, setAd] = useState<Business | null>(null), [businessDetail, setBusinessDetail] = useState<Business | null>(null), [category, setCategory] = useState('');
     const businessWebsite = safeWebsite(businessDetail?.sitioWeb);
     const [catalog, setCatalog] = useState<Catalogo | null>(null);
     const [filterLabel, setFilterLabel] = useState('');
-    const changeFollowing = useCallback((value: boolean) => { setFollowing(value); setAd(null); if (value) { setPosition(null); setAdMessage(''); } }, []);
+    const changeFollowing = useCallback((value: boolean) => { setFollowing(value); setAd(null); }, []);
+    const navigation = useNavigation(route, following, setRoute, changeFollowing, recalculate);
+    const position = navigation.position;
     const previous = useRef<Set<number>>(new Set()), activeRoute = useRef<Ruta | null>(null), seenBusiness = useRef<Set<number>>(new Set()), traveled = useRef(150), lastTrack = useRef<Posicion | null>(null), businesses = useRef<Business[]>([]), adTimer = useRef<ReturnType<typeof setTimeout> | null>(null), trip = useRef('');
     const adConfig = useRef({anuncioMetros:50,intervaloAnuncioMetros:150,duracionAnuncioSegundos:6});
     const hasLoaded = useRef(false), lastGravity = useRef<Map<number,number|null>>(new Map()), lastSnapshot = useRef('');
+    const tracking = useRef(following);
+    useEffect(() => { tracking.current = following; }, [following]);
+    useEffect(() => { const openBusiness = (event: Event) => { const detail = (event as CustomEvent<MapBusiness>).detail; if (detail && Number.isFinite(detail.id) && typeof detail.nombre === 'string') setBusinessDetail(detail); }; window.addEventListener(BUSINESS_DETAILS_EVENT, openBusiness); return () => window.removeEventListener(BUSINESS_DETAILS_EVENT, openBusiness); }, []);
     useEffect(()=>{let ok=true;api<Catalogo>('/catalog').then(data=>{if(ok){setCatalog(data);const config=data.config;for(const key of Object.keys(adConfig.current) as (keyof typeof adConfig.current)[]){const value=Number(config[key]);if(Number.isFinite(value)&&value>0)adConfig.current[key]=value;}}}).catch(()=>{});return()=>{ok=false;};},[]);
     useEffect(() => { activeRoute.current = route; }, [route]);
     const load = useCallback(async (signal: AbortSignal) => {
@@ -51,8 +57,10 @@ function AccountMap() {
         const data = await api<Incidente[]>('/incidents', {signal: AbortSignal.any([signal, AbortSignal.timeout(30000)])});
         if (signal.aborted) return;
         const newOnRoute = data.filter(i => (!previous.current.has(i.id)||((i.gravedad??i.nivelRiesgo??0)>(lastGravity.current.get(i.id)??0))) && activeRoute.current && nearRoute(i, activeRoute.current) && isRouteWarning(i));
-        if (hasLoaded.current && newOnRoute.length)
-            setRouteAlert(`Hay ${newOnRoute.length} nuevo${newOnRoute.length > 1 ? 's' : ''} incidente${newOnRoute.length > 1 ? 's' : ''} importante${newOnRoute.length > 1 ? 's' : ''} cerca de tu recorrido. Puedes mantenerlo o buscar otra alternativa.`);
+        if (hasLoaded.current && newOnRoute.length) {
+            setRouteAlert(`Hay ${newOnRoute.length} nuevo${newOnRoute.length > 1 ? 's' : ''} incidente${newOnRoute.length > 1 ? 's' : ''} importante${newOnRoute.length > 1 ? 's' : ''} cerca de tu recorrido.${tracking.current ? ' Se actualizará el recorrido desde tu ubicación.' : ' Busca recorridos para actualizar las alternativas.'}`);
+            if (tracking.current) setRecalculate(v => v + 1);
+        }
         previous.current = new Set(data.map(i => i.id));
         lastGravity.current = new Map(data.map(i=>[i.id,i.gravedad??i.nivelRiesgo]));
         hasLoaded.current = true;
@@ -73,18 +81,14 @@ function AccountMap() {
     } }, []);
     const refresh = useLiveRefresh(load);
     useEffect(() => {
-        if (!following || !route) return;
+        if (!following) return;
         let current = true;
         businesses.current = []; seenBusiness.current = new Set(); traveled.current = adConfig.current.intervaloAnuncioMetros; lastTrack.current = null; trip.current = crypto.randomUUID();
-        const stop = watchRoutePosition(navigator.geolocation, next => {
-            if (!current) return;
-            if (lastTrack.current) { const step = distance(next, lastTrack.current); if (step > 2 && step < 500) traveled.current += step; }
-            lastTrack.current = next; setPosition(next);
-        }, message => { if (current) { setFollowing(false); setPosition(null); setAdMessage(message); } });
         const controller = new AbortController();
         api<Business[]>('/businesses', {signal: controller.signal}).then(data => { if (current) businesses.current = data; }).catch(() => {});
-        return () => { current = false; stop(); controller.abort(); businesses.current = []; if (adTimer.current) clearTimeout(adTimer.current); };
-    }, [following, route]);
+        return () => { current = false; controller.abort(); businesses.current = []; if (adTimer.current) clearTimeout(adTimer.current); };
+    }, [following]);
+    useEffect(() => { if (!following || !position || (position.accuracy ?? 0) > 60) return; if (lastTrack.current) { const step = distance(position, lastTrack.current); if (step > 2 && step < 500) traveled.current += step; } lastTrack.current = position; }, [following, position]);
     useEffect(() => { if (!following || !position || !route || !nearRoute(position, route, 100))
         return; if (usuario?.premium && usuario.ocultarAnuncios)
         return; if (traveled.current < adConfig.current.intervaloAnuncioMetros)
@@ -103,26 +107,17 @@ function AccountMap() {
             <strong><ShieldAlert size={16} style={{ display: 'inline', marginRight: 8 }}/>Aviso sobre tu recorrido</strong>
             <p style={{ margin: '7px 0' }}>{routeAlert}</p>
             <div className="actions">
-                <button className="btn btn-primary" onClick={() => { setRecalculate(recalculate + 1); setRouteAlert(''); setFollowing(false); }}>Buscar alternativas</button>
-                <button className="btn btn-secondary btn-small" onClick={() => setRouteAlert('')}>Mantener recorrido</button>
+                <button className="btn btn-secondary btn-small" onClick={() => setRouteAlert('')}>Cerrar aviso</button>
             </div>
         </div>}
-        {adMessage && <div className="notice notice-warning">{adMessage}</div>}
+        {!following && navigation.notice && <div className="notice notice-warning">{navigation.notice}</div>}
         <div className="map-workspace">
             <div className="map-column">
                 <div className="map-frame">
-                    <MapView incidentes={filtered} ruta={route} onSelect={setSelected} posicion={position} typeFilter={{ value: category, groups: filterGroups, onChange: changeTypeFilter }}/>
-                </div>
-                <div className="map-footer">
-                    <span className="online-state"><span /> Provincia de Ica</span>
-                    <span>{updated ? `Incidentes actualizados ${updated}` : 'Conectando…'}</span>
-                </div>
-                <div className="notice map-risk-note">El color describe los puntos registrados en cada tramo. Los incidentes por evaluar aparecen con «?». Fuera de cobertura no se dispone de información.</div>
-                {error && <div className="notice notice-error" role="alert">{error}{incidents.length > 0 && ' Se conservan los últimos datos obtenidos; pueden estar desactualizados.'}</div>}
-            </div>
-            <aside className="side-panel">
+                    <MapView incidentes={filtered} ruta={route} onSelect={setSelected} posicion={position} navigating={following} heading={navigation.progress?.heading} centerVersion={navigation.centerVersion} onTrafficChange={() => { if (tracking.current) setRecalculate(v => v + 1); }} typeFilter={{ value: category, groups: filterGroups, onChange: changeTypeFilter }}/>
+            <aside className="side-panel map-floating-panels" aria-label="Paneles del mapa">
                 <CollapsiblePanel title="¿A dónde vamos?" className="map-side-panel map-route-panel" defaultOpen>
-                    <RoutePlanner onRoute={setRoute} active={route} following={following} onFollow={changeFollowing} recalculate={recalculate}/>
+                    <RoutePlanner onRoute={setRoute} active={route} following={following} onFollow={changeFollowing} guidance={navigation}/>
                 </CollapsiblePanel>
                 <CollapsiblePanel title="Reportes recientes" className="map-side-panel map-reports-panel" defaultOpen>
                     <div className="card-header">
@@ -142,16 +137,13 @@ function AccountMap() {
                         </button>)}
                     </div>}
                 </CollapsiblePanel>
-                <CollapsiblePanel title="Comunidad" className="map-side-panel">
-                    <p className="muted" style={{ fontSize: 12 }}>Comparte información útil. Confirma solo lo que observas y deja la revisión de pruebas privadas a los agentes.</p>
-                    <Link href="/ranking" className="btn btn-secondary btn-small">Conocer la comunidad →</Link>
-                    {!(usuario?.premium && usuario.ocultarAnuncios) && <div className="ad-space">
-                        <span className="eyebrow" style={{ fontSize: 8 }}>PUBLICIDAD · DEMOSTRACIÓN</span>
-                        <p style={{ margin: '8px 0 0' }}>Espacio para convenios locales. No se realizan cobros ni se inventan anunciantes.</p>
-                    </div>}
-                </CollapsiblePanel>
+
             </aside>
+                    <div className="map-footer"><span className="online-state"><span/>Provincia de Ica</span><span>{updated ? `Incidentes actualizados ${updated}` : 'Conectando…'}</span></div>
+                </div>
+            </div>
         </div>
+        {error && <div className="notice notice-error" role="alert">{error}{incidents.length > 0 && ' Se conservan los últimos datos obtenidos; pueden estar desactualizados.'}</div>}
         {selected && <IncidentPanel key={selected.id} incidente={selected} onClose={() => setSelected(null)} onRefresh={refresh}/>}
         {ad && following && !(usuario?.premium && usuario.ocultarAnuncios) && <div className="business-toast">
             <div className="card-header"><span className="eyebrow" style={{ fontSize: 8 }}>RECOMENDACIÓN PATROCINADA · DEMOSTRACIÓN</span><button className="icon-btn" aria-label="Cerrar recomendación" onClick={() => setAd(null)}>×</button></div>
