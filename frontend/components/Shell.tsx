@@ -8,7 +8,6 @@ import {
   MapPin,
   FileText,
   Bell,
-  User,
   Medal,
   Gift,
   Sparkles,
@@ -22,7 +21,11 @@ import { errorMessage } from "@/lib/api";
 import ChatBot from "./ChatBot";
 import OfflineSupport from "./OfflineSupport";
 import ThemeToggle from "./ThemeToggle";
-import MapAnnouncements from "./MapAnnouncements";
+import MapAnnouncements, {
+  BUSINESS_DETAILS_EVENT,
+  type MapBusiness,
+} from "./MapAnnouncements";
+import BusinessDetailsDialog from "./BusinessDetailsDialog";
 const links = [
   { href: "/mapa", label: "Explorar mapa", icon: Map },
   { href: "/reportar", label: "Reportar incidente", icon: MapPin },
@@ -31,13 +34,15 @@ const links = [
   { href: "/ranking", label: "Comunidad", icon: Medal },
   { href: "/recompensas", label: "Recompensas", icon: Gift },
   { href: "/premium", label: "CiviGo Premium", icon: Sparkles },
-  { href: "/perfil", label: "Mi perfil", icon: User },
 ];
 export default function Shell({ children }: { children: React.ReactNode }) {
   const path = usePathname();
   const { usuario, logout, offline } = useAuth();
   const [open, setOpen] = useState(false),
     [error, setError] = useState("");
+  const [businessDetail, setBusinessDetail] = useState<MapBusiness | null>(
+    null,
+  );
   const menuButton = useRef<HTMLButtonElement>(null);
   useEffect(() => {
     if (!open) return;
@@ -50,12 +55,35 @@ export default function Shell({ children }: { children: React.ReactNode }) {
     window.addEventListener("keydown", closeOnEscape);
     return () => window.removeEventListener("keydown", closeOnEscape);
   }, [open]);
+  useEffect(() => {
+    const openBusiness = (event: Event) => {
+      const detail = (event as CustomEvent<MapBusiness>).detail;
+      if (
+        detail &&
+        Number.isFinite(detail.id) &&
+        typeof detail.nombre === "string"
+      )
+        setBusinessDetail(detail);
+    };
+    window.addEventListener(BUSINESS_DETAILS_EVENT, openBusiness);
+    return () =>
+      window.removeEventListener(BUSINESS_DETAILS_EVENT, openBusiness);
+  }, []);
   const role = usuario?.rol.toLowerCase();
   const agent = role === "agente";
   const mapExperience = path === "/mapa";
-  const signOut = async () => { try { setError(""); await logout(); } catch (error) { setError(errorMessage(error)); } };
+  const signOut = async () => {
+    try {
+      setError("");
+      await logout();
+    } catch (error) {
+      setError(errorMessage(error));
+    }
+  };
   return (
-    <div className={`app-shell ${mapExperience ? "map-experience" : ""}`}>
+    <div
+      className={`app-shell site-experience ${mapExperience ? "map-experience" : ""}`}
+    >
       <a className="skip-link" href="#contenido-principal">
         Saltar al contenido
       </a>
@@ -75,36 +103,10 @@ export default function Shell({ children }: { children: React.ReactNode }) {
             Civi<span className="brand-go">Go</span>
           </span>
         </Link>
-        {mapExperience ? <MapAnnouncements /> : <span className="coverage-pill">
-          <span /> Ica, Perú
-        </span>}
+        <MapAnnouncements />
         <div className="header-actions">
           <ThemeToggle />
-          {usuario ? (mapExperience ? null : (
-            <>
-              <Link href="/perfil" className="profile-link" aria-label={`Mi perfil: ${usuario.nickname}`}>
-                <span className="avatar">
-                  {usuario.nickname.charAt(0).toUpperCase()}
-                </span>
-                <span>{usuario.nickname}</span>
-              </Link>
-              <button
-                className="icon-btn"
-                title="Cerrar sesión"
-                aria-label="Cerrar sesión"
-                onClick={async () => {
-                  try {
-                    setError("");
-                    await logout();
-                  } catch (error) {
-                    setError(errorMessage(error));
-                  }
-                }}
-              >
-                <LogOut size={18} />
-              </button>
-            </>
-          )) : (
+          {!usuario && (
             <>
               <Link href="/ingresar" className="btn btn-quiet">
                 Ingresar
@@ -120,17 +122,20 @@ export default function Shell({ children }: { children: React.ReactNode }) {
             aria-label={open ? "Cerrar menú" : "Abrir menú"}
             aria-expanded={open}
             aria-controls="navegacion-principal"
-            onClick={() => setOpen(value => !value)}
+            onClick={() => setOpen((value) => !value)}
           >
             {open ? <X /> : <Menu />}
           </button>
         </div>
       </header>
       <div className="app-body">
-        <aside id="navegacion-principal" className={`sidebar ${open ? "is-open" : ""}`}>
+        <aside
+          id="navegacion-principal"
+          className={`sidebar ${open ? "is-open" : ""}`}
+        >
           <div className="sidebar-label">TU CIUDAD, EN COMUNIDAD</div>
           <nav aria-label="Navegación principal">
-            {links.filter(link => !mapExperience || link.href !== "/perfil").map(({ href, label, icon: Icon }) => (
+            {links.map(({ href, label, icon: Icon }) => (
               <Link
                 key={href}
                 href={href}
@@ -155,22 +160,30 @@ export default function Shell({ children }: { children: React.ReactNode }) {
               </Link>
             )}
           </nav>
-          {mapExperience && usuario && <div className="map-sidebar-account"><Link href="/perfil" className="profile-link"><span className="avatar">{usuario.nickname.charAt(0).toUpperCase()}</span><span>{usuario.nickname}</span></Link><button className="icon-btn" aria-label="Cerrar sesión" onClick={signOut}><LogOut size={20}/></button></div>}
-          {!mapExperience && <><div className="community-note">
-            <span className="eyebrow">HECHO PARA ICA</span>
-            <h3>Una mejor ciudad empieza contigo.</h3>
-            <p>
-              Comparte lo que sucede y ayuda a tu comunidad a tomar decisiones
-              informadas.
-            </p>
-            <Link href="/reportar">Hacer un reporte →</Link>
-          </div>
-          <div className="sidebar-footer">
-            CiviGo · Información ciudadana
-            <br />
-            <span>Publicidad y canjes en demostración</span>
-          </div>
-          </>}
+          {usuario && (
+            <div className="sidebar-account">
+              <Link
+                href="/perfil"
+                className="profile-link"
+                aria-label={`Mi perfil: ${usuario.nickname}`}
+                aria-current={path === "/perfil" ? "page" : undefined}
+                onClick={() => setOpen(false)}
+              >
+                <span className="avatar">
+                  {usuario.nickname.charAt(0).toUpperCase()}
+                </span>
+                <span>{usuario.nickname}</span>
+              </Link>
+              <button
+                className="icon-btn"
+                title="Cerrar sesión"
+                aria-label="Cerrar sesión"
+                onClick={signOut}
+              >
+                <LogOut size={20} />
+              </button>
+            </div>
+          )}
         </aside>
         <main id="contenido-principal" className="app-content" tabIndex={-1}>
           {offline && (
@@ -188,6 +201,10 @@ export default function Shell({ children }: { children: React.ReactNode }) {
           {children}
         </main>
       </div>
+      <BusinessDetailsDialog
+        business={businessDetail}
+        onClose={() => setBusinessDetail(null)}
+      />
       <ChatBot />
     </div>
   );

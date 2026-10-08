@@ -11,6 +11,7 @@ const { once } = require('node:events');
 const fixturePort = Number(process.env.CIVIGO_MAP_SMOKE_FIXTURE_PORT || 55709);
 const frontendPort = Number(process.env.CIVIGO_MAP_SMOKE_FRONTEND_PORT || 55710);
 const origin = `http://127.0.0.1:${frontendPort}`;
+const shellOnly = process.argv.includes('--shell-only');
 const local = path.resolve(__dirname, '../.local/map-live-smoke');
 require('node:fs').mkdirSync(path.join(local, 'session'), { recursive: true });
 app.setPath('userData', local);
@@ -21,8 +22,10 @@ const requests = [];
 const blockedHosts = new Set();
 const errors = [];
 const stages = [];
+const headerLayouts = [];
 let incidents = [];
 let revision = 0;
+let authenticated = true;
 
 const incident = {
   id: 912, tipo: 'Incendio', tipoNombre: 'Incendio', tipoSlug: 'incendio',
@@ -65,7 +68,10 @@ const server = http.createServer((request, response) => {
   if (request.url === '/api/navigation/roads') return response.end(JSON.stringify({ type: 'FeatureCollection', features: [] }));
   if (request.url === '/api/announcements') return response.end(JSON.stringify([{id: 1, tipo: 'NOVEDAD', titulo: 'Novedad de prueba', mensaje: 'Conoce tu entorno', enlace: null, negocio: null}, {id: 2, tipo: 'NEGOCIO', titulo: 'Negocio local', mensaje: 'Visita nuestra ficha', enlace: null, negocio: {id: 1, nombre: 'Negocio local de prueba', descripcion: 'Fixture', latitud: -14.06, longitud: -75.72}}]));
   if (request.url === '/api/businesses' || request.url === '/api/navigation/favorites') return response.end('[]');
-  if (request.url === '/api/navigation/history') return response.end('{}');
+  if (request.url === '/api/navigation/history') return response.end(request.method === 'GET' ? '[]' : '{}');
+  if (request.url.startsWith('/api/navigation/history?')) return response.end('[]');
+  if (request.url === '/api/participation') return response.end(JSON.stringify({reportesValidados:0,totalReportes:0,puntosMensuales:0,mes:'2026-10',insignias:[],movimientos:[]}));
+  if (request.url === '/api/ranking' || request.url.startsWith('/api/ranking?')) return response.end(JSON.stringify({mes:'2026-10',entries:[],finalized:false}));
   if (request.url === '/api/navigation/traffic/status') return response.end(JSON.stringify({configurado:false,habilitado:false,controlCuotaDisponible:true}));
   if (request.url === '/api/navigation/traffic/incidents') return response.end(JSON.stringify({incidentes:[],trafico:{disponible:false,fuente:null,actualizadoEn:null,motivo:'Sin tráfico actualizado: TomTom no está configurado.'}}));
   if (request.url === '/api/navigation/plan') {
@@ -79,8 +85,10 @@ const server = http.createServer((request, response) => {
   }
   if (request.url === '/api/catalog') return response.end(JSON.stringify(catalog));
   if (request.url === '/api/users/me') {
+    if (!authenticated) { response.statusCode = 401; return response.end(JSON.stringify({error:'Sesión no iniciada.'})); }
     return response.end(JSON.stringify({usuario:{id:901,nickname:'Usuario prueba',correo:'fixture@example.invalid',telefono:'',correoVerificado:true,rol:'USUARIO',premium:false,credibilidad:100,monedas:0}}));
   }
+  if (request.url === '/api/users/logout' && request.method === 'POST') { authenticated = false; return response.end(JSON.stringify({cerrada:true})); }
   response.statusCode = 404;
   response.end(JSON.stringify({ error: 'No existe esta ruta en el fixture local' }));
 });
@@ -139,7 +147,213 @@ async function assertViewport(window, expectedWidth) {
     assert.ok(rect.left >= 0 && rect.right <= geometry.width + 1, `Control fuera del ancho de pantalla: ${rect.selector}`);
   }
 }
-async function createClient(index, width, height) {
+async function menuOpen(window, expanded) {
+  await waitUntil(window, `(() => {
+    const button = document.querySelector('.mobile-menu');
+    const sidebar = document.querySelector('.sidebar');
+    return button?.getAttribute('aria-expanded') === ${JSON.stringify(String(expanded))}
+      && sidebar?.classList.contains('is-open') === ${expanded};
+  })()`);
+}
+async function openMobileMenu(window) {
+  await window.webContents.executeJavaScript(`(() => { const menu = document.querySelector('.mobile-menu'); if (menu.getAttribute('aria-expanded') !== 'true') menu.click(); })()`);
+  await menuOpen(window, true);
+}
+async function assertCommonShell(window, width, signedIn) {
+  await waitUntil(window, `!!document.querySelector('.app-header .map-announcements[aria-label="Anuncios y novedades"] .announcement-content')`);
+  const shell = await window.webContents.executeJavaScript(`(() => {
+    const geometry = element => {
+      if (!element) return null;
+      const rect = element.getBoundingClientRect(), style = getComputedStyle(element);
+      const visible = rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden' && Number(style.opacity) > 0;
+      let clipped = false;
+      for (let parent = element.parentElement; parent; parent = parent.parentElement) {
+        const bounds = parent.getBoundingClientRect(), parentStyle = getComputedStyle(parent);
+        if (/(hidden|clip|auto|scroll)/.test(parentStyle.overflowX) && (rect.left < bounds.left - 1 || rect.right > bounds.right + 1)) clipped = true;
+        if (/(hidden|clip|auto|scroll)/.test(parentStyle.overflowY) && (rect.top < bounds.top - 1 || rect.bottom > bounds.bottom + 1)) clipped = true;
+      }
+      return {label: element.getAttribute('aria-label') || element.textContent.trim(), left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom, width: rect.width, height: rect.height, visible, clipped,
+        withinViewport: rect.left >= -1 && rect.right <= innerWidth + 1 && rect.top >= -1 && rect.bottom <= innerHeight + 1};
+    };
+    const banner = document.querySelector('.app-header .map-announcements');
+    const rect = banner.getBoundingClientRect();
+    const account = document.querySelector('.sidebar-account');
+    const accountRect = account?.getBoundingClientRect();
+    const sidebar = document.querySelector('.sidebar');
+    return {
+      width: innerWidth, height: innerHeight, route: location.pathname, documentWidth: document.documentElement.scrollWidth,
+      brand: geometry(document.querySelector('.app-header .brand')),
+      headerControls: Array.from(document.querySelectorAll('.header-actions button, .header-actions a')).map(geometry).filter(rect => rect.visible),
+      menu: geometry(document.querySelector('.header-actions .mobile-menu')),
+      menuIcon: geometry(document.querySelector('.header-actions .mobile-menu svg')),
+      theme: geometry(document.querySelector('.header-actions button[aria-label^="Cambiar a modo "]')),
+      bannerVisible: rect.width > 0 && rect.height > 0 && getComputedStyle(banner).display !== 'none' && rect.top >= 0 && rect.bottom <= innerHeight,
+      bannerWithinWidth: rect.left >= 0 && rect.right <= innerWidth + 1,
+      accounts: document.querySelectorAll('.sidebar-account').length,
+      profile: account?.querySelector('a[href="/perfil"]')?.textContent,
+      logouts: document.querySelectorAll('button[aria-label="Cerrar sesión"]').length,
+      sidebarLogout: !!account?.querySelector('button[aria-label="Cerrar sesión"]'),
+      duplicatedHeader: !!document.querySelector('.app-header .profile-link, .app-header button[aria-label="Cerrar sesión"]'),
+      accountAfterNavigation: !!account && Array.from(sidebar.children).indexOf(account) > Array.from(sidebar.children).indexOf(sidebar.querySelector('nav')),
+      accountBottomGap: accountRect ? sidebar.getBoundingClientRect().bottom - accountRect.bottom : null,
+      accountVisible: !!accountRect && accountRect.width > 0 && accountRect.height > 0 && accountRect.left >= 0 && accountRect.right <= innerWidth + 1 && accountRect.bottom <= innerHeight + 1,
+      anonymousLoginLinks: !!document.querySelector('a[href="/ingresar"]') && !!document.querySelector('a[href="/registro"]'),
+    };
+  })()`);
+  assert.equal(shell.width, width);
+  const layout = {route:shell.route,width:shell.width,height:shell.height,signedIn,brand:shell.brand,controls:shell.headerControls,menu:shell.menu,theme:shell.theme};
+  headerLayouts.push(layout);
+  assert.equal(shell.brand?.visible, true, 'El logo y nombre de CiviGo deben estar visibles');
+  assert.equal(shell.brand?.withinViewport, true, `Logo fuera de pantalla: ${JSON.stringify(layout)}`);
+  assert.equal(shell.brand?.clipped, false, 'El logo no debe quedar recortado por el encabezado');
+  assert.equal(shell.theme?.visible, true, 'El botón de tema debe estar visible en todos los tamaños');
+  assert.ok(shell.menu, 'El encabezado siempre incluye el botón del menú móvil');
+  assert.equal(shell.menu.visible, width <= 900, 'El botón del menú debe verse en pantallas móviles y tabletas');
+  if (width <= 900) {
+    assert.equal(shell.menuIcon?.visible, true, 'El icono de abrir/cerrar menú debe verse dentro del botón');
+    assert.equal(shell.menuIcon?.withinViewport, true, 'El icono del menú debe caber en la pantalla');
+    assert.equal(shell.menuIcon?.clipped, false, 'El icono del menú no debe estar recortado');
+  }
+  assert.ok(shell.headerControls.length > 0, 'El encabezado debe conservar sus controles visibles');
+  for (const control of shell.headerControls) {
+    assert.equal(control.withinViewport, true, `Control del encabezado fuera de pantalla: ${JSON.stringify(control)}`);
+    assert.equal(control.clipped, false, `Control del encabezado recortado: ${JSON.stringify(control)}`);
+  }
+  assert.ok(shell.documentWidth <= width, 'El shell común no debe desbordar horizontalmente');
+  assert.equal(shell.bannerVisible, true, 'El banner debe permanecer visible fuera del mapa');
+  assert.equal(shell.bannerWithinWidth, true, 'El banner debe caber en el encabezado');
+  assert.equal(shell.duplicatedHeader, false, 'La cuenta no se repite en el encabezado');
+  if (signedIn) {
+    assert.equal(shell.accounts, 1);
+    assert.ok(shell.profile.includes('Usuario prueba'));
+    assert.equal(shell.logouts, 1);
+    assert.equal(shell.sidebarLogout, true);
+    assert.equal(shell.accountAfterNavigation, true, 'La cuenta debe ir debajo de los enlaces de navegación');
+    assert.equal(shell.accountVisible, true, 'La cuenta debe estar accesible en escritorio y en el menú móvil abierto');
+    assert.ok(shell.accountBottomGap >= 0 && shell.accountBottomGap <= 36, 'La cuenta debe quedar abajo en la barra lateral');
+  } else {
+    assert.equal(shell.logouts, 0);
+    assert.equal(shell.sidebarLogout, false);
+    assert.equal(shell.anonymousLoginLinks, true);
+  }
+}
+async function bannerBusiness(window, route) {
+  await waitUntil(window, `!!document.querySelector('.app-header button[aria-label="Anuncio siguiente"]')`);
+  await window.webContents.executeJavaScript(`(() => {
+    const content = document.querySelector('.app-header .announcement-content');
+    if (!content.textContent.includes('Negocio local')) document.querySelector('.app-header button[aria-label="Anuncio siguiente"]').click();
+  })()`);
+  await waitUntil(window, `document.querySelector('.app-header button.announcement-content')?.textContent.includes('Negocio local')`);
+  await window.webContents.executeJavaScript(`document.querySelector('.app-header button.announcement-content').click()`);
+  await waitUntil(window, `document.querySelector('[role="dialog"][aria-label="Ficha del negocio"]')?.textContent.includes('Negocio local de prueba')`);
+  const modal = await window.webContents.executeJavaScript(`({route: location.pathname, count: document.querySelectorAll('[role="dialog"][aria-label="Ficha del negocio"]').length})`);
+  assert.deepEqual(modal, {route, count:1}, 'La ficha se abre una sola vez sin salir de la página actual');
+  await window.webContents.executeJavaScript(`document.querySelector('button[aria-label="Cerrar ficha"]').click()`);
+  await waitUntil(window, `!document.querySelector('[role="dialog"][aria-label="Ficha del negocio"]')`);
+}
+async function commonShellScenarios() {
+  const originalClients = windows.slice(0, 2);
+  for (const [index, window] of originalClients.entries()) {
+    const mobile = index === 1, width = mobile ? 390 : 1400, viewport = mobile ? 'móvil' : 'escritorio';
+    if (mobile) await openMobileMenu(window);
+    await window.webContents.executeJavaScript(`document.querySelector('.sidebar-account a[href="/perfil"]').click()`);
+    await waitUntil(window, `location.pathname === '/perfil' && document.querySelector('main h1')?.textContent === 'Mi perfil' && !!document.querySelector('#nickname')`);
+    if (mobile) {
+      await menuOpen(window, false);
+      await openMobileMenu(window);
+    }
+    await assertCommonShell(window, width, true);
+    await bannerBusiness(window, '/perfil');
+    await capture(window, `perfil-shell-${mobile ? 'movil' : 'escritorio'}.png`);
+    stages.push({test:`Shell común en /perfil (${viewport}): banner, ficha en la misma página y cuenta única bajo navegación`,passed:true});
+
+    await window.webContents.executeJavaScript(`document.querySelector('.sidebar nav a[href="/ranking"]').click()`);
+    await waitUntil(window, `location.pathname === '/ranking' && document.querySelector('main h1')?.textContent === 'Ranking mensual' && document.body.innerText.includes('Todavía no hay puntos registrados en este mes.')`);
+    if (mobile) {
+      await menuOpen(window, false);
+      await openMobileMenu(window);
+    }
+    await assertCommonShell(window, width, true);
+    await bannerBusiness(window, '/ranking');
+    await capture(window, `ranking-shell-${mobile ? 'movil' : 'escritorio'}.png`);
+    if (mobile) {
+      await window.webContents.executeJavaScript(`dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}))`);
+      await menuOpen(window, false);
+      assert.equal(await window.webContents.executeJavaScript(`document.activeElement === document.querySelector('.mobile-menu')`),true);
+      await openMobileMenu(window);
+    }
+    stages.push({test:`Shell común en /ranking (${viewport}): navegación conserva cuenta/banner y menú móvil cierra/restaura foco`,passed:true});
+  }
+  // Create these clients while the fixture is still authenticated. Existing
+  // desktop/mobile scenarios keep the same viewports and assertions above.
+  const compactClients = [];
+  for (const [width, height] of [[320,640],[850,700]]) {
+    const window = await createClient(windows.length + 1, width, height, {route:'/perfil',mapReady:false});
+    compactClients.push({window,width,height});
+    await waitUntil(window, `location.pathname === '/perfil' && document.querySelector('main h1')?.textContent === 'Mi perfil' && !!document.querySelector('#nickname')`);
+    await menuOpen(window, false);
+    await openMobileMenu(window);
+    await assertCommonShell(window, width, true);
+    await bannerBusiness(window, '/perfil');
+    const links = await window.webContents.executeJavaScript(`Array.from(document.querySelectorAll('.sidebar nav a')).map(link => link.getAttribute('href'))`);
+    assert.deepEqual(links, ['/mapa','/reportar','/mis-reportes','/alertas','/ranking','/recompensas','/premium'], 'El menú compacto conserva toda la navegación global');
+    await capture(window, `perfil-shell-${width}x${height}-autenticado.png`);
+    await window.webContents.executeJavaScript(`document.querySelector('.sidebar nav a[href="/ranking"]').click()`);
+    await waitUntil(window, `location.pathname === '/ranking' && document.body.innerText.includes('Todavía no hay puntos registrados en este mes.')`);
+    await menuOpen(window, false);
+    await openMobileMenu(window);
+    await assertCommonShell(window, width, true);
+    await bannerBusiness(window, '/ranking');
+    await window.webContents.executeJavaScript(`dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}))`);
+    await menuOpen(window, false);
+    assert.equal(await window.webContents.executeJavaScript(`document.activeElement === document.querySelector('.mobile-menu')`), true, 'Escape cierra el menú compacto y devuelve el foco');
+    await openMobileMenu(window);
+    stages.push({test:`Shell ${width}×${height} autenticado: cuenta al pie, controles sin recortes, navegación global y ficha en /perfil y /ranking`,passed:true});
+  }
+  for (const [index, window] of originalClients.entries()) {
+    const mobile = index === 1, width = mobile ? 390 : 1400, viewport = mobile ? 'móvil' : 'escritorio';
+    await window.webContents.executeJavaScript(`document.querySelector('.sidebar-account button[aria-label="Cerrar sesión"]').click()`);
+    await waitUntil(window, `!document.querySelector('button[aria-label="Cerrar sesión"]') && !!document.querySelector('a[href="/ingresar"]')`);
+    const directLogin = await window.webContents.executeJavaScript(`(() => {
+      const anchor = Array.from(document.querySelectorAll('a[href="/ingresar"]')).find(link => link.getBoundingClientRect().width > 0 && link.getBoundingClientRect().height > 0);
+      if (anchor) {anchor.click();return true;}
+      document.querySelector('.app-header a[href="/registro"]').click();return false;
+    })()`);
+    if (!directLogin) {
+      await waitUntil(window, `location.pathname === '/registro' && !!document.querySelector('main a[href="/ingresar"]')`);
+      await window.webContents.executeJavaScript(`const link = document.querySelector('main a[href="/ingresar"]'); link.scrollIntoView(); link.click()`);
+    }
+    await waitUntil(window, `location.pathname === '/ingresar' && document.body.innerText.includes('Qué bueno verte de nuevo.')`);
+    await window.webContents.executeJavaScript('window.scrollTo(0,0)');
+    if (mobile) await openMobileMenu(window);
+    await assertCommonShell(window, width, false);
+    await bannerBusiness(window, '/ingresar');
+    await capture(window, `ingresar-shell-anonimo-${mobile ? 'movil' : 'escritorio'}.png`);
+    stages.push({test:`Shell común anónimo en /ingresar (${viewport}): sesión cerrada desde sidebar, banner y ficha conservados`,passed:true});
+  }
+  for (const {window,width,height} of compactClients) {
+    await window.webContents.executeJavaScript(`document.querySelector('.sidebar-account button[aria-label="Cerrar sesión"]').click()`);
+    await waitUntil(window, `!document.querySelector('button[aria-label="Cerrar sesión"]') && !!document.querySelector('.app-header a[href="/registro"]')`);
+    await window.webContents.executeJavaScript(`document.querySelector('.app-header a[href="/registro"]').click()`);
+    await waitUntil(window, `location.pathname === '/registro' && !!document.querySelector('main a[href="/ingresar"]')`);
+    await window.webContents.executeJavaScript(`const link = document.querySelector('main a[href="/ingresar"]'); link.scrollIntoView(); link.click()`);
+    await waitUntil(window, `location.pathname === '/ingresar' && document.body.innerText.includes('Qué bueno verte de nuevo.')`);
+    await window.webContents.executeJavaScript('window.scrollTo(0,0)');
+    await openMobileMenu(window);
+    await assertCommonShell(window, width, false);
+    await window.webContents.executeJavaScript(`document.querySelector('.mobile-menu').click()`);
+    await menuOpen(window, false);
+    await assertCommonShell(window, width, false);
+    await capture(window, `ingresar-shell-${width}x${height}-anonimo-menu-cerrado.png`);
+    await openMobileMenu(window);
+    await assertCommonShell(window, width, false);
+    await bannerBusiness(window, '/ingresar');
+    await capture(window, `ingresar-shell-${width}x${height}-anonimo-menu-abierto.png`);
+    stages.push({test:`Shell ${width}×${height} anónimo: menú abre/cierra, logo/tema/controles visibles y ficha de negocio sin abandonar /ingresar`,passed:true});
+  }
+}
+async function createClient(index, width, height, {route='/mapa',mapReady=true} = {}) {
+  const expectedAuthentication = authenticated;
   const window = new BrowserWindow({
     show: false, width, height, useContentSize: true,
     webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false,
@@ -162,9 +376,9 @@ async function createClient(index, width, height) {
     if (mainFrame) requests.push({ client: index, navigation: url, inPlace });
   });
   window.webContents.on('render-process-gone', (_event, details) => errors.push(`client ${index}: ${details.reason}`));
-  await window.loadURL(`${origin}/mapa`);
+  await window.loadURL(`${origin}${route}`);
   window.webContents.enableDeviceEmulation({
-    screenPosition: index === 2 ? 'mobile' : 'desktop', screenSize: { width, height },
+    screenPosition: width <= 900 ? 'mobile' : 'desktop', screenSize: { width, height },
     viewPosition: { x: 0, y: 0 }, viewSize: { width, height }, deviceScaleFactor: 1, scale: 1,
   });
   await waitUntil(window, `innerWidth === ${width}`);
@@ -181,7 +395,29 @@ async function createClient(index, width, height) {
     addEventListener('unhandledrejection', event => window.__smokeErrors.push(String(event.reason)));
     document.dispatchEvent(new Event('visibilitychange'));
   `);
-  await waitUntil(window, `document.body.innerText.includes('No hay incidentes publicados para este filtro.')`);
+  await waitUntil(window, expectedAuthentication
+    ? `!!document.querySelector('.sidebar-account a[href="/perfil"]')`
+    : `!!document.querySelector('.app-header a[href="/registro"]') && !document.querySelector('.sidebar-account')`);
+  if (mapReady) await waitUntil(window, `document.body.innerText.includes('No hay incidentes publicados para este filtro.')`);
+  return window;
+}
+async function finishShellValidation() {
+  for (const [index, window] of windows.entries()) {
+    assert.equal(window.isVisible(), false, 'Las ventanas de prueba permanecen ocultas');
+    assert.deepEqual(await window.webContents.executeJavaScript('window.__smokeErrors'), [], `Errores de React al navegar shell común en cliente ${index + 1}`);
+  }
+  assert.deepEqual(errors, []);
+  assert.deepEqual([...blockedHosts], []);
+  assert.equal(requests.filter(request => request.navigation && !request.inPlace).length, windows.length, 'La navegación del shell usa enlaces internos sin recargar documentos');
+  assert.equal(requests.filter(request => request.url === '/api/users/logout' && request.method === 'POST').length, windows.length, 'Todos los clientes cierran su sesión desde la cuenta de sidebar');
+  const result = {passed:true,mode:shellOnly ? 'shell-only' : 'map-and-shell',stages,clients:windows.length,headerLayouts,
+    incidentRequests:requests.filter(request => request.url === '/api/incidents').length,
+    roadRequests:requests.filter(request => request.url === '/api/navigation/roads').length,
+    logoutRequests:requests.filter(request => request.url === '/api/users/logout' && request.method === 'POST').length,
+    documentLoads:requests.filter(request => request.navigation && !request.inPlace).length,
+    limitation:'Token de Mapbox vacío: se verifica la lista y el detalle React; no se solicita cartografía externa.'};
+  await fs.writeFile(path.join(local, shellOnly ? 'resultado-shell.json' : 'resultado.json'), JSON.stringify(result,null,2));
+  console.log(JSON.stringify(result));
 }
 async function run() {
   await fs.mkdir(local, { recursive: true });
@@ -189,6 +425,11 @@ async function run() {
   await once(server, 'listening');
   await app.whenReady();
   await Promise.all([createClient(1, 1400, 768), createClient(2, 390, 844)]);
+  if (shellOnly) {
+    await commonShellScenarios();
+    await finishShellValidation();
+    return;
+  }
   await capture(windows[1], 'mapa-vacio.png');
   stages.push({ test: 'Dos clientes independientes, inicialmente vacíos', passed: true });
 
@@ -399,11 +640,8 @@ async function run() {
   assert.ok(requests.some(request => request.url === '/api/navigation/roads' && request.revision >= 4), 'La capa vial también debe actualizarse');
   await capture(windows[1], 'mapa-sincronizado.png');
   stages.push({ test: 'Sin recargas, errores de React, ni peticiones externas; capa vial actualizada', passed: true });
-  const result = { passed: true, stages, incidentRequests: requests.filter(request => request.url === '/api/incidents').length,
-    roadRequests: requests.filter(request => request.url === '/api/navigation/roads').length,
-    limitation: 'Token de Mapbox vacío: se verifica la lista y el detalle React; no se solicita cartografía externa.' };
-  await fs.writeFile(path.join(local, 'resultado.json'), JSON.stringify(result, null, 2));
-  console.log(JSON.stringify(result));
+  await commonShellScenarios();
+  await finishShellValidation();
 }
 run().then(() => app.exit(0)).catch(async error => {
   console.error(error.stack || String(error));

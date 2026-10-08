@@ -14,7 +14,7 @@ import { buildIncidentFilterGroups, filterIncidentsByType } from '@/lib/incident
 import type { Incidente, Ruta, Posicion, Catalogo } from '@/lib/types';
 import { nearRoute, isRouteWarning } from '@/lib/navigation';
 import { useNavigation } from '@/lib/use-navigation';
-import { BUSINESS_DETAILS_EVENT, type MapBusiness } from '@/components/MapAnnouncements';
+import BusinessDetailsDialog from '@/components/BusinessDetailsDialog';
 interface Business {
     id: number;
     nombre: string;
@@ -27,10 +27,6 @@ interface Business {
     telefono?: string;
     sitioWeb?: string;
 }
-function safeWebsite(value?: string) {
-    if (!value) return null;
-    try { const url = new URL(value); return ['http:', 'https:'].includes(url.protocol) ? url.href : null; } catch { return null; }
-}
 export default function Mapa() {
     const { usuario } = useAuth();
     return <AccountMap key={usuario?.id ?? 'publico'} />;
@@ -38,7 +34,6 @@ export default function Mapa() {
 function AccountMap() {
     const { usuario } = useAuth();
     const [incidents, setIncidents] = useState<Incidente[]>([]), [selected, setSelected] = useState<Incidente | null>(null), [route, setRoute] = useState<Ruta | null>(null), [following, setFollowing] = useState(false), [error, setError] = useState(''), [updated, setUpdated] = useState(''), [loading, setLoading] = useState(true), [routeAlert, setRouteAlert] = useState(''), [recalculate, setRecalculate] = useState(0), [ad, setAd] = useState<Business | null>(null), [businessDetail, setBusinessDetail] = useState<Business | null>(null), [category, setCategory] = useState('');
-    const businessWebsite = safeWebsite(businessDetail?.sitioWeb);
     const [catalog, setCatalog] = useState<Catalogo | null>(null);
     const [filterLabel, setFilterLabel] = useState('');
     const changeFollowing = useCallback((value: boolean) => { setFollowing(value); setAd(null); }, []);
@@ -49,7 +44,6 @@ function AccountMap() {
     const hasLoaded = useRef(false), lastGravity = useRef<Map<number,number|null>>(new Map()), lastSnapshot = useRef('');
     const tracking = useRef(following);
     useEffect(() => { tracking.current = following; }, [following]);
-    useEffect(() => { const openBusiness = (event: Event) => { const detail = (event as CustomEvent<MapBusiness>).detail; if (detail && Number.isFinite(detail.id) && typeof detail.nombre === 'string') setBusinessDetail(detail); }; window.addEventListener(BUSINESS_DETAILS_EVENT, openBusiness); return () => window.removeEventListener(BUSINESS_DETAILS_EVENT, openBusiness); }, []);
     useEffect(()=>{let ok=true;api<Catalogo>('/catalog').then(data=>{if(ok){setCatalog(data);const config=data.config;for(const key of Object.keys(adConfig.current) as (keyof typeof adConfig.current)[]){const value=Number(config[key]);if(Number.isFinite(value)&&value>0)adConfig.current[key]=value;}}}).catch(()=>{});return()=>{ok=false;};},[]);
     useEffect(() => { activeRoute.current = route; }, [route]);
     const load = useCallback(async (signal: AbortSignal) => {
@@ -151,18 +145,6 @@ function AccountMap() {
             <p className="muted" style={{ fontSize: 12 }}>{ad.promocion || ad.descripcion}</p>
             <button className="btn btn-secondary btn-small" onClick={() => { setBusinessDetail(ad); setAd(null); }}>Ver negocio</button>
         </div>}
-        {businessDetail && <div className="modal-backdrop" onClick={() => setBusinessDetail(null)}>
-            <section className="modal-panel" role="dialog" aria-modal="true" aria-label="Ficha del negocio" onClick={e => e.stopPropagation()}>
-                <div className="card-header"><h2>{businessDetail.nombre}</h2><button className="icon-btn" onClick={() => setBusinessDetail(null)} aria-label="Cerrar ficha">×</button></div>
-                <div className="card"><span className="badge">Negocio participante · Demostración</span>
-                    <p style={{ marginTop: 15 }}>{businessDetail.descripcion}</p>
-                    <p><strong>Dirección:</strong> {businessDetail.direccion || 'No indicada'}</p>
-                    <p><strong>Horario:</strong> {businessDetail.horario || 'No indicado'}</p>
-                    {businessDetail.promocion && <div className="notice">{businessDetail.promocion}</div>}
-                    {businessDetail.telefono && <p><strong>Contacto:</strong> {businessDetail.telefono}</p>}
-                    {businessWebsite && <p><a href={businessWebsite} target="_blank" rel="noopener noreferrer" className="btn btn-secondary btn-small">Visitar sitio del negocio ↗</a></p>}
-                </div>
-            </section>
-        </div>}
+        <BusinessDetailsDialog business={businessDetail} onClose={() => setBusinessDetail(null)} />
     </div>;
 }
