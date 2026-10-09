@@ -6,11 +6,13 @@ const FREE_LIMITS = Object.freeze({
   routing: 20000,
   incidents: 2500,
   tiles: 200000,
+  search: 2500,
 });
 const ENV_LIMITS = {
   routing: "TOMTOM_MONTHLY_ROUTING_LIMIT",
   incidents: "TOMTOM_MONTHLY_INCIDENTS_LIMIT",
   tiles: "TOMTOM_MONTHLY_TILES_LIMIT",
+  search: "TOMTOM_MONTHLY_SEARCH_LIMIT",
 };
 function limits(env = process.env) {
   return Object.fromEntries(

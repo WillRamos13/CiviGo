@@ -19,6 +19,7 @@
     "passwords:migrate": "node scripts/hash-legacy-passwords.js",
     "db:local": "node scripts/local-db.js",
     "roads:import": "node scripts/import-roads.js",
+    "places:import": "node scripts/import-places.js",
     "jobs:run": "node scripts/run-lifecycle.js"
   },
   "keywords": [],

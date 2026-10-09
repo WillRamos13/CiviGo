@@ -3,7 +3,8 @@ const express = require("express");
 const prisma = require("../lib/db");
 const { auth } = require("../lib/auth");
 const { asyncRoute, HttpError, coordinates, id, text } = require("../lib/http");
-const { getRoads, searchPlaces, coveredSegments } = require("../lib/roads");
+const { getRoads, coveredSegments } = require("../lib/roads");
+const { createPlaceService } = require("../lib/places");
 const { scoreSegments } = require("../lib/risk");
 const { MODES } = require("../lib/navigation");
 const { config } = require("../lib/catalog");
@@ -12,6 +13,7 @@ const { publicIncidentEligibility } = require("../lib/publication");
 const { createTrafficService } = require("../lib/navigation-traffic");
 const router = express.Router();
 const traffic = createTrafficService({ db: prisma });
+const places = createPlaceService({ db: prisma });
 router.use("/roads", (req, res, next) => {
   res.setHeader("Cache-Control", "no-store");
   next();
@@ -77,9 +79,10 @@ router.get(
 );
 router.get(
   "/places",
-  asyncRoute(async (req, res) =>
-    res.json(searchPlaces(text(req.query.q, "Búsqueda", 100, 2))),
-  ),
+  asyncRoute(async (req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    res.json(await places.search(text(req.query.q, "Búsqueda", 160, 3)));
+  }),
 );
 router.post(
   "/plan",

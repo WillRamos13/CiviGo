@@ -47,6 +47,7 @@ function createTomTomClient({
       routing: "Orbis v3 (auto)",
       incidents: "Orbis v2",
       flow: "Orbis v2",
+      search: "Fuzzy Search v2 (lugares y direcciones)",
     },
     limites: limits(env),
     limitesGratuitos: FREE_LIMITS,
@@ -61,7 +62,7 @@ function createTomTomClient({
   async function request(
     product,
     path,
-    { body, attributes, binary = false, ttl = 60000 } = {},
+    { body, attributes, binary = false, ttl = 60000, queryKey = false } = {},
   ) {
     if (!configured(env)) throw unavailable("NOT_CONFIGURED");
     if (env.TOMTOM_ENABLED !== "true") throw unavailable("DISABLED");
@@ -85,7 +86,12 @@ function createTomTomClient({
         }
         if (!quota) throw unavailable("QUOTA_UNAVAILABLE");
         if (!allowed) throw unavailable("QUOTA_EXHAUSTED");
-        const response = await fetchImpl(`https://api.tomtom.com${path}`, {
+        // Search v2 authenticates through its query string. Construct that
+        // URL only on the server and never expose upstream errors or payloads.
+        const url = new URL(`https://api.tomtom.com${path}`);
+        if (queryKey)
+          url.searchParams.set("key", String(env.TOMTOM_API_KEY).trim());
+        const response = await fetchImpl(url.href, {
           method: body ? "POST" : "GET",
           headers: {
             "TomTom-Api-Key": String(env.TOMTOM_API_KEY).trim(),
@@ -206,6 +212,28 @@ function createTomTomClient({
         "tiles",
         `/maps/orbis/traffic/flow/raster/tile/${z}/${x}/${y}?apiVersion=2&style=light&tileSize=256`,
         { binary: true, ttl: 120000 },
+      );
+    },
+    search(query, bounds) {
+      const canonical = query
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .trim()
+        .replace(/\s+/g, " ")
+        .toLowerCase();
+      const parameters = new URLSearchParams({
+        typeahead: "true",
+        countrySet: "PE",
+        language: "es-ES",
+        limit: "20",
+        geobias: "point:-14.0640293,-75.7290741",
+        topLeft: `${bounds.north},${bounds.west}`,
+        btmRight: `${bounds.south},${bounds.east}`,
+      });
+      return request(
+        "search",
+        `/search/2/search/${encodeURIComponent(canonical)}.json?${parameters}`,
+        { ttl: 3600000, queryKey: true },
       );
     },
   };

@@ -3,6 +3,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { HttpError } = require("./http");
 const { distanceMeters, projectToLine } = require("./risk");
+const { searchLocalPlaces } = require("./local-places");
 let cached;
 const coverageCache = new WeakMap();
 const normalize = (value) =>
@@ -363,27 +364,9 @@ function nearest(point, segments) {
   return best;
 }
 function searchPlaces(query, roads = getRoads()) {
-  const q = normalize(query).trim();
-  if (q.length < 2) return [];
-  const seen = new Set();
-  const result = [];
-  for (const segment of roads.segments) {
-    if (!segment.tags.name || !normalize(segment.tags.name).includes(q))
-      continue;
-    const key = normalize(segment.tags.name);
-    if (seen.has(key)) continue;
-    seen.add(key);
-    const c = segment.coordinates[Math.floor(segment.coordinates.length / 2)];
-    if (inProvince(c, roads))
-      result.push({
-        nombre: segment.tags.name + ", provincia de Ica",
-        latitud: c[1],
-        longitud: c[0],
-        fuente: "OpenStreetMap",
-      });
-    if (result.length === 12) break;
-  }
-  return result;
+  return searchLocalPlaces(query, roads, {
+    contains: (point) => inProvince(point, roads),
+  });
 }
 module.exports = {
   getRoads,

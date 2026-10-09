@@ -109,6 +109,7 @@ test("diagnóstico nunca hace red ni imprime clave y límites no superan gratuid
     routing: 20000,
     incidents: 2500,
     tiles: 200000,
+    search: 2500,
   });
   assert.deepEqual(
     limits({
@@ -116,7 +117,7 @@ test("diagnóstico nunca hace red ni imprime clave y límites no superan gratuid
       TOMTOM_MONTHLY_INCIDENTS_LIMIT: "garbage",
       TOMTOM_MONTHLY_TILES_LIMIT: "0",
     }),
-    { routing: 20000, incidents: 0, tiles: 0 },
+    { routing: 20000, incidents: 0, tiles: 0, search: 2500 },
   );
 });
 test("error del proveedor es genérico, no devuelve payload y respeta enfriamiento", async () => {
@@ -190,5 +191,74 @@ test("reserva SQL atómica cuenta intentos y deniega cuota agotada antes de red"
   assert.equal(
     (await control.status(new Date("2026-10-08"))).routing.restantes,
     0,
+  );
+});
+
+test("place search is predictive, limited to Peru and provincial bounds, cached before quota use", async () => {
+  let calls = 0;
+  const products = [];
+  const client = createTomTomClient({
+    env,
+    quota: {
+      reserve: async (product) => {
+        products.push(product);
+        return true;
+      },
+    },
+    fetchImpl: async (url, options) => {
+      calls++;
+      const target = new URL(url);
+      assert.equal(target.origin, "https://api.tomtom.com");
+      assert.equal(
+        decodeURIComponent(target.pathname),
+        "/search/2/search/plaza de armas de ica.json",
+      );
+      assert.equal(target.searchParams.get("key"), env.TOMTOM_API_KEY);
+      assert.equal(target.searchParams.get("countrySet"), "PE");
+      assert.equal(target.searchParams.get("typeahead"), "true");
+      assert.equal(target.searchParams.get("topLeft"), "-14.05,-75.74");
+      assert.equal(target.searchParams.get("btmRight"), "-14.08,-75.71");
+      assert.equal(target.searchParams.has("radius"), false);
+      assert.equal(options.redirect, "error");
+      return new Response('{"results":[]}');
+    },
+  });
+  const bounds = { north: -14.05, south: -14.08, west: -75.74, east: -75.71 };
+  await Promise.all([
+    client.search("Plaza de Armas de Ica", bounds),
+    client.search("Plaza de Armas de Ica", bounds),
+  ]);
+  await client.search("Plaza de Armas de Ica", bounds);
+  await client.search("  PLÁZA  DE ARMAS DE ICA  ", bounds);
+  assert.equal(calls, 1);
+  assert.deepEqual(products, ["search"]);
+  assert.equal(limits({ TOMTOM_MONTHLY_SEARCH_LIMIT: "99999" }).search, 2500);
+  assert.equal(limits({ TOMTOM_MONTHLY_SEARCH_LIMIT: "invalid" }).search, 0);
+  assert.equal(limits({ TOMTOM_MONTHLY_SEARCH_LIMIT: "0" }).search, 0);
+});
+
+test("search provider errors and exhausted quotas cannot leak a key or call the network", async () => {
+  const bounds = { north: -14.05, south: -14.08, west: -75.74, east: -75.71 };
+  const blocked = createTomTomClient({
+    env,
+    quota: quota(false),
+    fetchImpl: () => assert.fail("Quota must be checked first"),
+  });
+  await assert.rejects(
+    blocked.search("Missing place", bounds),
+    (error) => error.code === "QUOTA_EXHAUSTED",
+  );
+  const failed = createTomTomClient({
+    env,
+    quota: quota(),
+    fetchImpl: async () => {
+      throw new Error(`url?key=${env.TOMTOM_API_KEY}`);
+    },
+  });
+  await assert.rejects(
+    failed.search("Missing place", bounds),
+    (error) =>
+      error.code === "PROVIDER_UNAVAILABLE" &&
+      !error.message.includes(env.TOMTOM_API_KEY),
   );
 });

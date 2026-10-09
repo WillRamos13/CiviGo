@@ -29,6 +29,7 @@ for (const status of [500, 502, 503]) {
 
 for (const [code, message] of [
     ['ROADS_UNAVAILABLE', 'Los datos de calles no están disponibles en este momento. Inténtalo de nuevo más tarde.'],
+    ['PLACES_SEARCH_UNAVAILABLE', 'No se pudo ampliar la búsqueda de lugares. Prueba con otro nombre o dirección, o inténtalo más tarde.'],
     ['EMAIL_GOOGLE_CONFIG', 'La verificación con Google no está disponible en este momento. Inténtalo de nuevo más tarde.'],
     ['EMAIL_GOOGLE_UNAVAILABLE', 'La verificación con Google no está disponible en este momento. Inténtalo de nuevo más tarde.'],
     ['STORAGE_PRIVATE_BUCKET_REQUIRED', 'No se pudo acceder al archivo. Inténtalo de nuevo más tarde o comunícalo al administrador.'],

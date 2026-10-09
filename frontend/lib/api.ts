@@ -22,6 +22,8 @@ export async function api<T>(path: string, options: RequestInit = {}): Promise<T
             message = 'El servicio de CiviGo no está disponible en este momento. Inténtalo de nuevo.';
             if (response.status === 503 && data?.code === 'ROADS_UNAVAILABLE')
                 message = 'Los datos de calles no están disponibles en este momento. Inténtalo de nuevo más tarde.';
+            else if (response.status === 503 && data?.code === 'PLACES_SEARCH_UNAVAILABLE')
+                message = 'No se pudo ampliar la búsqueda de lugares. Prueba con otro nombre o dirección, o inténtalo más tarde.';
             else if (response.status === 503 && typeof data?.code === 'string' && data.code.startsWith('EMAIL_GOOGLE_'))
                 message = 'La verificación con Google no está disponible en este momento. Inténtalo de nuevo más tarde.';
             else if (response.status === 503 && typeof data?.code === 'string' && data.code.startsWith('STORAGE_'))
