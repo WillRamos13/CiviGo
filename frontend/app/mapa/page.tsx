@@ -1,6 +1,6 @@
 'use client';
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { RefreshCw, ShieldAlert } from 'lucide-react';
+import { ChevronRight, LocateFixed, RefreshCw, ShieldAlert, Signal } from 'lucide-react';
 import MapView from '@/components/MapView';
 import IncidentPanel from '@/components/IncidentPanel';
 import IncidentIcon from '@/components/IncidentIcon';
@@ -14,6 +14,9 @@ import { buildIncidentFilterGroups, filterIncidentsByType } from '@/lib/incident
 import type { Incidente, Ruta, Posicion, Catalogo } from '@/lib/types';
 import { nearRoute, isRouteWarning } from '@/lib/navigation';
 import { useNavigation } from '@/lib/use-navigation';
+import { recentNearbyIncidents } from '@/lib/recent-incidents';
+import { useMapLocation } from '@/lib/use-map-location';
+import { useNearbyIncidents } from '@/lib/use-nearby-incidents';
 import BusinessDetailsDialog from '@/components/BusinessDetailsDialog';
 interface Business {
     id: number;
@@ -38,7 +41,9 @@ function AccountMap() {
     const [filterLabel, setFilterLabel] = useState('');
     const changeFollowing = useCallback((value: boolean) => { setFollowing(value); setAd(null); }, []);
     const navigation = useNavigation(route, following, setRoute, changeFollowing, recalculate);
-    const position = navigation.position;
+    const location = useMapLocation(navigation.position, following);
+    const position = location.position;
+    const nearby = useNearbyIncidents(position, category);
     const previous = useRef<Set<number>>(new Set()), activeRoute = useRef<Ruta | null>(null), seenBusiness = useRef<Set<number>>(new Set()), traveled = useRef(150), lastTrack = useRef<Posicion | null>(null), businesses = useRef<Business[]>([]), adTimer = useRef<ReturnType<typeof setTimeout> | null>(null), trip = useRef('');
     const adConfig = useRef({anuncioMetros:50,intervaloAnuncioMetros:150,duracionAnuncioSegundos:6});
     const hasLoaded = useRef(false), lastGravity = useRef<Map<number,number|null>>(new Map()), lastSnapshot = useRef('');
@@ -55,6 +60,7 @@ function AccountMap() {
             setRouteAlert(`Hay ${newOnRoute.length} nuevo${newOnRoute.length > 1 ? 's' : ''} incidente${newOnRoute.length > 1 ? 's' : ''} importante${newOnRoute.length > 1 ? 's' : ''} cerca de tu recorrido.${tracking.current ? ' Se actualizará el recorrido desde tu ubicación.' : ' Busca recorridos para actualizar las alternativas.'}`);
             if (tracking.current) setRecalculate(v => v + 1);
         }
+        const previousIds = previous.current;
         previous.current = new Set(data.map(i => i.id));
         lastGravity.current = new Map(data.map(i=>[i.id,i.gravedad??i.nivelRiesgo]));
         hasLoaded.current = true;
@@ -62,7 +68,7 @@ function AccountMap() {
         if (snapshot !== lastSnapshot.current) {
             lastSnapshot.current = snapshot;
             setIncidents(data);
-            setSelected(current => current ? data.find(i => i.id === current.id) ?? null : null);
+            setSelected(current => current ? data.find(i => i.id === current.id) ?? (previousIds.has(current.id) ? null : current) : null);
         }
         setUpdated(new Date().toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit' }));
         setError('');
@@ -89,8 +95,11 @@ function AccountMap() {
         return; const close = businesses.current.filter(b => !seenBusiness.current.has(b.id) && distance(position, b) <= adConfig.current.anuncioMetros).sort((a, b) => distance(position, a) - distance(position, b))[0]; if (!close)
         return; seenBusiness.current.add(close.id); traveled.current = 0; setAd(close); void post(`/businesses/${close.id}/impressions`, { ...position, recorridoId: trip.current }).catch(() => { }); if (adTimer.current)
         clearTimeout(adTimer.current); adTimer.current = setTimeout(() => setAd(null), adConfig.current.duracionAnuncioSegundos*1000); }, [following, position, route, usuario]);
-    const filtered = useMemo(() => filterIncidentsByType(incidents, category), [category, incidents]);
-    const filterGroups = useMemo(() => buildIncidentFilterGroups(catalog, incidents, category ? { key: category, name: filterLabel } : undefined), [catalog, incidents, category, filterLabel]);
+    const observed = useMemo(() => [...new Map([...incidents, ...nearby.incidents].map(incident => [incident.id, incident])).values()], [incidents, nearby.incidents]);
+    const filtered = useMemo(() => filterIncidentsByType(observed, category), [category, observed]);
+    const recent = useMemo(() => recentNearbyIncidents(filterIncidentsByType(nearby.incidents, category), position), [category, nearby.incidents, position]);
+    const refreshAll = () => { refresh(); nearby.refresh(); };
+    const filterGroups = useMemo(() => buildIncidentFilterGroups(catalog, observed, category ? { key: category, name: filterLabel } : undefined), [catalog, observed, category, filterLabel]);
     const changeTypeFilter = (value: string) => {
         setCategory(value);
         setFilterLabel(filterGroups.flatMap(group => group.types).find(type => type.key === value)?.name ?? value);
@@ -107,38 +116,42 @@ function AccountMap() {
         {!following && navigation.notice && <div className="notice notice-warning">{navigation.notice}</div>}
         <div className="map-workspace">
             <div className="map-column">
-                <div className="map-frame">
-                    <MapView incidentes={filtered} ruta={route} onSelect={setSelected} posicion={position} navigating={following} heading={navigation.progress?.heading} centerVersion={navigation.centerVersion} onTrafficChange={() => { if (tracking.current) setRecalculate(v => v + 1); }} typeFilter={{ value: category, groups: filterGroups, onChange: changeTypeFilter }}/>
+                <div className="map-frame" aria-busy={loading}>
+                    <MapView incidentes={filtered} ruta={route} onSelect={setSelected} posicion={position} onLocate={location.acceptPosition} navigating={following} heading={navigation.progress?.heading} centerVersion={navigation.centerVersion} onTrafficChange={() => { if (tracking.current) setRecalculate(v => v + 1); }} typeFilter={{ value: category, groups: filterGroups, onChange: changeTypeFilter }}/>
+                </div>
             <aside className="side-panel map-floating-panels" aria-label="Paneles del mapa">
                 <CollapsiblePanel title="¿A dónde vamos?" className="map-side-panel map-route-panel" defaultOpen>
-                    <RoutePlanner onRoute={setRoute} active={route} following={following} onFollow={changeFollowing} guidance={navigation}/>
+                    <RoutePlanner onRoute={setRoute} active={route} following={following} onFollow={changeFollowing} guidance={navigation} onLocate={location.acceptPosition}/>
                 </CollapsiblePanel>
                 <CollapsiblePanel title="Reportes recientes" className="map-side-panel map-reports-panel" defaultOpen>
                     <div className="card-header">
-                        <span className="muted">{filtered.length} {filtered.length === 1 ? 'incidente' : 'incidentes'}{category && ' · filtro activo'}</span>
-                        <button className="icon-btn" aria-label="Actualizar incidentes" onClick={refresh}><RefreshCw size={17}/></button>
+                        <span className="muted">{recent.length} {recent.length === 1 ? 'reporte' : 'reportes'} · a 1 km de ti{category && ' · filtro activo'}</span>
+                        <button className="icon-btn" aria-label="Actualizar incidentes" onClick={refreshAll}><RefreshCw size={17}/></button>
                     </div>
-                    {loading ? <p className="muted">Cargando incidentes…</p> : filtered.length === 0 ? <p className="muted">No hay incidentes publicados para este filtro.</p> : <div className="incident-list">
-                        {filtered.map(i => <button key={i.id} className="incident-row" onClick={() => setSelected(i)}>
+                    {!position ? <div className="nearby-location-notice" role="status">
+                        <p>{location.status === 'locating' ? 'Buscando tu ubicación…' : location.error || 'Activa tu ubicación para ver los últimos 10 reportes dentro de 1 km de ti.'}</p>
+                        <button className="btn btn-secondary btn-small" disabled={location.status === 'locating'} onClick={location.requestLocation}><LocateFixed size={15}/>Usar mi ubicación</button>
+                    </div> : nearby.loading ? <p className="muted">Cargando reportes cercanos…</p> : recent.length === 0 ? <p className="muted">{nearby.error || 'No hay incidentes publicados para este filtro a menos de 1 km de tu ubicación.'}</p> : <div className="incident-list">
+                        {recent.map(i => <button key={i.id} className="incident-row" onClick={() => setSelected(i)}>
                             <IncidentIcon slug={i.tipoSlug} tipo={i.tipoNombre || i.tipo} />
-                            <div>
+                            <div className="recent-incident-copy">
                                 <strong>{i.tipoNombre || i.tipo}</strong>
                                 <p>{i.descripcion?.slice(0, 100) || 'Sin descripción adicional'}</p>
-                                <span className="badge">Gravedad {i.gravedad ?? i.nivelRiesgo ?? 'por evaluar'}</span>
-                                <span className="badge" style={{ marginLeft: 4 }}>{isHistoricalAntecedent(i) ? 'Antecedente histórico' : i.estado}</span>
                                 {isHistoricalAntecedent(i) && <p className="muted">{i.fechaEvento && <>Ocurrió: {formatDate(i.fechaEvento)}<br /></>}{incidentSource(i) && <>Procedencia: {incidentSource(i)}</>}</p>}
                             </div>
+                            <div className="recent-incident-badges"><span className="badge">Gravedad {i.gravedad ?? i.nivelRiesgo ?? 'por evaluar'}</span><span className="badge recent-incident-state">{isHistoricalAntecedent(i) ? 'Histórico' : i.estado}</span></div>
+                            <ChevronRight size={18} className="recent-incident-arrow" aria-hidden="true"/>
                         </button>)}
                     </div>}
+                    {position && recent.length > 0 && nearby.error && <p className="muted" role="status">No se pudieron actualizar los reportes cercanos. Los últimos datos pueden estar desactualizados.</p>}
                 </CollapsiblePanel>
 
             </aside>
-                    <div className="map-footer"><span className="online-state"><span/>Provincia de Ica</span><span>{updated ? `Incidentes actualizados ${updated}` : 'Conectando…'}</span></div>
-                </div>
+                    <div className="map-footer"><span className="online-state"><span/>Provincia de Ica</span><span>{updated ? `Actualizados ${updated}` : 'Conectando…'}</span><Signal size={17} aria-hidden="true"/></div>
             </div>
         </div>
         {error && <div className="notice notice-error" role="alert">{error}{incidents.length > 0 && ' Se conservan los últimos datos obtenidos; pueden estar desactualizados.'}</div>}
-        {selected && <IncidentPanel key={selected.id} incidente={selected} onClose={() => setSelected(null)} onRefresh={refresh}/>}
+        {selected && <IncidentPanel key={selected.id} incidente={selected} onClose={() => setSelected(null)} onRefresh={refreshAll}/>}
         {ad && following && !(usuario?.premium && usuario.ocultarAnuncios) && <div className="business-toast">
             <div className="card-header"><span className="eyebrow" style={{ fontSize: 8 }}>RECOMENDACIÓN PATROCINADA · DEMOSTRACIÓN</span><button className="icon-btn" aria-label="Cerrar recomendación" onClick={() => setAd(null)}>×</button></div>
             <h3>{ad.nombre}</h3>

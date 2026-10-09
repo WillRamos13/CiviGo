@@ -12,10 +12,15 @@ const {
 const { config } = require("../lib/catalog");
 const { incident, publicUser } = require("../lib/projections");
 const {
-  publicIncidentEligibility,
   canPublishIncident,
   verifiedVoteInclude,
 } = require("../lib/publication");
+const {
+  parseNearbyIncidentQuery,
+  publicIncidentWhere,
+  isVisiblePublicIncident,
+  findNearbyRecentIncidents,
+} = require("../lib/recent-incidents");
 const {
   transaction,
   rewardValidated,
@@ -40,16 +45,18 @@ router.get(
   "/",
   optionalAuth,
   asyncRoute(async (req, res) => {
-    const cutoff = new Date();
-    cutoff.setUTCFullYear(cutoff.getUTCFullYear() - 3);
-    const where = {
-      publicado: true,
-      AND: [publicIncidentEligibility()],
-      OR: [
-        { historico: false },
-        { historico: true, fechaEvento: { gte: cutoff } },
-      ],
-    };
+    const now = new Date();
+    const nearby = parseNearbyIncidentQuery(req.query);
+    if (nearby) {
+      const rows = await findNearbyRecentIncidents(
+        prisma,
+        nearby,
+        include,
+        now,
+      );
+      return res.json(rows.map((row) => incident(row)));
+    }
+    const where = publicIncidentWhere(now);
     if (req.query.tipo) where.tipoCatalogo = { slug: String(req.query.tipo) };
     const [active, historical] = await Promise.all([
       prisma.incident.findMany({
@@ -73,12 +80,7 @@ router.get(
     );
     res.json(
       incidents
-        .filter(
-          (i) =>
-            (i.estado !== "RESUELTO" || i.historico) &&
-            (!i.historico ||
-              require("../lib/risk").ageWeight(i.fechaEvento) > 0),
-        )
+        .filter((i) => isVisiblePublicIncident(i, now))
         .map((i) => incident(i)),
     );
   }),

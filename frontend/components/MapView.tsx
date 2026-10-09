@@ -8,7 +8,7 @@ import { EMPTY_MAP_DATA, MAP_STYLE, bindIncidentMarkerZoom, syncMapLayers, type 
 import { api, errorMessage } from '@/lib/api';
 import { useLiveRefresh } from '@/lib/use-live-refresh';
 import type { IncidentFilterGroup } from '@/lib/incident-filters';
-import type { Incidente, Ruta, Posicion } from '@/lib/types';
+import type { Incidente, Ruta, Posicion, LocationFix } from '@/lib/types';
 import { RISK_COLORS } from '@/lib/types';
 import type { TrafficResponse, TrafficStatus, ExternalTrafficIncident } from '@/lib/traffic';
 import { trafficAffectsRoute } from '@/lib/traffic';
@@ -22,6 +22,7 @@ type Props = {
     ruta?: Ruta | null;
     onSelect?: (incidente: Incidente) => void;
     onPosition?: (p: Posicion) => void | boolean;
+    onLocate?: (p: LocationFix) => void;
     posicion?: Posicion | null;
     editor?: boolean;
     navigating?: boolean;
@@ -32,9 +33,9 @@ type Props = {
 };
 const brandColor = (element: HTMLElement | null) => element ? getComputedStyle(element).getPropertyValue('--map-route-color').trim() || '#1554D8' : '#1554D8';
 const EMPTY_INCIDENTS: Incidente[] = [];
-export default function MapView({ incidentes = EMPTY_INCIDENTS, ruta = null, onSelect, onPosition, posicion = null, editor = false, typeFilter, navigating = false, heading, centerVersion = 0, onTrafficChange }: Props) {
+export default function MapView({ incidentes = EMPTY_INCIDENTS, ruta = null, onSelect, onPosition, onLocate, posicion = null, editor = false, typeFilter, navigating = false, heading, centerVersion = 0, onTrafficChange }: Props) {
     const container = useRef<HTMLDivElement>(null), mapRef = useRef<mapboxgl.Map | null>(null), markers = useRef<mapboxgl.Marker[]>([]), positionMarker = useRef<mapboxgl.Marker | null>(null);
-    const callbacks = useRef({ onSelect, onPosition });
+    const callbacks = useRef({ onSelect, onPosition, onLocate });
     const [loaded, setLoaded] = useState(false), [risk, setRisk] = useState(true), [events, setEvents] = useState(true), [zones, setZones] = useState(true), [error, setError] = useState(''), [roads, setRoads] = useState<GeoJSON.FeatureCollection>(EMPTY_MAP_DATA), [roadError, setRoadError] = useState('');
     const styleReady = useRef(false);
     const [controlsOpen, setControlsOpen] = useState(false), [legendOpen, setLegendOpen] = useState(true), [traffic, setTraffic] = useState(false);
@@ -51,7 +52,7 @@ export default function MapView({ incidentes = EMPTY_INCIDENTS, ruta = null, onS
     const token = process.env.NEXT_PUBLIC_MAPBOX_TOKEN
     const [online, setOnline] = useState(true);
     useEffect(() => { const change = () => setOnline(navigator.onLine); window.addEventListener('online', change); window.addEventListener('offline', change); void Promise.resolve().then(change); return () => { window.removeEventListener('online', change); window.removeEventListener('offline', change); }; }, []);
-    useEffect(() => { callbacks.current = { onSelect, onPosition }; }, [onSelect, onPosition]);
+    useEffect(() => { callbacks.current = { onSelect, onPosition, onLocate }; }, [onSelect, onPosition, onLocate]);
     useEffect(() => {
         layerState.current = { roads, incidents: incidentes, route: ruta, risk, events, zones, editor,
             brand: brandColor(container.current),
@@ -65,7 +66,9 @@ export default function MapView({ incidentes = EMPTY_INCIDENTS, ruta = null, onS
         mapRef.current = map;
         const stopMarkerZoom = bindIncidentMarkerZoom(map);
         map.addControl(new mapboxgl.NavigationControl(), editor ? 'top-right' : 'bottom-right');
-        map.addControl(new mapboxgl.GeolocateControl({ positionOptions: { enableHighAccuracy: true }, trackUserLocation: false, showUserHeading: true }), editor ? 'top-right' : 'bottom-right');
+        const geolocate = new mapboxgl.GeolocateControl({ positionOptions: { enableHighAccuracy: true }, trackUserLocation: false, showUserHeading: true });
+        geolocate.on('geolocate', (event: GeolocationPosition) => callbacks.current.onLocate?.({ latitud: event.coords.latitude, longitud: event.coords.longitude, accuracy: event.coords.accuracy, timestamp: event.timestamp }));
+        map.addControl(geolocate, editor ? 'top-right' : 'bottom-right');
         map.on('dragstart', () => { followCamera.current = false; });
         map.on('rotatestart', e => { if (e.originalEvent) followCamera.current = false; });
         map.on('style.load', () => {
@@ -163,8 +166,9 @@ export default function MapView({ incidentes = EMPTY_INCIDENTS, ruta = null, onS
         ruta.geometria.coordinates.forEach(c => bounds.extend([c[0], c[1]]));
         map.fitBounds(bounds, { padding: {top: 60, bottom: 100, left: 60, right: Math.min(340, Math.max(60, map.getContainer().clientWidth * .4))}, maxZoom: 16, bearing: 0, pitch: 0, duration: 700 });
     } }, [loaded, ruta, navigating]);
-    useEffect(() => { const map = mapRef.current; if (!loaded || !map || !posicion)
-        return; if (!positionMarker.current) { positionMarker.current = new mapboxgl.Marker({ color: brandColor(container.current), draggable: editor }).setLngLat([posicion.longitud, posicion.latitud]).addTo(map); } else positionMarker.current.setLngLat([posicion.longitud, posicion.latitud]); if (editor) {
+    useEffect(() => { const map = mapRef.current; if (!loaded || !map) return;
+        if (!posicion) { positionMarker.current?.remove(); positionMarker.current = null; return; }
+        if (!positionMarker.current) { positionMarker.current = new mapboxgl.Marker({ color: brandColor(container.current), draggable: editor }).setLngLat([posicion.longitud, posicion.latitud]).addTo(map); } else positionMarker.current.setLngLat([posicion.longitud, posicion.latitud]); if (editor) {
         positionMarker.current.off('dragend', onDrag);
         function onDrag() { const coords = positionMarker.current?.getLngLat(); if (coords) {
             const accepted = callbacks.current.onPosition?.({ latitud: coords.lat, longitud: coords.lng });

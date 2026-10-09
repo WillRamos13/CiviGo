@@ -1,6 +1,5 @@
 "use client";
 import Link from "next/link";
-import Image from "next/image";
 import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import {
@@ -15,6 +14,7 @@ import {
   X,
   LogOut,
   Shield,
+  UserRound,
 } from "lucide-react";
 import { useAuth } from "./AuthProvider";
 import { errorMessage } from "@/lib/api";
@@ -26,6 +26,7 @@ import MapAnnouncements, {
   type MapBusiness,
 } from "./MapAnnouncements";
 import BusinessDetailsDialog from "./BusinessDetailsDialog";
+import AnimatedBrand from "./AnimatedBrand";
 const links = [
   { href: "/mapa", label: "Explorar mapa", icon: Map },
   { href: "/reportar", label: "Reportar incidente", icon: MapPin },
@@ -76,6 +77,7 @@ export default function Shell({ children }: { children: React.ReactNode }) {
     try {
       setError("");
       await logout();
+      setOpen(false);
     } catch (error) {
       setError(errorMessage(error));
     }
@@ -90,18 +92,7 @@ export default function Shell({ children }: { children: React.ReactNode }) {
       <OfflineSupport />
       <header className="app-header">
         <Link className="brand" href="/" aria-label="CiviGo · Inicio">
-          <Image
-            className="brand-logo"
-            src="/civigo-logo.jpeg"
-            alt=""
-            width={50}
-            height={60}
-            unoptimized
-            loading="eager"
-          />
-          <span>
-            Civi<span className="brand-go">Go</span>
-          </span>
+          <AnimatedBrand />
         </Link>
         <MapAnnouncements />
         <div className="header-actions">
@@ -117,6 +108,7 @@ export default function Shell({ children }: { children: React.ReactNode }) {
             </>
           )}
           <button
+            type="button"
             ref={menuButton}
             className="icon-btn mobile-menu"
             aria-label={open ? "Cerrar menú" : "Abrir menú"}
@@ -131,10 +123,10 @@ export default function Shell({ children }: { children: React.ReactNode }) {
       <div className="app-body">
         <aside
           id="navegacion-principal"
-          className={`sidebar ${open ? "is-open" : ""}`}
+          className={`sidebar mobile-nav-panel ${open ? "is-open" : ""}`}
         >
           <div className="sidebar-label">TU CIUDAD, EN COMUNIDAD</div>
-          <nav aria-label="Navegación principal">
+          <nav className="sidebar-navigation" aria-label="Navegación principal">
             {links.map(({ href, label, icon: Icon }) => (
               <Link
                 key={href}
@@ -148,6 +140,21 @@ export default function Shell({ children }: { children: React.ReactNode }) {
                 {href === "/reportar" && <span className="nav-plus">+</span>}
               </Link>
             ))}
+            <Link
+              href={usuario ? "/perfil" : "/ingresar"}
+              className={`nav-item nav-profile-mobile ${path === "/perfil" ? "active" : ""}`}
+              aria-current={path === "/perfil" ? "page" : undefined}
+              onClick={() => setOpen(false)}
+            >
+              {usuario ? (
+                <span className="avatar" aria-hidden="true">
+                  {usuario.nickname.charAt(0).toUpperCase()}
+                </span>
+              ) : (
+                <UserRound size={19} />
+              )}
+              <span>Perfil</span>
+            </Link>
             {agent && (
               <Link
                 href="/agente"
@@ -161,7 +168,7 @@ export default function Shell({ children }: { children: React.ReactNode }) {
             )}
           </nav>
           {usuario && (
-            <div className="sidebar-account">
+            <div className="sidebar-account desktop-account">
               <Link
                 href="/perfil"
                 className="profile-link"
@@ -175,6 +182,7 @@ export default function Shell({ children }: { children: React.ReactNode }) {
                 <span>{usuario.nickname}</span>
               </Link>
               <button
+                type="button"
                 className="icon-btn"
                 title="Cerrar sesión"
                 aria-label="Cerrar sesión"
@@ -183,6 +191,17 @@ export default function Shell({ children }: { children: React.ReactNode }) {
                 <LogOut size={20} />
               </button>
             </div>
+          )}
+          {usuario && (
+            <button
+              type="button"
+              className="btn btn-quiet mobile-session-action"
+              aria-label="Cerrar sesión"
+              onClick={signOut}
+            >
+              <LogOut size={16} />
+              Cerrar sesión
+            </button>
           )}
         </aside>
         <main id="contenido-principal" className="app-content" tabIndex={-1}>

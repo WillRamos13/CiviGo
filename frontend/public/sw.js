@@ -1,7 +1,7 @@
 /* Cache only the public shell and static assets. Auth, API responses and
    uploaded evidence always require the network. */
-const CACHE = "civigo-public-shell-v4";
-const PUBLIC_ASSETS = ["/civigo-logo.jpeg"];
+const CACHE = "civigo-public-shell-v5";
+const PUBLIC_ASSETS = ["/civigo-logo.jpeg", "/civigo-logo-animado-poster.png"];
 self.addEventListener("install", (event) => {
   event.waitUntil(
     (async () => {

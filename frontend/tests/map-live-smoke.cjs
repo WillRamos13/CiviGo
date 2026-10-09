@@ -59,7 +59,18 @@ const server = http.createServer((request, response) => {
   requests.push({ url: request.url, method: request.method, revision });
   response.setHeader('Content-Type', 'application/json');
   response.setHeader('Cache-Control', 'no-store');
-  if (request.url === '/api/incidents') return response.end(JSON.stringify(incidents));
+  const requestedUrl = new URL(request.url, 'http://127.0.0.1');
+  if (requestedUrl.pathname === '/api/incidents') {
+    if (!requestedUrl.searchParams.has('latitud')) return response.end(JSON.stringify(incidents));
+    const latitude = Number(requestedUrl.searchParams.get('latitud')), longitude = Number(requestedUrl.searchParams.get('longitud'));
+    const kind = requestedUrl.searchParams.get('tipo');
+    const rad = value => value * Math.PI / 180;
+    const nearby = incidents.filter(item => {
+      const distance = 6371000 * 2 * Math.asin(Math.sqrt(Math.sin(rad(item.latitud - latitude) / 2) ** 2 + Math.cos(rad(latitude)) * Math.cos(rad(item.latitud)) * Math.sin(rad(item.longitud - longitude) / 2) ** 2));
+      return distance <= 1000 && (!kind || item.tipoSlug === kind);
+    }).sort((a,b) => Date.parse(b.fechaPublicacion || b.fechaCreacion) - Date.parse(a.fechaPublicacion || a.fechaCreacion) || b.id - a.id).slice(0,10);
+    return response.end(JSON.stringify(nearby));
+  }
   if (/^\/api\/incidents\/\d+\/chat$/.test(request.url)) return response.end('[]');
   if (/^\/api\/incidents\/\d+$/.test(request.url)) {
     const id = Number(request.url.split('/').at(-1));
@@ -159,7 +170,17 @@ async function openMobileMenu(window) {
   await window.webContents.executeJavaScript(`(() => { const menu = document.querySelector('.mobile-menu'); if (menu.getAttribute('aria-expanded') !== 'true') menu.click(); })()`);
   await menuOpen(window, true);
 }
+async function signOutFromShell(window, mobile) {
+  if (mobile) await openMobileMenu(window);
+  const selector = mobile ? '.mobile-session-action' : '.sidebar-account button[aria-label="Cerrar sesión"]';
+  await window.webContents.executeJavaScript(`document.querySelector(${JSON.stringify(selector)}).click()`);
+}
 async function assertCommonShell(window, width, signedIn) {
+  // Chromium can round the emulated viewport differently after a route removes
+  // the document scrollbar. Reapply its viewport before measuring this page.
+  const {height} = window.getContentBounds();
+  window.webContents.enableDeviceEmulation({screenPosition:width<=900?'mobile':'desktop',screenSize:{width,height},viewPosition:{x:0,y:0},viewSize:{width,height},deviceScaleFactor:1,scale:1});
+  await waitUntil(window, `innerWidth === ${width}`);
   await waitUntil(window, `!!document.querySelector('.app-header .map-announcements[aria-label="Anuncios y novedades"] .announcement-content')`);
   const shell = await window.webContents.executeJavaScript(`(() => {
     const geometry = element => {
@@ -180,6 +201,7 @@ async function assertCommonShell(window, width, signedIn) {
     const account = document.querySelector('.sidebar-account');
     const accountRect = account?.getBoundingClientRect();
     const sidebar = document.querySelector('.sidebar');
+    const tiles = Array.from(document.querySelectorAll('.sidebar-navigation a')).map(geometry).filter(tile => tile.visible);
     return {
       width: innerWidth, height: innerHeight, route: location.pathname, documentWidth: document.documentElement.scrollWidth,
       brand: geometry(document.querySelector('.app-header .brand')),
@@ -191,8 +213,14 @@ async function assertCommonShell(window, width, signedIn) {
       bannerWithinWidth: rect.left >= 0 && rect.right <= innerWidth + 1,
       accounts: document.querySelectorAll('.sidebar-account').length,
       profile: account?.querySelector('a[href="/perfil"]')?.textContent,
-      logouts: document.querySelectorAll('button[aria-label="Cerrar sesión"]').length,
+      logouts: Array.from(document.querySelectorAll('button[aria-label="Cerrar sesión"]')).map(geometry).filter(button => button.visible).length,
       sidebarLogout: !!account?.querySelector('button[aria-label="Cerrar sesión"]'),
+      mobileLogout: geometry(document.querySelector('.mobile-session-action')),
+      mobileProfile: geometry(document.querySelector('.nav-profile-mobile')),
+      menuExpanded: document.querySelector('.mobile-menu')?.getAttribute('aria-expanded') === 'true',
+      sidebar: geometry(sidebar),
+      header: geometry(document.querySelector('.app-header')),
+      tiles,
       duplicatedHeader: !!document.querySelector('.app-header .profile-link, .app-header button[aria-label="Cerrar sesión"]'),
       accountAfterNavigation: !!account && Array.from(sidebar.children).indexOf(account) > Array.from(sidebar.children).indexOf(sidebar.querySelector('nav')),
       accountBottomGap: accountRect ? sidebar.getBoundingClientRect().bottom - accountRect.bottom : null,
@@ -223,14 +251,35 @@ async function assertCommonShell(window, width, signedIn) {
   assert.equal(shell.bannerVisible, true, 'El banner debe permanecer visible fuera del mapa');
   assert.equal(shell.bannerWithinWidth, true, 'El banner debe caber en el encabezado');
   assert.equal(shell.duplicatedHeader, false, 'La cuenta no se repite en el encabezado');
+  if (width <= 900 && shell.menuExpanded) {
+    assert.equal(shell.tiles.length, 8, 'El menú móvil ofrece ocho accesos, incluido Perfil');
+    assert.equal(shell.mobileProfile?.visible, true, 'Perfil debe ser un tile del menú móvil');
+    assert.ok(shell.sidebar.top >= shell.header.bottom - 1, 'El menú desplegable empieza bajo el encabezado');
+    assert.ok(shell.sidebar.width >= width * 0.9, 'El menú ocupa el ancho de la pantalla en lugar de una barra lateral');
+    assert.ok(shell.sidebar.height < shell.height - shell.header.height, 'El menú no debe ocupar toda la altura disponible como un drawer');
+    const firstRow = shell.tiles.filter(tile => Math.abs(tile.top - shell.tiles[0].top) <= 1);
+    assert.equal(firstRow.length, 4, 'El menú móvil muestra cuatro accesos por fila');
+    for (const tile of shell.tiles) {
+      assert.equal(tile.withinViewport, true, `Acceso del menú móvil fuera de pantalla: ${JSON.stringify(tile)}`);
+      assert.equal(tile.clipped, false, `Acceso del menú móvil recortado: ${JSON.stringify(tile)}`);
+    }
+  } else if (width > 900) {
+    assert.equal(shell.tiles.length, 7, 'En escritorio, Perfil permanece en la cuenta del pie de la barra lateral');
+    assert.equal(shell.mobileProfile?.visible, false);
+    assert.equal(shell.mobileLogout?.visible ?? false, false);
+  }
   if (signedIn) {
     assert.equal(shell.accounts, 1);
     assert.ok(shell.profile.includes('Usuario prueba'));
     assert.equal(shell.logouts, 1);
     assert.equal(shell.sidebarLogout, true);
     assert.equal(shell.accountAfterNavigation, true, 'La cuenta debe ir debajo de los enlaces de navegación');
-    assert.equal(shell.accountVisible, true, 'La cuenta debe estar accesible en escritorio y en el menú móvil abierto');
-    assert.ok(shell.accountBottomGap >= 0 && shell.accountBottomGap <= 36, 'La cuenta debe quedar abajo en la barra lateral');
+    assert.equal(shell.accountVisible, width > 900, 'La cuenta del pie se muestra en escritorio; el móvil utiliza el tile Perfil');
+    if (width > 900) {
+      assert.ok(shell.accountBottomGap >= 0 && shell.accountBottomGap <= 36, 'La cuenta debe quedar abajo en la barra lateral');
+    } else {
+      assert.equal(shell.mobileLogout?.visible, shell.menuExpanded, 'Cerrar sesión está disponible dentro del menú móvil desplegado');
+    }
   } else {
     assert.equal(shell.logouts, 0);
     assert.equal(shell.sidebarLogout, false);
@@ -256,7 +305,8 @@ async function commonShellScenarios() {
   for (const [index, window] of originalClients.entries()) {
     const mobile = index === 1, width = mobile ? 390 : 1400, viewport = mobile ? 'móvil' : 'escritorio';
     if (mobile) await openMobileMenu(window);
-    await window.webContents.executeJavaScript(`document.querySelector('.sidebar-account a[href="/perfil"]').click()`);
+    const profileSelector = mobile ? '.nav-profile-mobile[href="/perfil"]' : '.sidebar-account a[href="/perfil"]';
+    await window.webContents.executeJavaScript(`document.querySelector(${JSON.stringify(profileSelector)}).click()`);
     await waitUntil(window, `location.pathname === '/perfil' && document.querySelector('main h1')?.textContent === 'Mi perfil' && !!document.querySelector('#nickname')`);
     if (mobile) {
       await menuOpen(window, false);
@@ -296,7 +346,7 @@ async function commonShellScenarios() {
     await assertCommonShell(window, width, true);
     await bannerBusiness(window, '/perfil');
     const links = await window.webContents.executeJavaScript(`Array.from(document.querySelectorAll('.sidebar nav a')).map(link => link.getAttribute('href'))`);
-    assert.deepEqual(links, ['/mapa','/reportar','/mis-reportes','/alertas','/ranking','/recompensas','/premium'], 'El menú compacto conserva toda la navegación global');
+    assert.deepEqual(links, ['/mapa','/reportar','/mis-reportes','/alertas','/ranking','/recompensas','/premium','/perfil'], 'El menú compacto conserva la navegación global y el acceso al perfil');
     await capture(window, `perfil-shell-${width}x${height}-autenticado.png`);
     await window.webContents.executeJavaScript(`document.querySelector('.sidebar nav a[href="/ranking"]').click()`);
     await waitUntil(window, `location.pathname === '/ranking' && document.body.innerText.includes('Todavía no hay puntos registrados en este mes.')`);
@@ -308,11 +358,11 @@ async function commonShellScenarios() {
     await menuOpen(window, false);
     assert.equal(await window.webContents.executeJavaScript(`document.activeElement === document.querySelector('.mobile-menu')`), true, 'Escape cierra el menú compacto y devuelve el foco');
     await openMobileMenu(window);
-    stages.push({test:`Shell ${width}×${height} autenticado: cuenta al pie, controles sin recortes, navegación global y ficha en /perfil y /ranking`,passed:true});
+    stages.push({test:`Shell ${width}×${height} autenticado: menú en cuadrícula, Perfil accesible, controles sin recortes y ficha en /perfil y /ranking`,passed:true});
   }
   for (const [index, window] of originalClients.entries()) {
     const mobile = index === 1, width = mobile ? 390 : 1400, viewport = mobile ? 'móvil' : 'escritorio';
-    await window.webContents.executeJavaScript(`document.querySelector('.sidebar-account button[aria-label="Cerrar sesión"]').click()`);
+    await signOutFromShell(window, mobile);
     await waitUntil(window, `!document.querySelector('button[aria-label="Cerrar sesión"]') && !!document.querySelector('a[href="/ingresar"]')`);
     const directLogin = await window.webContents.executeJavaScript(`(() => {
       const anchor = Array.from(document.querySelectorAll('a[href="/ingresar"]')).find(link => link.getBoundingClientRect().width > 0 && link.getBoundingClientRect().height > 0);
@@ -332,7 +382,7 @@ async function commonShellScenarios() {
     stages.push({test:`Shell común anónimo en /ingresar (${viewport}): sesión cerrada desde sidebar, banner y ficha conservados`,passed:true});
   }
   for (const {window,width,height} of compactClients) {
-    await window.webContents.executeJavaScript(`document.querySelector('.sidebar-account button[aria-label="Cerrar sesión"]').click()`);
+    await signOutFromShell(window, true);
     await waitUntil(window, `!document.querySelector('button[aria-label="Cerrar sesión"]') && !!document.querySelector('.app-header a[href="/registro"]')`);
     await window.webContents.executeJavaScript(`document.querySelector('.app-header a[href="/registro"]').click()`);
     await waitUntil(window, `location.pathname === '/registro' && !!document.querySelector('main a[href="/ingresar"]')`);
@@ -398,7 +448,20 @@ async function createClient(index, width, height, {route='/mapa',mapReady=true} 
   await waitUntil(window, expectedAuthentication
     ? `!!document.querySelector('.sidebar-account a[href="/perfil"]')`
     : `!!document.querySelector('.app-header a[href="/registro"]') && !document.querySelector('.sidebar-account')`);
-  if (mapReady) await waitUntil(window, `document.body.innerText.includes('No hay incidentes publicados para este filtro.')`);
+  if (mapReady) {
+    await waitUntil(window, `!!document.querySelector('.nearby-location-notice button')`);
+    await window.webContents.executeJavaScript(`
+      window.__nearbyPosition = {coords:{latitude:-14.0678,longitude:-75.7286,accuracy:10},timestamp:Date.now()};
+      window.__nearbyWatchers = new Map(); window.__nearbyWatchId = 0;
+      Object.defineProperty(navigator, 'geolocation', {configurable:true, value:{
+        watchPosition(ok,fail) { const id=++window.__nearbyWatchId;window.__nearbyWatchers.set(id,{ok,fail});setTimeout(()=>{if(window.__nearbyWatchers.has(id))ok(window.__nearbyPosition);},0);return id; },
+        clearWatch(id) {window.__nearbyWatchers.delete(id);},
+        getCurrentPosition(ok) {setTimeout(()=>ok(window.__nearbyPosition),0);},
+      }});
+      document.querySelector('.nearby-location-notice button').click();
+    `);
+    await waitUntil(window, `document.body.innerText.includes('No hay incidentes publicados para este filtro a menos de 1 km de tu ubicación.')`);
+  }
   return window;
 }
 async function finishShellValidation() {
@@ -424,7 +487,19 @@ async function run() {
   server.listen(fixturePort, '127.0.0.1');
   await once(server, 'listening');
   await app.whenReady();
-  await Promise.all([createClient(1, 1400, 768), createClient(2, 390, 844)]);
+  if (shellOnly) {
+    // Compiling a new route can invalidate shared dev bundles and trigger HMR
+    // reloads in already-open clients. Warm the pages before counting document
+    // loads, preserving the same four-document constraint as production.
+    await Promise.all(['/perfil','/ranking','/ingresar','/registro'].map(async route => {
+      const response = await fetch(`${origin}${route}`);
+      assert.ok(response.ok, `No se pudo preparar la ruta local ${route}`);
+      await response.text();
+    }));
+  }
+  // Header/navigation checks do not depend on obtaining a synthetic GPS fix.
+  // Keep real permission responses out of that unrelated fixture setup.
+  await Promise.all([createClient(1, 1400, 768, {mapReady:!shellOnly}), createClient(2, 390, 844, {mapReady:!shellOnly})]);
   if (shellOnly) {
     await commonShellScenarios();
     await finishShellValidation();
@@ -446,7 +521,7 @@ async function run() {
   await waitUntil(windows[1], `!!document.querySelector('[role="dialog"][aria-labelledby="incident-title"]')`);
 
   incidents = []; revision++;
-  const resolution = await both(`document.querySelectorAll('.incident-row').length === 0 && document.body.innerText.includes('No hay incidentes publicados para este filtro.')`);
+  const resolution = await both(`document.querySelectorAll('.incident-row').length === 0 && document.body.innerText.includes('No hay incidentes publicados para este filtro a menos de 1 km de tu ubicación.')`);
   await waitUntil(windows[1], `!document.querySelector('[role="dialog"][aria-labelledby="incident-title"]')`);
   stages.push({ test: 'Resolución retira el incidente y cierra su detalle', passed: true, milliseconds: resolution });
 
@@ -561,7 +636,7 @@ async function run() {
   for (const window of windows) observedValues.push(await filterByName(window, 'Alerta vecinal'));
   await both(`document.querySelectorAll('.incident-row').length === 1 && document.querySelector('.incident-row strong')?.textContent === 'Alerta vecinal'`);
   incidents = incidents.filter(item => item.id !== 916); revision++;
-  await both(`document.querySelectorAll('.incident-row').length === 0 && document.body.innerText.includes('No hay incidentes publicados para este filtro.')`);
+  await both(`document.querySelectorAll('.incident-row').length === 0 && document.body.innerText.includes('No hay incidentes publicados para este filtro a menos de 1 km de tu ubicación.')`);
   for (const [index, window] of windows.entries()) {
     const selected = await window.webContents.executeJavaScript(`(() => {
       const select = document.querySelector('.map-controls select');
@@ -586,6 +661,54 @@ async function run() {
   await panelState(windows[0], legend, true);
   await capture(windows[0], 'mapa-leyenda-oscuro-escritorio.png');
   stages.push({ test: 'Modo oscuro se activa desde ThemeToggle y mantiene controles dentro de pantalla', passed: true });
+
+  const previousIncidents = incidents;
+  incidents = Array.from({length:30}, (_,index) => ({...incident, id:1000+index,
+    tipo:index%2 ? 'Hurto' : 'Robo', tipoNombre:index%2 ? 'Hurto' : 'Robo', tipoSlug:index%2 ? 'hurto' : 'robo',
+    descripcion:`Reporte cercano ${index}`, longitud:incident.longitud+index*0.00005,
+    fechaPublicacion:new Date(Date.UTC(2026,9,8,10,index)).toISOString(),
+    fechaEvento:new Date(Date.UTC(2026,9,1,10,30-index)).toISOString(),
+  }));
+  incidents.push({...incident,id:2000,latitud:incident.latitud+0.025,descripcion:'Reporte muy reciente fuera del radio',fechaPublicacion:'2026-10-08T23:59:00Z'});
+  revision++;
+  await both(`document.querySelectorAll('.incident-row').length === 10 && document.querySelector('.incident-row')?.innerText.includes('Reporte cercano 29')`);
+  for (const window of windows) {
+    assert.deepEqual(await window.webContents.executeJavaScript(`Array.from(document.querySelectorAll('.recent-incident-copy > p:first-of-type')).map(item=>item.textContent)`),Array.from({length:10},(_,i)=>`Reporte cercano ${29-i}`));
+    assert.equal(await window.webContents.executeJavaScript(`document.querySelector('.incident-list').innerText.includes('fuera del radio')`),false);
+    await filterByName(window,'Robo');
+    await waitUntil(window,`document.querySelectorAll('.incident-row').length === 10 && document.querySelector('.incident-row')?.innerText.includes('Reporte cercano 28')`);
+    assert.deepEqual(await window.webContents.executeJavaScript(`Array.from(document.querySelectorAll('.recent-incident-copy > p:first-of-type')).map(item=>item.textContent)`),Array.from({length:10},(_,i)=>`Reporte cercano ${28-i*2}`));
+    await window.webContents.executeJavaScript(`Array.from(document.querySelectorAll('.map-controls button')).find(button => button.textContent.trim() === 'Quitar filtro').click()`);
+    await waitUntil(window,`document.querySelector('.map-controls select').value === '' && document.querySelector('.incident-row')?.innerText.includes('Reporte cercano 29')`);
+  }
+  stages.push({test:'Últimos diez dentro de 1 km por fecha de publicación, límite por cada tipo y exclusión de un reporte nuevo distante',passed:true});
+  const mobileWindow = windows[1];
+  await mobileWindow.webContents.executeJavaScript(`
+    window.__nearbyPosition={coords:{latitude:-14.1,longitude:-75.7286,accuracy:10},timestamp:Date.now()};
+    for(const watcher of window.__nearbyWatchers.values())watcher.ok(window.__nearbyPosition);
+  `);
+  await waitUntil(mobileWindow,`document.querySelectorAll('.incident-row').length === 0`);
+  await waitUntil(mobileWindow,`document.body.innerText.includes('No hay incidentes publicados para este filtro a menos de 1 km de tu ubicación.')`);
+  await mobileWindow.webContents.executeJavaScript(`for(const watcher of [...window.__nearbyWatchers.values()])watcher.fail({code:1});`);
+  await waitUntil(mobileWindow,`document.querySelector('.nearby-location-notice')?.innerText.includes('Permite el acceso')`);
+  assert.equal(await mobileWindow.webContents.executeJavaScript('window.__nearbyWatchers.size'),0);
+  await mobileWindow.webContents.executeJavaScript(`window.__nearbyPosition={coords:{latitude:-14.0678,longitude:-75.7286,accuracy:10},timestamp:Date.now()};document.querySelector('.nearby-location-notice button').click();`);
+  await waitUntil(mobileWindow,`document.querySelectorAll('.incident-row').length === 10`);
+  stages.push({test:'Moverse cambia el radio; denegar ubicación vacía la lista y libera GPS; una acción explícita permite reintentar',passed:true});
+  const mobileLayout = await mobileWindow.webContents.executeJavaScript(`(() => {const map=document.querySelector('.map-frame').getBoundingClientRect(), reports=document.querySelector('.map-reports-panel').getBoundingClientRect();return {mapBottom:map.bottom,reportsTop:reports.top,reportsWidth:reports.width,mapWidth:map.width};})()`);
+  assert.ok(mobileLayout.reportsTop >= mobileLayout.mapBottom+10,'Reportes recientes deben quedar debajo del mapa');
+  assert.ok(Math.abs(mobileLayout.reportsWidth-mobileLayout.mapWidth)<2,'Reportes recientes usan todo el ancho del mapa móvil');
+  await mobileWindow.webContents.executeJavaScript(`document.querySelector('button[aria-label="Cambiar a modo oscuro"]')?.click();for(const selector of ['.map-route-panel > .panel-toggle','.risk-legend > .panel-toggle']){const button=document.querySelector(selector);if(button.getAttribute('aria-expanded')!=='true')button.click();}const layers=document.querySelector('.map-controls > .panel-toggle');if(layers.getAttribute('aria-expanded')==='true')layers.click();window.scrollTo(0,0);`);
+  await capture(mobileWindow,'mapa-movil-diseno-oscuro.png');
+  await openMobileMenu(mobileWindow);
+  await capture(mobileWindow,'mapa-movil-menu-cuadricula.png');
+  await mobileWindow.webContents.executeJavaScript(`document.querySelector('.mobile-menu').click();document.querySelector('.map-reports-panel').scrollIntoView({block:'start'});`);
+  await capture(mobileWindow,'mapa-movil-reportes-cercanos.png');
+  await mobileWindow.webContents.executeJavaScript(`document.querySelector('button[aria-label="Cambiar a modo claro"]')?.click();window.scrollTo(0,0);`);
+  await capture(mobileWindow,'mapa-movil-diseno-claro.png');
+  stages.push({test:'Diseño móvil: reportes debajo del mapa, menú desplegable en cuadrícula y ambos temas',passed:true});
+  incidents = previousIncidents; revision++;
+  await both(`document.querySelectorAll('.incident-row').length === 4`);
 
 
   // Full browser navigation with synthetic GPS, keeping every request local.
@@ -645,7 +768,8 @@ async function run() {
 }
 run().then(() => app.exit(0)).catch(async error => {
   console.error(error.stack || String(error));
-  await fs.writeFile(path.join(local, 'fallo.json'), JSON.stringify({ error: String(error), stages, navigations: requests.filter(request => request.navigation) }, null, 2));
+  for (const [index,window] of windows.entries()) if (!window.isDestroyed()) await capture(window,`fallo-cliente-${index+1}.png`).catch(()=>{});
+  await fs.writeFile(path.join(local, 'fallo.json'), JSON.stringify({ error: String(error), stages, headerLayouts, navigations: requests.filter(request => request.navigation) }, null, 2));
   app.exit(1);
 }).finally(() => {
   for (const window of windows) if (!window.isDestroyed()) window.destroy();

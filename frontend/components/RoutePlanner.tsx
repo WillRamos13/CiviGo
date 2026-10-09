@@ -11,12 +11,12 @@ import PlaceInput from './PlaceInput';
 import NavigationGuidance, {type GuidanceProps} from './NavigationGuidance';
 type Punto = Posicion & { nombre: string };
 type Saved = { id: number; nombre: string; modo: string; origen: Posicion; destino: Posicion; datos: Ruta; creadoEn: string };
-type Props = { onRoute: (r: Ruta | null) => void; active: Ruta | null; following: boolean; onFollow: (v: boolean) => void; recalculate?: number; guidance?: GuidanceProps };
+type Props = { onRoute: (r: Ruta | null) => void; active: Ruta | null; following: boolean; onFollow: (v: boolean) => void; recalculate?: number; guidance?: GuidanceProps; onLocate?: (position: Posicion) => void };
 export default function RoutePlanner(props: Props) {
     const { usuario } = useAuth();
     return <AccountRoutePlanner key={usuario?.id ?? 'publico'} {...props} />;
 }
-function AccountRoutePlanner({ onRoute, active, following, onFollow, recalculate = 0, guidance }: Props) {
+function AccountRoutePlanner({ onRoute, active, following, onFollow, recalculate = 0, guidance, onLocate }: Props) {
     const { usuario, offline } = useAuth();
     const accountId = usuario?.id, premium = usuario?.premium === true;
     const [origin, setOrigin] = useState<Punto | null>(null), [destination, setDestination] = useState<Punto | null>(null), [mode, setMode] = useState('walking'), [routes, setRoutes] = useState<Ruta[]>([]), [error, setError] = useState(''), [message, setMessage] = useState(''), [busy, setBusy] = useState(false), [manual, setManual] = useState(false), [cached, setCached] = useState<CachedRoute[]>([]), [saved, setSaved] = useState<Saved[]>([]), [favoriteName, setFavoriteName] = useState(''), [favoriteTags, setFavoriteTags] = useState(''), [loadedCopy, setLoadedCopy] = useState(false);
@@ -109,7 +109,7 @@ function AccountRoutePlanner({ onRoute, active, following, onFollow, recalculate
         return <div className="card"><div className="card-header"><h2>Tu próximo recorrido</h2><Navigation size={18} color="var(--brand)"/></div><p className="muted" style={{ fontSize: 12 }}>Crea una cuenta para comparar recorridos a pie, en bicicleta o en automóvil.</p><Link href="/ingresar" className="btn btn-primary" style={{ width: '100%' }}>Ingresar para calcular rutas</Link></div>;
     return <div className="card"><div className="card-header"><h2>¿A dónde vamos?</h2><Navigation size={18} color="var(--brand)"/></div><p className="muted" style={{ fontSize: 11 }}>Más segura, más rápida o equilibrada. Elige entre los trazados disponibles.</p><div className="route-mode">{[{ id: 'walking', name: 'A pie', icon: Footprints }, { id: 'cycling', name: 'Bicicleta', icon: Bike }, { id: 'driving', name: 'Auto', icon: Car }].map(({ id, name, icon: Icon }) => <button type="button" aria-pressed={mode === id} className={mode === id ? 'selected' : ''} key={id} onClick={() => { invalidate(); setMode(id); }}><Icon size={16} style={{ margin: '0 auto 5px' }}/>{name}</button>)}</div><PlaceInput label="Origen" value={origin} onChange={changeOrigin}/><button className="btn btn-quiet btn-small" style={{ padding: '0 0 12px' }} onClick={async () => { try {
         const epoch = planEpoch.current; const point = await currentPosition(); if (!mounted.current || epoch !== planEpoch.current) return; changeOrigin({ ...point, nombre: 'Mi ubicación actual' });
-        setError('');
+        onLocate?.(point); setError('');
     }
     catch (e) {
         setError(errorMessage(e));

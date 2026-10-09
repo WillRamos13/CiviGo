@@ -53,11 +53,13 @@ test("online shell uses current CSS rather than an obsolete cached development b
   assert.equal(app.writes.length, 1);
 });
 
-test("official logo remains available from its public cache when the network fails", async () => {
+test("official logo and animation fallback remain available offline", async () => {
   const app = worker({ online: false });
-  const response = await app.dispatch("/civigo-logo.jpeg");
-  assert.equal(await response.text(), "Previously saved public asset");
-  assert.equal(app.requests.length, 1);
+  for (const asset of ["/civigo-logo.jpeg", "/civigo-logo-animado-poster.png"]) {
+    const response = await app.dispatch(asset);
+    assert.equal(await response.text(), "Previously saved public asset");
+  }
+  assert.equal(app.requests.length, 2);
   assert.equal(app.writes.length, 0);
 });
 
