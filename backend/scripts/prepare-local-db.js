@@ -26,7 +26,8 @@ function runPrisma(args, connection, { quiet = false } = {}) {
     [path.join(backend, "node_modules/prisma/build/index.js"), ...args],
     {
       cwd: backend,
-      env: { ...process.env, DATABASE_URL: connection },
+      // Never let a remote DIRECT_URL inherited from .env redirect local setup.
+      env: { ...process.env, DATABASE_URL: connection, DIRECT_URL: connection },
       stdio: quiet ? "pipe" : "inherit",
       windowsHide: true,
     },

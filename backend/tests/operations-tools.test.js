@@ -129,6 +129,10 @@ test(
   { timeout: 90000 },
   async () => {
     const fixture = await startFixture();
+    const previousDirect = process.env.DIRECT_URL;
+    // An inherited production migration setting must never redirect this
+    // localhost-only preparer. If inherited, even parsing it would fail.
+    process.env.DIRECT_URL = "https://remote.invalid/never-use-for-local-setup";
     const database = new PrismaClient({
       datasources: { db: { url: fixture.url } },
     });
@@ -195,6 +199,8 @@ test(
         false,
       );
     } finally {
+      if (previousDirect === undefined) delete process.env.DIRECT_URL;
+      else process.env.DIRECT_URL = previousDirect;
       await database.$disconnect();
       await fixture.close();
     }
