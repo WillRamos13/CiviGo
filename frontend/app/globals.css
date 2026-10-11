@@ -665,13 +665,11 @@ textarea::placeholder {
   max-width: calc(100% - 85px);
   font-size: 11px;
 }
-.map-controls .panel-toggle,
-.risk-legend .panel-toggle {
+.map-controls .panel-toggle {
   padding: 10px 12px;
   font-size: 11px;
 }
-.map-controls .collapsible-panel-body,
-.risk-legend .collapsible-panel-body {
+.map-controls .collapsible-panel-body {
   padding: 0 12px 12px;
   max-height: 300px;
   overflow-y: auto;
@@ -735,6 +733,7 @@ textarea::placeholder {
   font-size: 10px;
   width: 245px;
   max-width: calc(100% - 85px);
+  padding: 11px 13px;
 }
 .risk-legend strong {
   font-size: 11px;
@@ -749,47 +748,11 @@ textarea::placeholder {
   flex: 1;
   border-radius: 3px;
 }
-.legend-endpoints {
-  display: flex;
-  justify-content: space-between;
-  color: var(--muted);
-  font-size: 9px;
-}
-.legend-details {
-  margin-top: 10px;
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 7px;
-}
-.legend-details div {
-  display: flex;
-  gap: 6px;
-  align-items: center;
-}
 .legend-dot {
   width: 8px;
   height: 8px;
   border-radius: 50%;
   flex-shrink: 0;
-}
-.incident-area-legend {
-  margin-top: 10px;
-  padding-top: 10px;
-  border-top: 1px solid var(--line);
-  color: var(--muted);
-  line-height: 1.5;
-}
-.incident-area-legend strong {
-  color: var(--ink);
-}
-.incident-area-legend p {
-  margin: 6px 0 0;
-}
-.incident-area-scale {
-  height: 6px;
-  margin-top: 7px;
-  border-radius: 3px;
-  background: linear-gradient(90deg, #dc2626, #f97316, #eab308);
 }
 
 /* Shared header/sidebar; map-specific controls remain scoped to /mapa. */
@@ -817,9 +780,9 @@ html[data-theme="dark"] .site-experience {
   --brand: #53a5ff;
 }
 .site-experience .app-header { height: var(--shell-header-height); padding: 0 28px; gap: 24px; background: var(--surface); border-bottom: 1px solid var(--map-panel-border); }
-.site-experience .app-header .brand { min-width: 195px; font-size: 30px; }
+.site-experience .app-header .brand { min-width: 135px; font-size: 30px; }
 .site-experience .app-header .brand-logo { width: 48px; height: auto; }
-.brand-animation { position: relative; display: block; width: 180px; aspect-ratio: 620 / 268; overflow: hidden; flex-shrink: 0; border-radius: 10px; background: #141414; }
+.brand-animation { position: relative; display: block; width: 130px; aspect-ratio: 620 / 268; overflow: hidden; flex-shrink: 0; border-radius: 10px; background: #141414; }
 /* Frame the approved video around its logo, without the preview's padding. */
 .brand-animation-media { position: absolute; width: 206.451613%; height: 268.656716%; max-width: none; left: -53.225806%; top: -80.597015%; pointer-events: none; }
 .brand-animation-video { visibility: hidden; }
@@ -836,6 +799,9 @@ html[data-theme="dark"] .site-experience {
 .sidebar-account .profile-link { flex: 1; min-width: 0; gap: 9px; }
 .sidebar-account .profile-link > span:last-child { display: block; white-space: nowrap; text-overflow: ellipsis; overflow: hidden; max-width: 122px; font-size: 11px; }
 .site-experience .nav-profile-mobile, .site-experience .mobile-session-action { display: none; }
+.profile-premium-card { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 14px; }
+.profile-premium-card h2 { display: flex; align-items: center; gap: 8px; }
+.profile-premium-card p { margin: 0; font-size: 12px; }
 .map-announcements { border: 1px solid var(--map-panel-border); border-radius: 16px; background: linear-gradient(120deg, var(--map-panel), var(--map-panel-glow)); min-height: 54px; flex: 1; max-width: 660px; margin: 0 auto; display: flex; align-items: center; justify-content: center; padding: 5px 10px; min-width: 0; }
 .announcement-content { border: 0; background: transparent; color: var(--ink); display: flex; align-items: center; justify-content: center; gap: 18px; font-size: 12px; text-align: center; flex: 1; min-width: 0; padding: 5px; text-decoration: none; }
 button.announcement-content { cursor: pointer; }
@@ -846,31 +812,36 @@ button.announcement-content { cursor: pointer; }
 .map-experience .map-workspace { display: block; }
 .map-experience .map-column { position: relative; }
 .map-experience .map-frame { height: calc(100dvh - 116px); min-height: 560px; border: 1px solid var(--map-panel-border); border-radius: 19px; box-shadow: 0 0 0 1px rgb(48 149 212 / 15%); }
-.map-floating-panels { position: absolute; top: 22px; right: 22px; z-index: 3; width: 294px; max-height: calc(100% - 108px); display: flex; flex-direction: column; gap: 15px; pointer-events: none; }
+.map-floating-panels { position: absolute; top: 18px; right: 18px; z-index: 3; width: 230px; max-height: calc(100% - 90px); display: flex; flex-direction: column; gap: 10px; pointer-events: none; }
 .map-floating-panels > * { pointer-events: auto; }
 .map-experience .map-side-panel { margin: 0; flex-shrink: 0; }
-.map-experience .map-route-panel { flex-shrink: 1; min-height: 0; overflow: hidden; display: flex; flex-direction: column; }
+.map-experience .map-route-panel { flex-shrink: 1; min-height: 0; max-height: 320px; overflow: hidden; display: flex; flex-direction: column; }
 .map-experience .map-route-panel .panel-toggle { flex-shrink: 0; }
 .map-experience .collapsible-panel { border-color: var(--map-panel-border); background: linear-gradient(130deg, var(--map-panel-glow), var(--map-panel) 70%); box-shadow: 0 3px 15px rgb(0 30 55 / 35%); border-radius: 17px; }
-.map-experience .panel-toggle { padding: 14px 16px 10px; color: var(--ink); font-size: 14px; }
+.map-experience .panel-toggle { padding: 10px 12px 8px; color: var(--ink); font-size: 13px; }
 .map-experience .map-controls { width: 218px; left: 22px; top: 20px; }
 .map-experience .map-controls .panel-toggle { padding: 13px 15px; font-size: 12px; }
 .map-experience .map-controls .collapsible-panel-body { max-height: min(390px, 65vh); }
-.map-experience .risk-legend { left: 20px; bottom: 31px; width: 252px; border-radius: 17px; }
-.map-experience .risk-legend .panel-toggle { font-size: 11px; padding: 10px 13px; }
-.map-experience .risk-legend .collapsible-panel-body { padding: 0 13px 10px; }
-.map-experience .risk-legend .incident-area-legend { display: none; }
+.map-experience .risk-legend { left: 20px; bottom: 31px; width: 210px; padding: 11px 12px; border-radius: 13px; border-color: var(--map-panel-border); background: linear-gradient(130deg, var(--map-panel-glow), var(--map-panel) 70%); }
 .map-experience .risk-legend strong { font-size: 11px; }
-.map-experience .map-route-panel .collapsible-panel-body { flex: 1 1 auto; max-height: calc(100dvh - 350px); min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 0 15px 14px; scrollbar-width: thin; }
+.map-experience .map-route-panel .collapsible-panel-body { flex: 1 1 auto; max-height: 276px; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 0 11px 10px; scrollbar-width: thin; scroll-padding-block: 8px 60px; }
+.map-experience .map-route-panel .card > p:first-of-type { line-height: 1.35; margin: 3px 0 6px; }
+.map-experience .map-route-panel .card > .btn-quiet { min-height: 30px; padding: 0 0 5px !important; text-align: left; }
+.map-experience .map-route-panel .route-planner-search { position: sticky; bottom: 0; z-index: 2; margin-top: 6px; padding: 5px 0; background: var(--map-panel); box-shadow: 0 -6px 12px var(--map-panel); }
+.map-experience .map-route-panel .route-planner-search .btn { min-height: 40px; }
+.map-experience .map-route-panel .route-planner-search .btn:disabled { opacity: 1; background: var(--map-panel-glow); color: var(--muted); border-color: var(--map-panel-border); }
+.map-experience .map-route-panel .autocomplete { scroll-margin-block: 8px 60px; }
+.map-experience .map-route-panel .search-results { position: static; max-height: 160px; }
+.map-experience .map-route-panel .search-results button { scroll-margin-block: 8px 60px; }
 .map-floating-panels .card { background: transparent; border: 0; padding: 0; margin: 0; }
-.map-experience .field { margin-bottom: 9px; }
-.map-experience .field label { font-size: 11px; margin-bottom: 5px; }
+.map-experience .field { margin-bottom: 6px; gap: 4px; }
+.map-experience .field label { font-size: 11px; margin-bottom: 0; }
 .map-experience .field input, .map-experience .field select { font-size: 11px; padding: 8px 10px; min-height: 33px; border-color: var(--map-panel-border); }
-.map-experience .route-mode { gap: 5px; margin: 10px 0; }
-.map-experience .route-mode button { min-height: 48px; border-radius: 10px; padding: 7px 3px; }
+.map-experience .route-mode { gap: 4px; margin: 7px 0; }
+.map-experience .route-mode button { min-height: 40px; border-radius: 8px; padding: 5px 3px; }
 .map-experience .route-mode button.selected { color: white; background: linear-gradient(130deg, #0b88ef, #0751a4); border-color: #31a7ff; }
 .map-experience .btn-primary { background: #087bff; color: white; border-color: #087bff; }
-.map-experience .map-reports-panel .collapsible-panel-body { max-height: 178px; padding: 0 14px 8px; scrollbar-width: thin; }
+.map-experience .map-reports-panel .collapsible-panel-body { max-height: 128px; padding: 0 11px 8px; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; }
 .map-experience .map-reports-panel .card-header { margin: 0; font-size: 11px; }
 .map-experience .incident-row { gap: 9px; padding: 9px 0; background: transparent; align-items: center; flex-wrap: wrap; }
 .recent-incident-copy { flex: 1; }
@@ -884,16 +855,11 @@ button.announcement-content { cursor: pointer; }
 .map-experience .map-footer { position: absolute; bottom: 0; left: 0; right: 0; padding: 6px 12px; z-index: 2; background: var(--map-panel); color: var(--muted); font-size: 9px; }
 .map-footer > svg { color: var(--brand-cyan); }
 .map-experience .mapboxgl-ctrl-bottom-right { bottom: 30px; right: 18px; display: flex; }
-.map-experience .mapboxgl-ctrl-group { background: var(--map-panel); box-shadow: 0 2px 9px rgb(0 30 55 / 40%); border: 1px solid var(--map-panel-border); display: flex; border-radius: 12px; overflow: hidden; }
-.map-experience .mapboxgl-ctrl-group button { width: 37px; height: 39px; border: 0; border-left: 1px solid var(--map-panel-border); }
-html[data-theme="dark"] .map-experience .mapboxgl-ctrl-icon { filter: invert(1); }
-.map-recenter { position: absolute; right: 24px; bottom: 87px; z-index: 3; background: var(--map-panel); border: 1px solid var(--map-panel-border); border-radius: 12px; padding: 10px; }
 .external-traffic-marker { background: #0e7490 !important; color: white !important; border-color: #cffafe; }
-.traffic-scale { display: flex; gap: 5px; margin-bottom: 10px; font-size: 9px; }
-.traffic-scale span { border-top: 5px solid #22c55e; flex: 1; padding-top: 4px; }
-.traffic-scale span:nth-child(2) { border-color: #f59e0b; }
-.traffic-scale span:nth-child(3) { border-color: #ef4444; }
-.traffic-legend p { font-size: 9px; margin: 6px 0 0; }
+.traffic-scale { display: flex; gap: 4px; margin: 9px 0 6px; }
+.traffic-scale span { background: #22c55e; height: 7px; flex: 1; border-radius: 3px; }
+.traffic-scale span:nth-child(2) { background: #f59e0b; }
+.traffic-scale span:nth-child(3) { background: #ef4444; }
 .external-traffic-detail { position: absolute; left: 20px; top: 90px; z-index: 4; background: var(--map-panel); border: 1px solid var(--map-panel-border); border-radius: 12px; padding: 14px; max-width: 260px; font-size: 12px; box-shadow: 0 3px 15px #1235; }
 .external-traffic-detail > button { float: right; }
 .external-traffic-detail p { margin: 7px 0; }
@@ -911,12 +877,12 @@ html[data-theme="dark"] .map-experience .mapboxgl-ctrl-icon { filter: invert(1);
 @keyframes navigation-spin { to { transform: rotate(360deg); } }
 @media (max-width: 1150px) {
   .site-experience .app-body { grid-template-columns: 200px minmax(0, 1fr); }
-  .site-experience .app-header .brand { min-width: 152px; font-size: 25px; }
-  .brand-animation { width: 150px; }
+  .site-experience .app-header .brand { min-width: 115px; font-size: 25px; }
+  .brand-animation { width: 112px; }
   .site-experience .sidebar { padding-inline: 10px; }
   .site-experience .nav-item { font-size: 12px; padding-inline: 10px; }
   .map-experience .map-page { padding: 12px; }
-  .map-floating-panels { width: 252px; top: 15px; right: 15px; }
+  .map-floating-panels { width: 210px; top: 15px; right: 15px; }
   .map-experience .map-controls { width: 180px; left: 15px; top: 15px; }
   .map-experience .map-message { right: 280px; }
 }
@@ -941,17 +907,17 @@ html[data-theme="dark"] .map-experience .mapboxgl-ctrl-icon { filter: invert(1);
   .brand-animation { width: 115px; }
   .map-experience .map-frame { height: clamp(560px, calc(100dvh - 110px), 800px); }
   .map-experience .map-floating-panels { display: contents; }
-  .map-experience .map-route-panel { position: absolute; top: 15px; right: 15px; width: 252px; z-index: 3; max-height: 480px; }
+  .map-experience .map-route-panel { position: absolute; top: 15px; right: 15px; width: 210px; z-index: 3; max-height: 320px; }
   .map-experience .map-reports-panel { position: relative; margin-top: 14px; border-radius: 20px; scroll-margin-top: calc(var(--shell-header-height) + 12px); }
-  .map-experience .map-reports-panel .panel-toggle { font-size: 21px; padding: 17px 17px 5px; }
-  .map-experience .map-reports-panel .collapsible-panel-body { max-height: none; padding: 0 17px 15px; }
-  .map-experience .map-reports-panel .card-header { font-size: 12px; margin-bottom: 10px; }
+  .map-experience .map-reports-panel .panel-toggle { font-size: 16px; padding: 10px 12px 5px; }
+  .map-experience .map-reports-panel .collapsible-panel-body { max-height: 160px; padding: 0 12px 10px; }
+  .map-experience .map-reports-panel .card-header { font-size: 11px; margin-bottom: 6px; }
   .map-experience .incident-list { gap: 7px; }
-  .map-experience .incident-row { border: 1px solid var(--map-panel-border); border-radius: 12px; padding: 10px; flex-wrap: nowrap; gap: 10px; min-height: 76px; }
-  .map-experience .incident-row strong { font-size: 15px; }
+  .map-experience .incident-row { border: 1px solid var(--map-panel-border); border-radius: 10px; padding: 7px; flex-wrap: nowrap; gap: 7px; min-height: 60px; }
+  .map-experience .incident-row strong { font-size: 14px; }
   .map-experience .incident-row p { font-size: 11px; margin: 4px 0 0; }
   .map-experience .recent-incident-badges { flex-basis: auto; margin: 0; flex-direction: column; align-items: flex-end; flex-shrink: 0; }
-  .map-experience .incident-row .badge { font-size: 10px; border-radius: 20px; padding: 5px 8px; margin: 0; text-align: center; }
+  .map-experience .incident-row .badge { font-size: 9px; border-radius: 20px; padding: 4px 6px; margin: 0; text-align: center; }
   .map-experience .recent-incident-state { background: #087bff; color: #fff; border-color: #087bff; }
   .map-experience .recent-incident-arrow { display: block; flex-shrink: 0; }
   .map-experience .map-footer { position: static; margin-top: 12px; border: 1px solid var(--map-panel-border); border-radius: 22px; padding: 11px 14px; font-size: 11px; gap: 8px; background: linear-gradient(130deg, var(--map-panel-glow), var(--map-panel)); }
@@ -962,9 +928,9 @@ html[data-theme="dark"] .map-experience .mapboxgl-ctrl-icon { filter: invert(1);
 @media (max-width: 600px) {
   .site-experience { --shell-header-height: 64px; }
   .site-experience .app-header { gap: 9px; padding-inline: 10px; border-radius: 0 0 17px 17px; }
-  .site-experience .app-header .brand { font-size: 18px; min-width: 94px; gap: 5px; }
+  .site-experience .app-header .brand { font-size: 18px; min-width: 88px; gap: 5px; }
   .site-experience .app-header .brand-logo { width: 27px; height: auto; }
-  .brand-animation { width: 94px; border-radius: 8px; }
+  .brand-animation { width: 88px; border-radius: 8px; }
   .map-announcements { min-height: 42px; border-radius: 23px; padding: 2px 5px; }
   .announcement-content { font-size: 10px; gap: 6px; padding: 2px; }
   .announcement-content svg { width: 14px; flex-shrink: 0; }
@@ -976,24 +942,21 @@ html[data-theme="dark"] .map-experience .mapboxgl-ctrl-icon { filter: invert(1);
   .site-experience .sidebar-navigation .nav-item { flex-direction: column; align-items: center; justify-content: center; text-align: center; min-height: 72px; font-size: 10px; padding: 8px 4px; gap: 6px; }
   .map-experience .map-page { padding: 10px; }
   .map-experience .map-frame { height: clamp(560px, 72dvh, 720px); min-height: 560px; border-radius: 20px; }
-  .map-experience .map-route-panel { width: 49%; max-width: 218px; top: 12px; right: 9px; max-height: 440px; }
-  .map-experience .map-route-panel .panel-toggle { font-size: 12px; padding: 12px 10px 8px; }
-  .map-experience .map-route-panel .collapsible-panel-body { max-height: 375px; padding: 0 10px 11px; }
-  .map-experience .map-controls { width: 42%; max-width: 166px; left: 9px; top: 12px; }
+  .map-experience .map-route-panel { width: clamp(180px, 52%, 210px); top: 12px; right: 9px; max-height: 285px; }
+  .map-experience .map-route-panel .panel-toggle { font-size: 12px; padding: 9px 10px 6px; }
+  .map-experience .map-route-panel .collapsible-panel-body { max-height: 241px; padding: 0 9px 9px; }
+  .map-experience .map-controls { width: calc(100% - 208px); min-width: 82px; max-width: 150px; left: 9px; top: 12px; }
   .map-experience .map-controls .panel-toggle { font-size: 11px; padding: 12px 9px; }
   .map-experience .map-controls .collapsible-panel-body { padding: 0 8px 8px; max-height: 380px; }
   .map-experience .map-layer-options label { white-space: normal; font-size: 9px; }
   .map-experience .map-type-filter small { font-size: 8px; }
-  .map-experience .risk-legend { left: 9px; bottom: 24px; width: 46%; max-width: 190px; }
-  .map-experience .risk-legend .panel-toggle { font-size: 11px; padding: 10px; }
-  .map-experience .risk-legend .collapsible-panel-body { padding: 0 10px 10px; }
+  .map-experience .risk-legend { left: 9px; bottom: 24px; width: 175px; padding: 9px 10px; }
   .map-experience .risk-legend strong { font-size: 10px; }
   .map-experience .field input { padding: 8px; font-size: 16px; min-height: 40px; }
-  .map-experience .route-mode button { font-size: 10px; min-height: 49px; }
+  .map-experience .route-mode button { font-size: 10px; min-height: 44px; }
   .map-experience .map-footer { font-size: 9px; gap: 6px; padding-inline: 11px; }
   .map-experience .map-message { left: 9px; right: 52%; bottom: 215px; font-size: 9px; padding: 6px; overflow-wrap: anywhere; }
   .map-experience .mapboxgl-ctrl-bottom-right { bottom: 25px; right: 9px; }
-  .map-recenter { right: 17px; bottom: 79px; }
   .navigation-guidance { font-size: 10px; }
   .next-maneuver { gap: 7px; }
   .next-maneuver strong { font-size: 19px; }
@@ -1004,10 +967,10 @@ html[data-theme="dark"] .map-experience .mapboxgl-ctrl-icon { filter: invert(1);
   .site-experience .app-header { gap: 6px; padding-inline: 8px; }
   .site-experience .app-header .brand { min-width: 83px; font-size: 16px; }
   .site-experience .app-header .brand-logo { width: 24px; }
-  .brand-animation { width: 83px; }
+  .brand-animation { width: 76px; }
   .announcement-content { font-size: 9px; gap: 4px; }
   .map-announcements .icon-btn:first-child { display: none; }
-  .map-experience .map-reports-panel .panel-toggle { font-size: 19px; }
+  .map-experience .map-reports-panel .panel-toggle { font-size: 15px; }
   .map-experience .map-reports-panel .collapsible-panel-body { padding-inline: 12px; }
   .map-experience .incident-row { gap: 7px; padding: 8px; }
   .map-experience .incident-row strong { font-size: 13px; }

@@ -915,6 +915,7 @@ function imageResponse(evidencias, extra = {}) {
   return {
     ...evaluation,
     requiereRevision: false,
+    motivoRevision: null,
     evidencias,
     ...extra,
   };
@@ -1047,6 +1048,48 @@ test("Una imagen irrelevante o dudosa obliga a revisión aunque la respuesta dec
         )
       ).requiereRevision,
       true,
+    );
+  }));
+
+test("Una foto compatible conserva su resultado visual cuando la revisión pide aclarar la descripción", (t) =>
+  isolated(async () => {
+    process.env.AI_API_KEY = "fixture-openai-private";
+    t.mock.method(storage, "createStorage", () => ({
+      read: async () => image,
+    }));
+    let payload;
+    global.fetch = async (_url, options) => {
+      payload = JSON.parse(options.body);
+      return {
+        ok: true,
+        json: async () =>
+          completed(
+            JSON.stringify(
+              imageResponse([compatible(imageIds[0])], {
+                requiereRevision: true,
+                motivoRevision: "DESCRIPCION_INSUFICIENTE",
+              }),
+            ),
+          ),
+      };
+    };
+    const result = await ai.evaluateReport(
+      { ...input, descripcion: "we", adjuntos: [file(imageIds[0])] },
+      { nombre: "Bache", slug: "bache" },
+    );
+    assert.equal(result.requiereRevision, true);
+    assert.equal(result.motivoRevision, "DESCRIPCION_INSUFICIENTE");
+    assert.equal(result.evidencias[0].resultado, "COMPATIBLE");
+    assert.equal(result.posibleFalso, false);
+    assert.ok(payload.text.format.schema.required.includes("motivoRevision"));
+    assert.ok(payload.instructions.includes("La descripción es opcional"));
+    assert.ok(
+      payload.instructions.includes("explica concretamente qué debe aclarar"),
+    );
+    assert.ok(
+      payload.instructions.includes(
+        "No clasifiques una foto como NO_RELACIONADA solo por un problema del texto",
+      ),
     );
   }));
 
@@ -1195,6 +1238,9 @@ test("El contrato de evidencias rechaza ids ajenos, omitidos, duplicados y resul
       imageResponse([good[0], good[0]]),
       imageResponse([good[0], compatible(imageIds[2])]),
       imageResponse(good, { requiereRevision: "false" }),
+      imageResponse(good, { motivoRevision: "IMAGEN_DE_GOOGLE" }),
+      imageResponse(good, { motivoRevision: false }),
+      imageResponse(good, { motivoRevision: undefined }),
       imageResponse([good[0], { ...good[1], resultado: "REAL" }]),
       imageResponse([good[0], { ...good[1], motivo: " " }]),
       imageResponse([good[0], { ...good[1], motivo: "x".repeat(501) }]),

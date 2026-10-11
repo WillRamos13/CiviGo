@@ -33,6 +33,9 @@ const server = http.createServer((request, response) => {
   if (url.pathname === '/api/users/me') return response.end(JSON.stringify({usuario:{id:901,nickname:'Usuario prueba',correo:'fixture@example.invalid',correoVerificado:true,rol:'USUARIO',premium:false,credibilidad:100}}));
   if (url.pathname === '/api/catalog') return response.end('{"categorias":[],"config":{},"distritos":["Ica"]}');
   if (url.pathname === '/api/navigation/roads') return response.end('{"type":"FeatureCollection","features":[]}');
+  if (url.pathname === '/api/navigation/roads/geometry') return response.end('{"type":"FeatureCollection","version":"logo-fixture-v1","features":[]}');
+  if (url.pathname === '/api/navigation/roads/risk') return response.end('{"version":"logo-fixture-v1","revision":"0","values":[]}');
+  if (url.pathname === '/api/incidents' && url.searchParams.has('bbox')) return response.end('{"items":[],"nextCursor":null}');
   if (url.pathname === '/api/navigation/traffic/status') return response.end('{"configurado":false,"habilitado":false}');
   if (url.pathname === '/api/navigation/traffic/incidents') return response.end('{"incidentes":[],"trafico":{"disponible":false}}');
   if (['/api/incidents','/api/announcements','/api/navigation/favorites','/api/navigation/history','/api/businesses'].includes(url.pathname)) return response.end('[]');
@@ -67,7 +70,8 @@ async function createWindow(width, height, name, options = {}) {
   await window.webContents.debugger.sendCommand('Page.enable');
   await window.webContents.debugger.sendCommand('Emulation.setEmulatedMedia', {features:[{name:'prefers-reduced-motion',value:options.reducedMotion?'reduce':'no-preference'}]});
   const setup = `window.__brandFixtureApplied=true;
-    ${options.rejectAutoplay ? `HTMLMediaElement.prototype.play = function(){window.__rejectedBrandPlays = (window.__rejectedBrandPlays || 0) + 1;return Promise.reject(new DOMException('Autoplay rejected by local fixture','NotAllowedError'));};` : ''}`;
+    ${options.rejectAutoplay ? `HTMLMediaElement.prototype.play = function(){window.__rejectedBrandPlays = (window.__rejectedBrandPlays || 0) + 1;return Promise.reject(new DOMException('Autoplay rejected by local fixture','NotAllowedError'));};` : ''}
+    ${options.blackFrames ? `CanvasRenderingContext2D.prototype.getImageData=function(_x,_y,width,height){return new ImageData(width,height);};` : ''}`;
   await window.webContents.debugger.sendCommand('Page.addScriptToEvaluateOnNewDocument',{source:setup});
   window.webContents.enableDeviceEmulation({screenPosition:width<=900?'mobile':'desktop',screenSize:{width,height},viewPosition:{x:0,y:0},viewSize:{width,height},deviceScaleFactor:1,scale:1});
   await window.loadURL(`${origin}/mapa`);
@@ -134,7 +138,8 @@ async function run() {
       const endedTime = await window.webContents.executeJavaScript(`document.querySelector('.brand-animation video').currentTime`);
       await delay(400);
       assert.equal(await window.webContents.executeJavaScript(`document.querySelector('.brand-animation video').currentTime`),endedTime,'The logo holds its final frame instead of looping');
-      scenarios.push('MP4 real decodificado, reproducción avanza y conserva el cuadro final');
+      await fallbackVisible(window);
+      scenarios.push('MP4 real decodificado, reproducción avanza y al terminar mantiene el poster con identidad');
     }
     if (name==='desktop' || name==='mobile' || name==='mobile-small') {
       await window.webContents.executeJavaScript(`(() => {const video=document.querySelector('.brand-animation video');if(!video.ended)video.currentTime=video.duration-0.05;})()`);
@@ -154,6 +159,8 @@ async function run() {
   const motionChange = await createWindow(390,844,'motion-change');
   await waitUntil(motionChange.window,`document.querySelector('.brand-animation video')?.currentTime>0.15`);
   await motionChange.window.webContents.debugger.sendCommand('Emulation.setEmulatedMedia',{features:[{name:'prefers-reduced-motion',value:'reduce'}]});
+  await waitUntil(motionChange.window,`matchMedia('(prefers-reduced-motion: reduce)').matches`);
+  await waitUntil(motionChange.window,`(() => {const video=document.querySelector('.brand-animation video');return video.paused && !video.getAttribute('src');})()`);
   await fallbackVisible(motionChange.window);
   assert.equal(await motionChange.window.webContents.executeJavaScript(`(() => {const video=document.querySelector('.brand-animation video');return video.paused && !video.getAttribute('src');})()`),true);
   scenarios.push('Cambio de preferencia en vivo: detiene el video y restaura identidad estática');
@@ -169,6 +176,12 @@ async function run() {
   await fallbackVisible(failed.window);
   scenarios.push('Error de video: mantiene identidad estática');
   failed.window.destroy();
+  const black = await createWindow(390,844,'black-frames',{blackFrames:true});
+  await waitUntil(black.window,`document.querySelector('.brand-animation video')?.currentTime>0.3`);
+  await fallbackVisible(black.window);
+  assert.equal(await black.window.webContents.executeJavaScript(`document.querySelector('.brand-animation video').classList.contains('is-visible')`),false,'Una reproducción de cuadros negros no puede tapar el logo');
+  scenarios.push('Cuadros decodificados negros: mantiene identidad estática aunque se dispare playing');
+  black.window.destroy();
   const result = {passed:true,scenarios,layouts,blockedHosts:[...blockedHosts],apiRequests:apiRequests.length};
   await fs.writeFile(path.join(local,'resultado.json'),JSON.stringify(result,null,2));
   console.log(JSON.stringify({passed:true,scenarios,layouts:layouts.length,blockedHosts:[...blockedHosts]}));

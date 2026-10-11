@@ -105,3 +105,50 @@ test("un modelo inválido no presenta ambas funciones de OpenAI como configurada
   assert.match(provider.indicacion, /AI_CHAT_MODEL/);
   assert.equal(JSON.stringify(report).includes("private-fixture"), false);
 });
+
+test("búsqueda de imágenes requiere activación explícita y clave privada independiente de Firebase", () => {
+  const missing = integrationChecklist({}, {});
+  const pending = missing.proveedores.find(
+    (provider) => provider.id === "imagenWeb",
+  );
+  assert.equal(pending.configurado, false);
+  assert.deepEqual(pending.variablesPendientes, [
+    "GOOGLE_VISION_API_KEY",
+    "IMAGE_WEB_CHECK_ENABLED",
+  ]);
+  assert.match(pending.indicacion, /Cloud Vision API y la facturación/);
+  assert.match(pending.indicacion, /solo en Railway/);
+  assert.match(pending.aviso, /no acredita autoría ni autenticidad/);
+  assert.match(pending.aviso, /otras aplicaciones/);
+  const key = "private-vision-fixture";
+  const configured = integrationChecklist(
+    { GOOGLE_VISION_API_KEY: key, IMAGE_WEB_CHECK_ENABLED: "true" },
+    {},
+  );
+  const provider = configured.proveedores.find(
+    (entry) => entry.id === "imagenWeb",
+  );
+  assert.equal(provider.configurado, true);
+  assert.deepEqual(provider.variablesPendientes, []);
+  assert.equal(JSON.stringify(configured).includes(key), false);
+  assert.equal(
+    configured.frontend.variables.includes("GOOGLE_VISION_API_KEY"),
+    false,
+  );
+  const disabled = integrationChecklist({ GOOGLE_VISION_API_KEY: key }, {});
+  const paused = disabled.proveedores.find((entry) => entry.id === "imagenWeb");
+  assert.equal(paused.configurado, false);
+  assert.deepEqual(paused.variablesPendientes, ["IMAGE_WEB_CHECK_ENABLED"]);
+  const noQuota = integrationChecklist(
+    {
+      GOOGLE_VISION_API_KEY: key,
+      IMAGE_WEB_CHECK_ENABLED: "true",
+      IMAGE_WEB_DAILY_LIMIT: "0",
+    },
+    {},
+  );
+  assert.match(
+    noQuota.proveedores.find((entry) => entry.id === "imagenWeb").aviso,
+    /pausadas por una cuota/,
+  );
+});

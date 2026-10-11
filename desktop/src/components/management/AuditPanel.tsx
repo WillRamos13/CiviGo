@@ -1,7 +1,17 @@
-
 import { useState } from "react";
-import { api } from "@/lib/api";
-import { dateTime, Feedback, message, RemoteStatus, usePagedRemote, Pagination } from "./common";
+import { api, unwrap } from "@/lib/api";
+import {
+  readImageOriginAudit,
+  type ImageReference,
+} from "@/lib/image-origin-audit";
+import {
+  dateTime,
+  Feedback,
+  message,
+  RemoteStatus,
+  usePagedRemote,
+  Pagination,
+} from "./common";
 
 interface AuditEntry {
   id: number;
@@ -51,11 +61,112 @@ const actions: Record<string, string> = {
   CANCELADO: "Canje cancelado",
   CERRAR: "Cierre del mes",
   IMPORTAR: "Importación",
+  EVALUACION_IA_REPORTE: "Evaluación preliminar del reporte",
 };
 
+function ImageReferenceLink({ reference }: { reference: ImageReference }) {
+  const [error, setError] = useState("");
+  const labels = {
+    COMPLETA: "Coincidencia completa",
+    PARCIAL: "Coincidencia parcial",
+    PAGINA: "Página con coincidencia",
+  };
+  return (
+    <li>
+      <a
+        href={reference.url}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="underline"
+        onClick={(event) => {
+          event.preventDefault();
+          setError("");
+          void window.civigoDesktop
+            .openImageReference(reference.url)
+            .then(unwrap)
+            .catch((reason) => setError(message(reason)));
+        }}
+      >
+        {labels[reference.tipo]} · {reference.host}
+      </a>
+      {error && (
+        <p className="notice notice-error mt-1" role="alert">
+          {error}
+        </p>
+      )}
+    </li>
+  );
+}
+
+function ImageOriginDetails({ value }: { value: unknown }) {
+  const audit = readImageOriginAudit(value);
+  if (!audit) return null;
+  const labels = {
+    COINCIDENCIA_WEB: "Coincidencia encontrada en Internet",
+    SIN_COINCIDENCIAS: "Sin coincidencias encontradas",
+    NO_COMPROBADA: "Búsqueda no comprobada",
+  };
+  return (
+    <section
+      className="mt-3 border rounded-lg p-3"
+      aria-label="Búsqueda de imágenes en Internet"
+    >
+      <h4 className="font-semibold">Búsqueda de imágenes en Internet</h4>
+      {!audit.habilitado ? (
+        <p className="muted mt-1">
+          La búsqueda en Internet estaba deshabilitada. No se comprobó el origen
+          de las imágenes.
+        </p>
+      ) : (
+        <>
+          <p className="muted text-sm mt-1">
+            Una coincidencia requiere revisión humana y no demuestra que el
+            reporte sea falso. No encontrar coincidencias tampoco acredita que
+            la imagen sea propia.
+          </p>
+          {audit.requiereRevision && (
+            <p className="mt-2 font-semibold">
+              Origen de las imágenes pendiente de revisión humana.
+            </p>
+          )}
+          {audit.evidencias.map((evidence, index) => (
+            <div key={`${evidence.adjuntoId}:${index}`} className="mt-3">
+              <p className="font-semibold">
+                Adjunto {index + 1} · {labels[evidence.resultado]}
+              </p>
+              <p className="muted whitespace-pre-wrap mt-1">
+                {evidence.motivo}
+              </p>
+              {evidence.referencias.length > 0 && (
+                <ul className="mt-2 space-y-1 text-sm">
+                  {evidence.referencias.map((reference, index) => (
+                    <ImageReferenceLink
+                      key={`${reference.tipo}:${reference.url}:${index}`}
+                      reference={reference}
+                    />
+                  ))}
+                </ul>
+              )}
+            </div>
+          ))}
+        </>
+      )}
+    </section>
+  );
+}
+
 export default function AuditPanel() {
-  const { data, loading, error, refreshError, reload, page, pages, total, setPage } =
-    usePagedRemote<AuditEntry>("/admin/audit");
+  const {
+    data,
+    loading,
+    error,
+    refreshError,
+    reload,
+    page,
+    pages,
+    total,
+    setPage,
+  } = usePagedRemote<AuditEntry>("/admin/audit");
   const [pending, setPending] = useState(false);
   const [failure, setFailure] = useState("");
   const [success, setSuccess] = useState("");
@@ -110,7 +221,14 @@ export default function AuditPanel() {
             Actualizar
           </button>
         </div>
-        <Feedback error={refreshError}/><Pagination page={page} pages={pages} total={total} onPage={setPage} disabled={loading}/>
+        <Feedback error={refreshError} />
+        <Pagination
+          page={page}
+          pages={pages}
+          total={total}
+          onPage={setPage}
+          disabled={loading}
+        />
         <RemoteStatus loading={loading} error={error} retry={reload} />
         {data &&
           !loading &&
@@ -159,6 +277,9 @@ export default function AuditPanel() {
                       Gravedad evaluada: {entry.datos.nivelRiesgo}
                     </p>
                   )}
+                  {entry.accion === "EVALUACION_IA_REPORTE" && (
+                    <ImageOriginDetails value={entry.datos?.origenImagenes} />
+                  )}
                 </article>
               ))}
             </div>
@@ -167,4 +288,3 @@ export default function AuditPanel() {
     </>
   );
 }
-

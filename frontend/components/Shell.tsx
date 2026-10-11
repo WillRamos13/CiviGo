@@ -9,7 +9,6 @@ import {
   Bell,
   Medal,
   Gift,
-  Sparkles,
   Menu,
   X,
   LogOut,
@@ -34,7 +33,6 @@ const links = [
   { href: "/alertas", label: "Alertas", icon: Bell },
   { href: "/ranking", label: "Comunidad", icon: Medal },
   { href: "/recompensas", label: "Recompensas", icon: Gift },
-  { href: "/premium", label: "CiviGo Premium", icon: Sparkles },
 ];
 export default function Shell({ children }: { children: React.ReactNode }) {
   const path = usePathname();

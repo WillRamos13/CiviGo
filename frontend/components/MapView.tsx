@@ -41,7 +41,7 @@ export default function MapView({ incidentes = EMPTY_INCIDENTS, ruta = null, onS
     const [loaded, setLoaded] = useState(false), [risk, setRisk] = useState(true), [events, setEvents] = useState(true), [zones, setZones] = useState(true), [error, setError] = useState(''), [roads, setRoads] = useState<GeoJSON.FeatureCollection>(EMPTY_MAP_DATA), [roadError, setRoadError] = useState('');
     const geometryCache = useRef<RoadGeometry | null>(null), roadRevision = useRef('');
     const styleReady = useRef(false);
-    const [controlsOpen, setControlsOpen] = useState(false), [legendOpen, setLegendOpen] = useState(true), [traffic, setTraffic] = useState(false);
+    const [controlsOpen, setControlsOpen] = useState(false), [traffic, setTraffic] = useState(false);
     const [trafficStatus, setTrafficStatus] = useState<TrafficStatus | null>(null), [trafficData, setTrafficData] = useState<TrafficResponse | null>(null), [externalSelected, setExternalSelected] = useState<ExternalTrafficIncident | null>(null);
     const [trafficError, setTrafficError] = useState('');
     const externalMarkers = useRef<mapboxgl.Marker[]>([]), trafficSnapshot = useRef(''), followCamera = useRef(true), cameraState = useRef({navigating, posicion, heading});
@@ -68,10 +68,14 @@ export default function MapView({ incidentes = EMPTY_INCIDENTS, ruta = null, onS
         const map = new mapboxgl.Map({ container: container.current, accessToken: token, style: MAP_STYLE, center: [posicion?.longitud ?? -75.7286, posicion?.latitud ?? -14.0678], zoom: editor ? 17 : 13.3, attributionControl: true });
         mapRef.current = map;
         const stopMarkerZoom = bindIncidentMarkerZoom(map);
-        map.addControl(new mapboxgl.NavigationControl(), editor ? 'top-right' : 'bottom-right');
-        const geolocate = new mapboxgl.GeolocateControl({ positionOptions: { enableHighAccuracy: true }, trackUserLocation: false, showUserHeading: true });
-        geolocate.on('geolocate', (event: GeolocationPosition) => callbacks.current.onLocate?.({ latitud: event.coords.latitude, longitud: event.coords.longitude, accuracy: event.coords.accuracy, timestamp: event.timestamp }));
-        map.addControl(geolocate, editor ? 'top-right' : 'bottom-right');
+        // The main map uses wheel, pinch and keyboard gestures. Keep native
+        // controls only in the report editor, where the location is confirmed.
+        if (editor) {
+            map.addControl(new mapboxgl.NavigationControl(), 'top-right');
+            const geolocate = new mapboxgl.GeolocateControl({ positionOptions: { enableHighAccuracy: true }, trackUserLocation: false, showUserHeading: true });
+            geolocate.on('geolocate', (event: GeolocationPosition) => callbacks.current.onLocate?.({ latitud: event.coords.latitude, longitud: event.coords.longitude, accuracy: event.coords.accuracy, timestamp: event.timestamp }));
+            map.addControl(geolocate, 'top-right');
+        }
         const publishBounds = () => { const b = map.getBounds(); if (b) callbacks.current.onBounds?.([b.getWest(), b.getSouth(), b.getEast(), b.getNorth()]); };
         map.on('moveend', publishBounds);
         map.on('load', publishBounds);
@@ -234,6 +238,8 @@ export default function MapView({ incidentes = EMPTY_INCIDENTS, ruta = null, onS
                 {!trafficReady && <small className="muted">{tilesExhausted ? 'Se alcanzó la cuota de la capa de tráfico. Los recorridos locales siguen disponibles.' : trafficData?.trafico.motivo || 'Tráfico en tiempo real no disponible.'}</small>}
                 <label><input type="checkbox" checked={events} onChange={e => setEvents(e.target.checked)}/>Incidentes</label>
                 <label><input type="checkbox" checked={zones} onChange={e => setZones(e.target.checked)} disabled={!events}/>Zonas de incidentes</label>
+                <small className="muted">Gris: evaluación pendiente.</small>
+                {posicion && <button type="button" className="btn btn-secondary btn-small" onClick={centerOnPosition}><LocateFixed size={15}/>Centrar mi ubicación</button>}
             </div>
             {typeFilter && <div className="map-type-filter field">
                 <label htmlFor={filterId}>Filtrar por tipo</label>
@@ -245,8 +251,8 @@ export default function MapView({ incidentes = EMPTY_INCIDENTS, ruta = null, onS
                 <small>Filtra los marcadores, sus zonas y los reportes recientes. El riesgo de las calles considera todos los incidentes.</small>
             </div>}
         </CollapsiblePanel>
-        {traffic ? <CollapsiblePanel title="Tráfico · TomTom" className="risk-legend traffic-legend" open={legendOpen} onOpenChange={setLegendOpen}>{trafficError && <p role="status">{trafficError}</p>}<div className="traffic-scale"><span>Fluido</span><span>Lento</span><span>Congestionado</span></div><small>{trafficData?.trafico.actualizadoEn ? `Datos ${new Date(trafficData.trafico.actualizadoEn).toLocaleTimeString('es-PE', {hour: '2-digit', minute: '2-digit', timeZone: 'America/Lima'})}` : 'Sin actualización disponible'}</small><p>Los avisos temporales no suman puntos de riesgo. © TomTom</p></CollapsiblePanel> : <RiskLegend open={legendOpen} onOpenChange={setLegendOpen} />}
-        {posicion && <button className="map-recenter icon-btn" aria-label="Centrar mi ubicación" onClick={centerOnPosition}><LocateFixed size={20}/></button>}
+        {traffic ? <div className="risk-legend traffic-legend" aria-label="Tráfico en tiempo real"><strong>Tráfico · © TomTom</strong><div className="traffic-scale" role="img" aria-label="Tráfico fluido, lento y congestionado"><span title="Fluido"/><span title="Lento"/><span title="Congestionado"/></div></div> : <RiskLegend />}
+        {traffic && trafficError && <div className="map-message notice notice-warning" role="status">{trafficError}</div>}
         {externalSelected && events && <div className="external-traffic-detail"><button className="icon-btn" aria-label="Cerrar aviso de tráfico" onClick={() => setExternalSelected(null)}>×</button><strong>{externalSelected.titulo}</strong><p>{externalSelected.descripcion}</p><small>TomTom · aviso temporal · no suma riesgo histórico</small></div>}
     </>}{(error || roadError && !editor) && <div className="map-message notice notice-warning">{error || `La capa vial no está disponible: ${roadError}`}</div>}</>;
 }

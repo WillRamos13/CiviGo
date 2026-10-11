@@ -1,5 +1,5 @@
 // Local fixtures only: no requests to Railway, Firebase or OpenAI.
-const { app, dialog } = require('electron');
+const { app, dialog, shell } = require('electron');
 const assert = require('node:assert/strict');
 const http = require('node:http');
 const fs = require('node:fs/promises');
@@ -29,6 +29,7 @@ const rewardFixtures = Array.from({ length: 24 }, (_, index) => ({ id: 20 + inde
 const categories = [{ id: 1, nombre: 'Infraestructura', slug: 'infraestructura', orden: 1, tipos: Array.from({ length: 24 }, (_, index) => ({ id: 30 + index, nombre: `Bache de prueba ${index}`, slug: `bache-fixture-${index}`, categoriaId: 1, emergencia: false, historico: false, fotoObligatoria: false, individual: false, ubicacionRemota: false, persistente: true, activo: true })) }];
 const notificationFixtures = [{ id: 1, titulo: 'Emergencia pendiente', mensaje: 'Revisar incidente #15.', tipo: 'REVISION', incidenteId: 15, leida: false, creadoEn: '2026-01-01T12:00:00Z' }];
 const auditFixtures = Array.from({ length: 61 }, (_, index) => ({ id: index + 1, usuarioId: 1, accion: 'VALIDAR', entidad: 'INCIDENTE', entidadId: String(index + 1), creadoEn: '2026-01-01T12:00:00Z' }));
+auditFixtures[0] = { ...auditFixtures[0], accion: 'EVALUACION_IA_REPORTE', entidad: 'REPORTE', datos: { origenImagenes: { habilitado: true, requiereRevision: true, evidencias: [{ adjuntoId: 'photo-fixture', resultado: 'COINCIDENCIA_WEB', motivo: 'Coincidencia de prueba local pendiente de revisión.', coincidencias: [{ tipo: 'PARCIAL', url: 'https://photos.example.com/image.jpg' }, { tipo: 'COMPLETA', url: 'https://localhost/private.jpg' }], paginas: ['https://news.example.com/article'] }] } } };
 let groupingMeters = 50;
 let backendLogin = false;
 const server = http.createServer(async (request, response) => {
@@ -129,6 +130,8 @@ async function openEditor(window, buttonLabel, index = 0) {
   assert.equal(await window.webContents.executeJavaScript(`document.activeElement.getAttribute('role')`), 'region');
 }
 async function run() {
+  const openedImageReferences = [];
+  shell.openExternal = async url => { openedImageReferences.push(url); };
   await fs.mkdir(path.join(local, 'session'), { recursive: true });
   server.listen(0, '127.0.0.1'); await once(server, 'listening');
   process.env.CIVIGO_DESKTOP_BACKEND_URL = `http://127.0.0.1:${server.address().port}`;
@@ -146,6 +149,9 @@ async function run() {
   const denied = await window.webContents.executeJavaScript(`window.civigoDesktop.login({ correo:'citizen@example.test', password:'fixture' })`);
   assert.equal(denied.ok, false); assert.equal(denied.error.status, 403);
   assert.equal(client.authenticated(), false);
+  const unauthenticatedReference = await window.webContents.executeJavaScript(`window.civigoDesktop.openImageReference('https://photos.example.com/image.jpg')`);
+  assert.equal(unauthenticatedReference.ok, false); assert.equal(unauthenticatedReference.error.status, 401);
+  assert.equal(openedImageReferences.length, 0);
   const logged = await window.webContents.executeJavaScript(`window.civigoDesktop.login({ correo:'admin@example.test', password:'fixture' })`);
   assert.equal(logged.ok, true); assert.equal(logged.data.rol, 'ADMIN');
   await waitUntil(window, 'document.body.innerText.includes("Centro de revisión")');
@@ -195,6 +201,17 @@ async function run() {
   assert.equal(await window.webContents.executeJavaScript(`Array.from(document.querySelectorAll('form button')).find(button=>button.textContent==='Guardar configuración').disabled`), false);
   await window.webContents.executeJavaScript(`Array.from(document.querySelectorAll('nav[aria-label="Herramientas de administración"] button')).find(button=>button.textContent==='Actividad y plazos').click()`);
   await waitUntil(window, `document.body.innerText.includes('Página 1 de 2') && !document.body.innerText.includes('Cargando')`);
+  await waitUntil(window, `document.body.innerText.includes('Coincidencia encontrada en Internet')`);
+  assert.equal(await window.webContents.executeJavaScript(`document.querySelectorAll('section[aria-label="Búsqueda de imágenes en Internet"] img').length`), 0);
+  assert.equal(await window.webContents.executeJavaScript(`document.querySelectorAll('section[aria-label="Búsqueda de imágenes en Internet"] a').length`), 2);
+  await window.webContents.executeJavaScript(`document.querySelector('section[aria-label="Búsqueda de imágenes en Internet"] a').click()`);
+  await waitUntil(window, 'true');
+  await new Promise(resolve => setTimeout(resolve, 100));
+  assert.deepEqual(openedImageReferences, ['https://photos.example.com/image.jpg']);
+  const blockedReference = await window.webContents.executeJavaScript(`window.civigoDesktop.openImageReference('https://127.0.0.1/private.jpg')`);
+  assert.equal(blockedReference.ok, false); assert.equal(blockedReference.error.status, 400);
+  assert.equal(openedImageReferences.length, 1);
+  assert.equal(await window.webContents.executeJavaScript('location.href'), 'civigo://app/index.html');
   await window.webContents.executeJavaScript(`Array.from(document.querySelectorAll('nav[aria-label="Paginación de resultados"] button')).find(button=>button.textContent==='Siguiente').click()`);
   await waitUntil(window, `document.body.innerText.includes('Página 2 de 2') && document.body.innerText.includes('Registro #61')`);
   assert.ok(calls.some(call => call.path === '/api/admin/audit' && call.query.includes('page=2')));

@@ -12,7 +12,7 @@ const {
   slug,
 } = require("../lib/http");
 const { config, DISTRICTS } = require("../lib/catalog");
-const { evaluateReport } = require("../lib/providers");
+const { evaluateReport, checkReportImages } = require("../lib/providers");
 const { counter } = require("../lib/security");
 const { report, incident } = require("../lib/projections");
 const { verifiedVoteInclude } = require("../lib/publication");
@@ -179,36 +179,53 @@ router.post(
     // Reserva la cuota antes de esperar a la IA: las peticiones concurrentes
     // aún no figuran en el conteo de reportes persistidos.
     reportQuota("user:" + req.user.id, 3, res);
-    const evaluation = await evaluateReport(
-      { descripcion, fechaEvento, adjuntos: attachments },
-      type,
-    );
+    const [evaluation, imageOrigin] = await Promise.all([
+      evaluateReport({ descripcion, fechaEvento, adjuntos: attachments }, type),
+      checkReportImages(attachments),
+    ]);
     // Una respuesta textual no acredita los archivos. La sospecha de falsedad,
     // las imágenes incompatibles/dudosas y los archivos sin analizar requieren
     // decisión humana antes de validar ese aporte o concederle puntos.
     const requiresReview =
       !evaluation ||
       !!evaluation?.posibleFalso ||
-      !!evaluation?.requiereRevision;
-    const reviewReason = !evaluation
-      ? "IA_NO_DISPONIBLE"
-      : evaluation.evidencias?.some(
-            (item) => item.resultado === "NO_RELACIONADA",
-          )
-        ? "IMAGEN_NO_RELACIONADA"
+      !!evaluation?.requiereRevision ||
+      imageOrigin.requiereRevision;
+    const webMatch = imageOrigin.evidencias.some(
+      (item) => item.resultado === "COINCIDENCIA_WEB",
+    );
+    const reviewReason = webMatch
+      ? "IMAGEN_EN_INTERNET"
+      : !evaluation
+        ? "IA_NO_DISPONIBLE"
         : evaluation.evidencias?.some(
-              (item) => item.resultado === "NO_CONCLUYENTE",
+              (item) => item.resultado === "NO_RELACIONADA",
             )
-          ? "EVIDENCIA_NO_CONCLUYENTE"
-          : "REVISION_SOLICITADA";
+          ? "IMAGEN_NO_RELACIONADA"
+          : evaluation.evidencias?.some(
+                (item) => item.resultado === "NO_CONCLUYENTE",
+              )
+            ? "EVIDENCIA_NO_CONCLUYENTE"
+            : imageOrigin.requiereRevision
+              ? "BUSQUEDA_WEB_NO_DISPONIBLE"
+              : !evaluation.posibleFalso &&
+                  evaluation.motivoRevision === "DESCRIPCION_INSUFICIENTE"
+                ? "DESCRIPCION_INSUFICIENTE"
+                : "REVISION_SOLICITADA";
     const reviewMessage =
-      reviewReason === "IMAGEN_NO_RELACIONADA"
-        ? "Una imagen no corresponde al incidente descrito. Tu aporte queda en revisión humana; no se ha declarado falso. Puedes aportar pruebas adecuadas desde Mis reportes o solicitar revisión."
-        : reviewReason === "EVIDENCIA_NO_CONCLUYENTE"
-          ? "Una prueba no permite evaluar el incidente con suficiente claridad. Tu aporte queda en revisión humana. Puedes aportar pruebas adecuadas desde Mis reportes o solicitar revisión."
-          : reviewReason === "IA_NO_DISPONIBLE"
-            ? "No fue posible completar el análisis automático. Tu aporte queda en revisión humana y no ha sido aprobado por la IA."
-            : "Tu aporte requiere revisión humana antes de validarse. Puedes consultar su estado y aportar pruebas desde Mis reportes; no se ha sancionado tu cuenta.";
+      reviewReason === "IMAGEN_EN_INTERNET"
+        ? "Se encontró una coincidencia completa o parcial de una imagen en Internet. Tu aporte queda en revisión humana para comprobar su contexto; esto no demuestra que el reporte sea falso y no se ha sancionado tu cuenta. Desde Mis reportes, solicita revisión y explica la procedencia de la imagen."
+        : reviewReason === "BUSQUEDA_WEB_NO_DISPONIBLE"
+          ? "No fue posible completar la búsqueda de las imágenes en Internet. Tu aporte queda en revisión humana; no se ha declarado falso. No encontrar coincidencias tampoco demostraría que la foto es propia."
+          : reviewReason === "IMAGEN_NO_RELACIONADA"
+            ? "Una imagen no corresponde al incidente descrito. Tu aporte queda en revisión humana; no se ha declarado falso. Puedes aportar pruebas adecuadas desde Mis reportes o solicitar revisión."
+            : reviewReason === "EVIDENCIA_NO_CONCLUYENTE"
+              ? "Una prueba no permite evaluar el incidente con suficiente claridad. Tu aporte queda en revisión humana. Puedes aportar pruebas adecuadas desde Mis reportes o solicitar revisión."
+              : reviewReason === "IA_NO_DISPONIBLE"
+                ? "No fue posible completar el análisis automático. Tu aporte queda en revisión humana y no ha sido aprobado por la IA."
+                : reviewReason === "DESCRIPCION_INSUFICIENTE"
+                  ? "La descripción no aporta suficiente contexto para evaluar el reporte. Tu aporte queda en revisión humana; no se ha declarado falso. Desde Mis reportes, solicita revisión y añade una explicación concreta de lo ocurrido."
+                  : "Tu aporte requiere revisión humana antes de validarse. Puedes consultar su estado y aportar pruebas desde Mis reportes; no se ha sancionado tu cuenta.";
     const acceptedEvaluation = requiresReview ? null : evaluation;
     if (acceptedEvaluation?.tipoPropuesto) {
       const proposal = evaluation.tipoPropuesto;
@@ -377,6 +394,7 @@ router.post(
               evaluation?.motivo ??
               "Evaluación no disponible; revisión humana pendiente.",
             evidencias: evaluation?.evidencias ?? [],
+            origenImagenes: imageOrigin,
           },
         },
       });
@@ -461,8 +479,7 @@ router.post(
           evaluation.posibleFalso
             ? "Posible reporte falso"
             : "Evidencia para revisar",
-          evaluation.motivo ||
-            "Los adjuntos no permiten aprobar el reporte automáticamente; no se ha sancionado al autor.",
+          reviewMessage + (evaluation.motivo ? " " + evaluation.motivo : ""),
         );
       if (newIncident && type.persistente) {
         const old = await db.incident.findMany({

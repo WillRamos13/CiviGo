@@ -3,6 +3,10 @@
 const providerEnvironment = {
   AI_API_KEY: "",
   OPENAI_API_KEY: "",
+  GOOGLE_VISION_API_KEY: "",
+  IMAGE_WEB_CHECK_ENABLED: "false",
+  IMAGE_WEB_DAILY_LIMIT: "",
+  IMAGE_WEB_MONTHLY_LIMIT: "",
   TOMTOM_API_KEY: "",
   TOMTOM_ENABLED: "false",
   AI_BASE_URL: "",

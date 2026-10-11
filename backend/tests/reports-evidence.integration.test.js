@@ -50,10 +50,30 @@ test(
     process.env.OPENAI_API_KEY = "fixture-openai-key-no-real-provider";
     process.env.AI_REPORT_MODEL = "gpt-4.1-mini";
     const requests = [];
+    const webRequests = [];
+    let webDetection;
     let evaluation;
     const originalFetch = global.fetch;
     t.mock.method(global, "fetch", async (target, options) => {
       const url = new URL(typeof target === "string" ? target : target.url);
+      if (url.origin === "https://vision.googleapis.com") {
+        assert.equal(
+          url.href,
+          "https://vision.googleapis.com/v1/images:annotate",
+        );
+        assert.equal(options.method, "POST");
+        assert.equal(options.redirect, "error");
+        assert.ok(webDetection, "La búsqueda web siempre debe estar simulada.");
+        const payload = JSON.parse(options.body);
+        assert.equal(payload.requests[0].features[0].type, "WEB_DETECTION");
+        assert.equal(
+          payload.requests[0].image.content,
+          photo.toString("base64"),
+        );
+        assert.ok(!JSON.stringify(payload).includes(directory));
+        webRequests.push(payload);
+        return Response.json(webDetection);
+      }
       if (url.origin === "https://api.openai.com") {
         assert.equal(url.href, "https://api.openai.com/v1/responses");
         assert.equal(options.method, "POST");
@@ -183,6 +203,7 @@ test(
         gravedad: 4,
         posibleFalso: false,
         requiereRevision: false,
+        motivoRevision: null,
         motivo: "Evaluación simulada, sin proveedor externo.",
         emergenciaActiva: false,
         tipoPropuesto: null,
@@ -299,6 +320,233 @@ test(
             403,
           );
           assert.equal(requests.length, attempts);
+        },
+      );
+      await t.test(
+        "La descripción insuficiente muestra un aviso propio sin rechazar una foto compatible ni sancionar al autor",
+        async () => {
+          const author = await actor("description");
+          const selected = await type("descripcion insuficiente");
+          const file = await upload(author);
+          simulated([file], {
+            requiereRevision: true,
+            motivoRevision: "DESCRIPCION_INSUFICIENTE",
+          });
+          const result = await submit(author, selected, [file], "we");
+          assert.equal(result.reporte.estado, "EN_REVISION");
+          assert.equal(result.incidente.publicado, false);
+          assert.equal(result.revision.motivo, "DESCRIPCION_INSUFICIENTE");
+          assert.match(result.revision.mensaje, /descripción.*contexto/);
+          assert.match(result.revision.mensaje, /solicita revisión/);
+          assert.doesNotMatch(result.revision.mensaje, /imagen no corresponde/);
+          const log = await prisma.auditLog.findFirst({
+            where: {
+              accion: "EVALUACION_IA_REPORTE",
+              entidad: "Report",
+              entidadId: String(result.reporte.id),
+            },
+          });
+          assert.equal(log.datos.motivoRevision, "DESCRIPCION_INSUFICIENTE");
+          assert.equal(log.datos.evidencias[0].resultado, "COMPATIBLE");
+          await assertNoSanction(author);
+          await assertNoRewards(author);
+          await assertReviewAlert(result.incidente.id, admin);
+        },
+      );
+      await t.test(
+        "Coincidencias web retienen una foto compatible sin sanción ni exposición pública y permiten decisión humana",
+        async () => {
+          process.env.IMAGE_WEB_CHECK_ENABLED = "true";
+          process.env.GOOGLE_VISION_API_KEY = "fixture-vision-no-provider";
+          try {
+            const author = await actor("web_match");
+            const selected = await type("coincidencia web");
+            const file = await upload(author);
+            simulated([file]);
+            webDetection = {
+              responses: [
+                {
+                  webDetection: {
+                    fullMatchingImages: [
+                      { url: "https://example.org/prueba.png" },
+                    ],
+                    pagesWithMatchingImages: [
+                      {
+                        url: "https://example.org/noticia",
+                        fullMatchingImages: [
+                          { url: "https://example.org/prueba.png" },
+                        ],
+                      },
+                    ],
+                  },
+                },
+              ],
+            };
+            const before = webRequests.length;
+            const result = await submit(author, selected, [file]);
+            assert.equal(webRequests.length, before + 1);
+            assert.equal(result.reporte.estado, "EN_REVISION");
+            assert.equal(result.incidente.publicado, false);
+            assert.equal(result.incidente.evaluacion, "PENDIENTE");
+            assert.equal(result.incidente.nivelRiesgo, null);
+            assert.equal(result.revision.motivo, "IMAGEN_EN_INTERNET");
+            assert.match(result.revision.mensaje, /no demuestra.*falso/);
+            const log = await prisma.auditLog.findFirst({
+              where: {
+                accion: "EVALUACION_IA_REPORTE",
+                entidadId: String(result.reporte.id),
+                entidad: "Report",
+              },
+            });
+            assert.equal(log.datos.evidencias[0].resultado, "COMPATIBLE");
+            assert.equal(
+              log.datos.origenImagenes.evidencias[0].resultado,
+              "COINCIDENCIA_WEB",
+            );
+            assert.equal(log.datos.motivoRevision, "IMAGEN_EN_INTERNET");
+            const notices = await request("/notifications", author);
+            assert.equal(notices.status, 200);
+            assert.ok(
+              notices.json.some((item) =>
+                item.mensaje.includes("coincidencia completa o parcial"),
+              ),
+            );
+            const publicList = await request("/incidents");
+            assert.equal(
+              publicList.json.some((item) => item.id === result.incidente.id),
+              false,
+            );
+            assert.equal((await request(`/uploads/${file.id}`)).status, 403);
+            await assertNoSanction(author);
+            await assertNoRewards(author);
+            await assertReviewAlert(result.incidente.id, admin);
+            assert.equal(
+              (
+                await request(
+                  `/admin/reports/${result.reporte.id}/review`,
+                  admin,
+                  {
+                    accion: "VALIDAR",
+                    nivelRiesgo: 2,
+                    motivo:
+                      "Origen y contexto comprobados expresamente por el administrador en esta prueba.",
+                  },
+                )
+              ).status,
+              200,
+            );
+            assert.equal(
+              (
+                await prisma.report.findUnique({
+                  where: { id: result.reporte.id },
+                })
+              ).estado,
+              "VALIDADO",
+            );
+          } finally {
+            process.env.IMAGE_WEB_CHECK_ENABLED = "false";
+            process.env.GOOGLE_VISION_API_KEY = "";
+          }
+        },
+      );
+      await t.test(
+        "Una emergencia con coincidencia web sigue publicada por evaluar y sus pruebas permanecen privadas",
+        async () => {
+          process.env.IMAGE_WEB_CHECK_ENABLED = "true";
+          process.env.GOOGLE_VISION_API_KEY = "fixture-vision-no-provider";
+          try {
+            const author = await actor("web_emergency");
+            const selected = await type("emergencia web", { emergencia: true });
+            const file = await upload(author);
+            simulated([file]);
+            webDetection = {
+              responses: [
+                {
+                  webDetection: {
+                    partialMatchingImages: [
+                      { url: "https://example.org/recorte.png" },
+                    ],
+                  },
+                },
+              ],
+            };
+            const result = await submit(author, selected, [file]);
+            assert.equal(result.reporte.estado, "EN_REVISION");
+            assert.equal(result.incidente.publicado, true);
+            assert.equal(result.incidente.porEvaluar, true);
+            assert.equal(result.incidente.nivelRiesgo, null);
+            assert.equal(result.incidente.evaluacion, "PENDIENTE");
+            assert.equal(result.revision.motivo, "IMAGEN_EN_INTERNET");
+            const publicDetail = await request(
+              `/incidents/${result.incidente.id}`,
+            );
+            assert.equal(publicDetail.status, 200);
+            assert.equal(publicDetail.json.adjuntos.length, 0);
+            assert.equal(publicDetail.json.reportes.length, 0);
+            await assertNoSanction(author);
+            await assertNoRewards(author);
+            await assertReviewAlert(result.incidente.id, admin);
+          } finally {
+            process.env.IMAGE_WEB_CHECK_ENABLED = "false";
+            process.env.GOOGLE_VISION_API_KEY = "";
+          }
+        },
+      );
+      await t.test(
+        "Imágenes sólo similares no retienen una foto compatible; una búsqueda fallida sí solicita revisión",
+        async () => {
+          process.env.IMAGE_WEB_CHECK_ENABLED = "true";
+          process.env.GOOGLE_VISION_API_KEY = "fixture-vision-no-provider";
+          try {
+            const author = await actor("web_similar");
+            const selected = await type("similitud web");
+            const file = await upload(author);
+            simulated([file]);
+            webDetection = {
+              responses: [
+                {
+                  webDetection: {
+                    visuallySimilarImages: [
+                      { url: "https://example.org/otro-bache.png" },
+                    ],
+                  },
+                },
+              ],
+            };
+            const result = await submit(author, selected, [file]);
+            assert.equal(result.incidente.publicado, true);
+            assert.equal(result.incidente.evaluacion, "IA");
+            assert.equal(result.revision, undefined);
+            const log = await prisma.auditLog.findFirst({
+              where: {
+                accion: "EVALUACION_IA_REPORTE",
+                entidadId: String(result.reporte.id),
+                entidad: "Report",
+              },
+            });
+            assert.equal(
+              log.datos.origenImagenes.evidencias[0].resultado,
+              "SIN_COINCIDENCIAS",
+            );
+            const other = await actor("web_failed");
+            const otherType = await type("búsqueda fallida");
+            const otherFile = await upload(other);
+            simulated([otherFile]);
+            webDetection = {
+              responses: [
+                { error: { code: 8, message: "Fixture sin proveedor real" } },
+              ],
+            };
+            const failed = await submit(other, otherType, [otherFile]);
+            assert.equal(failed.reporte.estado, "EN_REVISION");
+            assert.equal(failed.incidente.publicado, false);
+            assert.equal(failed.revision.motivo, "BUSQUEDA_WEB_NO_DISPONIBLE");
+            await assertNoSanction(other);
+            await assertNoRewards(other);
+          } finally {
+            process.env.IMAGE_WEB_CHECK_ENABLED = "false";
+            process.env.GOOGLE_VISION_API_KEY = "";
+          }
         },
       );
       await t.test(

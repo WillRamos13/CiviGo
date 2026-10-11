@@ -61,6 +61,15 @@ const server = http.createServer((request, response) => {
   response.setHeader('Cache-Control', 'no-store');
   const requestedUrl = new URL(request.url, 'http://127.0.0.1');
   if (requestedUrl.pathname === '/api/incidents') {
+    if (requestedUrl.searchParams.has('bbox')) {
+      const [west,south,east,north] = requestedUrl.searchParams.get('bbox').split(',').map(Number);
+      const after = Number(requestedUrl.searchParams.get('after')) || Infinity;
+      const kind = requestedUrl.searchParams.get('tipo');
+      const rows = incidents.filter(item => item.id < after && item.longitud >= west && item.longitud <= east
+        && item.latitud >= south && item.latitud <= north && (!kind || item.tipoSlug === kind)).sort((a,b) => b.id-a.id);
+      const items = rows.slice(0,250);
+      return response.end(JSON.stringify({items,nextCursor:rows.length>items.length ? items.at(-1).id : null}));
+    }
     if (!requestedUrl.searchParams.has('latitud')) return response.end(JSON.stringify(incidents));
     const latitude = Number(requestedUrl.searchParams.get('latitud')), longitude = Number(requestedUrl.searchParams.get('longitud'));
     const kind = requestedUrl.searchParams.get('tipo');
@@ -77,10 +86,21 @@ const server = http.createServer((request, response) => {
     return response.end(JSON.stringify(incidents.find(item => item.id === id) || incident));
   }
   if (request.url === '/api/navigation/roads') return response.end(JSON.stringify({ type: 'FeatureCollection', features: [] }));
+  if (requestedUrl.pathname === '/api/navigation/roads/geometry') return response.end(JSON.stringify({type:'FeatureCollection',version:'local-fixture-v1',features:[]}));
+  if (requestedUrl.pathname === '/api/navigation/roads/risk') return response.end(JSON.stringify({version:'local-fixture-v1',revision:String(revision),values:[]}));
   if (request.url === '/api/announcements') return response.end(JSON.stringify([{id: 1, tipo: 'NOVEDAD', titulo: 'Novedad de prueba', mensaje: 'Conoce tu entorno', enlace: null, negocio: null}, {id: 2, tipo: 'NEGOCIO', titulo: 'Negocio local', mensaje: 'Visita nuestra ficha', enlace: null, negocio: {id: 1, nombre: 'Negocio local de prueba', descripcion: 'Fixture', latitud: -14.06, longitud: -75.72}}]));
   if (request.url === '/api/businesses' || request.url === '/api/navigation/favorites') return response.end('[]');
   if (request.url === '/api/navigation/history') return response.end(request.method === 'GET' ? '[]' : '{}');
   if (request.url.startsWith('/api/navigation/history?')) return response.end('[]');
+  if (requestedUrl.pathname === '/api/navigation/places') {
+    const query = requestedUrl.searchParams.get('q')?.toLocaleLowerCase('es') || '';
+    const places = query.includes('universidad')
+      ? [{nombre:'Universidad Tecnológica del Perú · Ica',descripcion:'Origen del fixture local',latitud:-14.0887,longitud:-75.73545}]
+      : query.includes('plaza')
+        ? [{nombre:'Plaza de Armas de Ica',descripcion:'Destino del fixture local',latitud:-14.06778,longitud:-75.72869}]
+        : [];
+    return response.end(JSON.stringify(places));
+  }
   if (request.url === '/api/participation') return response.end(JSON.stringify({reportesValidados:0,totalReportes:0,puntosMensuales:0,mes:'2026-10',insignias:[],movimientos:[]}));
   if (request.url === '/api/ranking' || request.url.startsWith('/api/ranking?')) return response.end(JSON.stringify({mes:'2026-10',entries:[],finalized:false}));
   if (request.url === '/api/navigation/traffic/status') return response.end(JSON.stringify({configurado:false,habilitado:false,controlCuotaDisponible:true}));
@@ -132,6 +152,82 @@ async function panelState(window, selector, expanded) {
 }
 async function togglePanel(window, selector) {
   await window.webContents.executeJavaScript(`document.querySelector(${JSON.stringify(selector)}).click()`);
+}
+async function clickVisible(window, selector) {
+  await window.webContents.executeJavaScript(`(() => {
+    const target = document.querySelector(${JSON.stringify(selector)});
+    if (!target) throw new Error('No existe el control de la prueba de clic');
+    target.scrollIntoView({block:'nearest',inline:'nearest'});
+  })()`);
+  await window.webContents.executeJavaScript('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))');
+  const point = await window.webContents.executeJavaScript(`(() => {
+    const target = document.querySelector(${JSON.stringify(selector)}), rect = target.getBoundingClientRect();
+    const x = Math.round(rect.left + rect.width / 2), y = Math.round(rect.top + rect.height / 2);
+    const hit = document.elementFromPoint(x,y), body = document.querySelector('.map-route-panel .collapsible-panel-body').getBoundingClientRect();
+    return {x,y,hit:target === hit || target.contains(hit),width:rect.width,height:rect.height,
+      inside:rect.left >= body.left && rect.right <= body.right + 1 && rect.top >= body.top - 1 && rect.bottom <= body.bottom + 1};
+  })()`);
+  assert.equal(point.inside,true,`El control debe estar completo dentro del panel: ${selector}`);
+  assert.equal(point.hit,true,`El control no debe quedar detrás del pie o de otro panel: ${selector}`);
+  window.webContents.sendInputEvent({type:'mouseDown',x:point.x,y:point.y,button:'left',clickCount:1});
+  window.webContents.sendInputEvent({type:'mouseUp',x:point.x,y:point.y,button:'left',clickCount:1});
+  await delay(100);
+  return point;
+}
+async function routePlaceSearchScenarios() {
+  for (const [index,window] of windows.slice(0,2).entries()) {
+    const viewport = index === 0 ? 'escritorio' : 'móvil';
+    await window.webContents.executeJavaScript(`(() => {
+      const toggle = document.querySelector('.map-route-panel > .panel-toggle');
+      if (toggle.getAttribute('aria-expanded') !== 'true') toggle.click();
+      const manual = Array.from(document.querySelectorAll('.map-route-panel button')).find(button => button.textContent === 'Ocultar coordenadas manualmente');
+      if (manual) manual.click();
+      for (const label of ['Origen','Destino']) {
+        const input = document.querySelector('input[aria-label="' + label + '"]');
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,'');
+        input.dispatchEvent(new Event('input',{bubbles:true}));
+      }
+      window.scrollTo(0,0);
+    })()`);
+    await waitUntil(window,`document.querySelector('.route-planner-search button')?.disabled`);
+    const footer = await window.webContents.executeJavaScript(`(() => {
+      const footer = document.querySelector('.route-planner-search'), button = footer.querySelector('button');
+      return {background:getComputedStyle(footer).backgroundColor,opacity:getComputedStyle(button).opacity,
+        panelHeight:document.querySelector('.map-route-panel').getBoundingClientRect().height};
+    })()`);
+    assert.match(footer.background,/^rgb\(/,'El pie del CTA debe tener un fondo opaco');
+    assert.equal(footer.opacity,'1','El CTA deshabilitado conserva un fondo opaco');
+    assert.ok(footer.panelHeight <= (index === 0 ? 321 : 286),'El pie no agranda el panel compacto');
+    await clickVisible(window,'.route-planner-search button');
+    for (const [label,query,selected] of [
+      ['Origen','universidad de ica','Universidad Tecnológica del Perú · Ica'],
+      ['Destino','plaza de armas de ica','Plaza de Armas de Ica'],
+    ]) {
+      const inputSelector = `input[aria-label="${label}"]`;
+      await clickVisible(window,inputSelector);
+      await window.webContents.executeJavaScript(`(() => {
+        const input = document.querySelector(${JSON.stringify(inputSelector)});
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,${JSON.stringify(query)});
+        input.dispatchEvent(new Event('input',{bubbles:true}));
+      })()`);
+      const optionSelector = `[role="listbox"][aria-label="Lugares para ${label.toLowerCase()}"] [role="option"]`;
+      await waitUntil(window,`document.querySelector(${JSON.stringify(optionSelector)})?.textContent.includes(${JSON.stringify(selected)})`);
+      await clickVisible(window,optionSelector);
+      await waitUntil(window,`document.querySelector(${JSON.stringify(inputSelector)})?.value === ${JSON.stringify(selected)} && !document.querySelector(${JSON.stringify(optionSelector)})`);
+    }
+    await waitUntil(window,`!document.querySelector('.route-planner-search button').disabled`);
+    const before = requests.filter(request => request.planBody).length;
+    await clickVisible(window,'.route-planner-search button');
+    await waitUntil(window,`document.querySelectorAll('.route-option').length >= 3 && !document.querySelector('.route-planner-search button').disabled`);
+    assert.equal(requests.filter(request => request.planBody).length,before+1,'Un clic real solicita las alternativas una sola vez');
+    const body = requests.filter(request => request.planBody).at(-1).planBody;
+    assert.equal(body.origen.nombre,'Universidad Tecnológica del Perú · Ica');
+    assert.equal(body.destino.nombre,'Plaza de Armas de Ica');
+    assert.equal(body.destino.latitud,-14.06778);
+    assert.equal(body.destino.longitud,-75.72869);
+    await capture(window,`mapa-busqueda-rutas-${index === 0 ? 'escritorio' : 'movil'}.png`);
+    stages.push({test:`Buscador y CTA compactos (${viewport}): selección de Destino y cálculo por clic real, sin controles tapados ni transparencia`,passed:true});
+  }
 }
 async function filterByName(window, name) {
   const value = await window.webContents.executeJavaScript(`(() => {
@@ -252,7 +348,7 @@ async function assertCommonShell(window, width, signedIn) {
   assert.equal(shell.bannerWithinWidth, true, 'El banner debe caber en el encabezado');
   assert.equal(shell.duplicatedHeader, false, 'La cuenta no se repite en el encabezado');
   if (width <= 900 && shell.menuExpanded) {
-    assert.equal(shell.tiles.length, 8, 'El menú móvil ofrece ocho accesos, incluido Perfil');
+    assert.equal(shell.tiles.length, 7, 'El menú móvil ofrece siete accesos, incluido Perfil; Premium está dentro del perfil');
     assert.equal(shell.mobileProfile?.visible, true, 'Perfil debe ser un tile del menú móvil');
     assert.ok(shell.sidebar.top >= shell.header.bottom - 1, 'El menú desplegable empieza bajo el encabezado');
     assert.ok(shell.sidebar.width >= width * 0.9, 'El menú ocupa el ancho de la pantalla en lugar de una barra lateral');
@@ -264,7 +360,7 @@ async function assertCommonShell(window, width, signedIn) {
       assert.equal(tile.clipped, false, `Acceso del menú móvil recortado: ${JSON.stringify(tile)}`);
     }
   } else if (width > 900) {
-    assert.equal(shell.tiles.length, 7, 'En escritorio, Perfil permanece en la cuenta del pie de la barra lateral');
+    assert.equal(shell.tiles.length, 6, 'En escritorio, Perfil permanece en la cuenta del pie de la barra lateral y Premium dentro del perfil');
     assert.equal(shell.mobileProfile?.visible, false);
     assert.equal(shell.mobileLogout?.visible ?? false, false);
   }
@@ -346,7 +442,8 @@ async function commonShellScenarios() {
     await assertCommonShell(window, width, true);
     await bannerBusiness(window, '/perfil');
     const links = await window.webContents.executeJavaScript(`Array.from(document.querySelectorAll('.sidebar nav a')).map(link => link.getAttribute('href'))`);
-    assert.deepEqual(links, ['/mapa','/reportar','/mis-reportes','/alertas','/ranking','/recompensas','/premium','/perfil'], 'El menú compacto conserva la navegación global y el acceso al perfil');
+    assert.deepEqual(links, ['/mapa','/reportar','/mis-reportes','/alertas','/ranking','/recompensas','/perfil'], 'El menú compacto conserva la navegación global y el acceso al perfil');
+    assert.equal(await window.webContents.executeJavaScript(`document.querySelector('.profile-premium-card a')?.getAttribute('href')`), '/premium', 'Premium se administra desde el perfil');
     await capture(window, `perfil-shell-${width}x${height}-autenticado.png`);
     await window.webContents.executeJavaScript(`document.querySelector('.sidebar nav a[href="/ranking"]').click()`);
     await waitUntil(window, `location.pathname === '/ranking' && document.body.innerText.includes('Todavía no hay puntos registrados en este mes.')`);
@@ -474,8 +571,8 @@ async function finishShellValidation() {
   assert.equal(requests.filter(request => request.navigation && !request.inPlace).length, windows.length, 'La navegación del shell usa enlaces internos sin recargar documentos');
   assert.equal(requests.filter(request => request.url === '/api/users/logout' && request.method === 'POST').length, windows.length, 'Todos los clientes cierran su sesión desde la cuenta de sidebar');
   const result = {passed:true,mode:shellOnly ? 'shell-only' : 'map-and-shell',stages,clients:windows.length,headerLayouts,
-    incidentRequests:requests.filter(request => request.url === '/api/incidents').length,
-    roadRequests:requests.filter(request => request.url === '/api/navigation/roads').length,
+    incidentRequests:requests.filter(request => new URL(request.url,'http://127.0.0.1').pathname === '/api/incidents').length,
+    roadRequests:requests.filter(request => new URL(request.url,'http://127.0.0.1').pathname === '/api/navigation/roads/risk').length,
     logoutRequests:requests.filter(request => request.url === '/api/users/logout' && request.method === 'POST').length,
     documentLoads:requests.filter(request => request.navigation && !request.inPlace).length,
     limitation:'Token de Mapbox vacío: se verifica la lista y el detalle React; no se solicita cartografía externa.'};
@@ -545,7 +642,10 @@ async function run() {
   incidents = [{ ...incident }, ...crimeFixtures]; revision++;
   await both(`document.querySelectorAll('.incident-row').length === 3`);
   const controls = '.map-frame .map-controls > .panel-toggle';
-  const legend = '.map-frame .risk-legend > .panel-toggle';
+  const fixedLegend = async window => {
+    const legend = await window.webContents.executeJavaScript(`(() => {const element=document.querySelector('.map-frame .risk-legend');return {title:element.querySelector('strong').textContent,bars:element.querySelectorAll('.risk-scale span').length,buttons:element.querySelectorAll('button').length,extras:element.querySelectorAll('p,small,details').length,visible:element.getBoundingClientRect().height>0};})()`);
+    assert.deepEqual(legend,{title:'Riesgo registrado por zona',bars:6,buttons:0,extras:0,visible:true},'La leyenda fija contiene sólo título y escala');
+  };
   for (const [index, window] of windows.entries()) {
     const viewport = index === 0 ? 'escritorio' : 'movil';
     const cleanPage = await window.webContents.executeJavaScript(`({
@@ -556,7 +656,7 @@ async function run() {
     })`);
     assert.deepEqual(cleanPage, { largeHeading: false, pilot: false, filterInMap: true, duplicateFilter: false });
     await panelState(window, controls, false);
-    await panelState(window, legend, true);
+    await fixedLegend(window);
     await assertViewport(window, index === 0 ? 1400 : 390);
     await window.webContents.executeJavaScript('window.scrollTo(0, 0)');
     await capture(window, `mapa-paneles-plegados-${viewport}.png`);
@@ -581,17 +681,23 @@ async function run() {
     await assertViewport(window, index === 0 ? 1400 : 390);
     await capture(window, `mapa-filtros-${viewport}.png`);
 
-    await togglePanel(window, legend);
-    await panelState(window, legend, false);
-    await togglePanel(window, legend);
-    await panelState(window, legend, true);
+    await fixedLegend(window);
     await panelState(window, controls, true);
     await togglePanel(window, controls);
     await panelState(window, controls, false);
     await assertViewport(window, index === 0 ? 1400 : 390);
     await capture(window, `mapa-leyenda-${viewport}.png`);
-    await togglePanel(window, legend);
-    await panelState(window, legend, false);
+    await fixedLegend(window);
+
+    const geometry = await window.webContents.executeJavaScript(`(() => {
+      const route=document.querySelector('.map-route-panel').getBoundingClientRect(),reports=document.querySelector('.map-reports-panel .collapsible-panel-body'),legend=document.querySelector('.risk-legend').getBoundingClientRect();
+      return {routeWidth:route.width,routeHeight:route.height,reportsMaxHeight:parseFloat(getComputedStyle(reports).maxHeight),legendHeight:legend.height,nativeControls:document.querySelectorAll('.map-frame .mapboxgl-ctrl-group').length,mobileInputFont:parseFloat(getComputedStyle(document.querySelector('.map-route-panel input')).fontSize)};
+    })()`);
+    assert.ok(geometry.routeWidth<=231&&geometry.routeHeight<=321,'Panel de rutas compacto');
+    assert.ok(geometry.reportsMaxHeight<=160,'Reportes recientes conservan una lista compacta desplazable');
+    assert.ok(geometry.legendHeight<=65,'La leyenda ya no ocupa una tarjeta desplegable grande');
+    assert.equal(geometry.nativeControls,0,'El mapa principal no muestra el control inferior de zoom/localización');
+    if(index===1)assert.equal(geometry.mobileInputFont,16,'Los campos móviles mantienen texto legible');
 
     const routeSelector = '.map-route-panel > .panel-toggle';
     await panelState(window, routeSelector, true);
@@ -608,7 +714,7 @@ async function run() {
     await togglePanel(window, reportsSelector);
     await panelState(window, reportsSelector, true);
   }
-  stages.push({ test: 'Paneles capas, leyenda y rutas se pliegan en escritorio y móvil; conservan controles y no desbordan', passed: true });
+  stages.push({ test: 'Capas y rutas se pliegan; leyenda fija compacta y controles principales retirados en escritorio y móvil', passed: true });
   stages.push({ test: 'Filtro agrupado con Robo, Hurto e Incendio dentro del mapa; cabecera grande y textos de piloto retirados', passed: true });
 
   const selectedValues = [];
@@ -657,8 +763,7 @@ async function run() {
   await assertViewport(windows[0], 1400);
   await windows[0].webContents.executeJavaScript('window.scrollTo(0, 0)');
   await capture(windows[0], 'mapa-filtros-oscuro-escritorio.png');
-  await togglePanel(windows[0], legend);
-  await panelState(windows[0], legend, true);
+  await fixedLegend(windows[0]);
   await capture(windows[0], 'mapa-leyenda-oscuro-escritorio.png');
   stages.push({ test: 'Modo oscuro se activa desde ThemeToggle y mantiene controles dentro de pantalla', passed: true });
 
@@ -698,7 +803,7 @@ async function run() {
   const mobileLayout = await mobileWindow.webContents.executeJavaScript(`(() => {const map=document.querySelector('.map-frame').getBoundingClientRect(), reports=document.querySelector('.map-reports-panel').getBoundingClientRect();return {mapBottom:map.bottom,reportsTop:reports.top,reportsWidth:reports.width,mapWidth:map.width};})()`);
   assert.ok(mobileLayout.reportsTop >= mobileLayout.mapBottom+10,'Reportes recientes deben quedar debajo del mapa');
   assert.ok(Math.abs(mobileLayout.reportsWidth-mobileLayout.mapWidth)<2,'Reportes recientes usan todo el ancho del mapa móvil');
-  await mobileWindow.webContents.executeJavaScript(`document.querySelector('button[aria-label="Cambiar a modo oscuro"]')?.click();for(const selector of ['.map-route-panel > .panel-toggle','.risk-legend > .panel-toggle']){const button=document.querySelector(selector);if(button.getAttribute('aria-expanded')!=='true')button.click();}const layers=document.querySelector('.map-controls > .panel-toggle');if(layers.getAttribute('aria-expanded')==='true')layers.click();window.scrollTo(0,0);`);
+  await mobileWindow.webContents.executeJavaScript(`document.querySelector('button[aria-label="Cambiar a modo oscuro"]')?.click();const route=document.querySelector('.map-route-panel > .panel-toggle');if(route.getAttribute('aria-expanded')!=='true')route.click();const layers=document.querySelector('.map-controls > .panel-toggle');if(layers.getAttribute('aria-expanded')==='true')layers.click();window.scrollTo(0,0);`);
   await capture(mobileWindow,'mapa-movil-diseno-oscuro.png');
   await openMobileMenu(mobileWindow);
   await capture(mobileWindow,'mapa-movil-menu-cuadricula.png');
@@ -754,13 +859,15 @@ async function run() {
   await navigationWindow.webContents.executeJavaScript(`document.querySelector('button[aria-label="Cerrar ficha"]').click()`);
   stages.push({test:'Anuncios rotan y abren la ficha comercial existente',passed:true});
 
+  await routePlaceSearchScenarios();
+
   for (const [index, window] of windows.entries()) {
     assert.deepEqual(await window.webContents.executeJavaScript(`window.__smokeErrors`), [], `Errores de React en cliente ${index + 1}`);
   }
   assert.deepEqual(errors, []);
   assert.deepEqual([...blockedHosts], []);
   assert.equal(requests.filter(request => request.navigation && !request.inPlace).length, 2, 'Cada cliente debe cargar el documento una sola vez');
-  assert.ok(requests.some(request => request.url === '/api/navigation/roads' && request.revision >= 4), 'La capa vial también debe actualizarse');
+  assert.ok(requests.some(request => new URL(request.url,'http://127.0.0.1').pathname === '/api/navigation/roads/risk' && request.revision >= 4), 'La capa vial también debe actualizarse');
   await capture(windows[1], 'mapa-sincronizado.png');
   stages.push({ test: 'Sin recargas, errores de React, ni peticiones externas; capa vial actualizada', passed: true });
   await commonShellScenarios();

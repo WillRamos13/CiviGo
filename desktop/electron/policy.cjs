@@ -76,6 +76,16 @@ function publicUrl(value) {
   if (typeof value !== 'string' || !/^\/(?:mapa|ranking|incidentes\/[1-9][0-9]{0,9})$/.test(value)) throw new DesktopError('Enlace no permitido.');
   return DEFAULT_ORIGIN + value;
 }
+function imageReferenceUrl(value) {
+  if (typeof value !== 'string' || value.length > 2048 || /[\\\x00-\x20\x7f]/.test(value)) throw new DesktopError('Referencia de imagen no permitida.');
+  let url;
+  try { url = new URL(value); } catch { throw new DesktopError('Referencia de imagen no permitida.'); }
+  const host = url.hostname.toLowerCase().replace(/\.$/, '');
+  if (!['https:', 'http:'].includes(url.protocol) || url.username || url.password || url.port || !host.includes('.') || !/^[a-z0-9.-]+$/.test(host) || /^\d+(?:\.\d+){3}$/.test(host) || /(?:^|\.)(?:localhost|local|internal|intranet|lan|home|test|invalid|example)$/.test(host) || host.split('.').some(label => !/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(label))) throw new DesktopError('Referencia de imagen no permitida.');
+  url.hostname = host;
+  url.hash = '';
+  return url.href;
+}
 function senderAllowed(event, window) {
   return !!window && !window.isDestroyed() && event.sender === window.webContents && event.senderFrame === window.webContents.mainFrame && event.senderFrame.url === RENDERER_URL;
 }
@@ -91,4 +101,4 @@ function bundlePath(root, value) {
   if (!relative || relative.startsWith('..') || path.isAbsolute(relative)) throw new DesktopError('Recurso inválido.');
   return target;
 }
-module.exports = { DEFAULT_BACKEND, DEFAULT_ORIGIN, RENDERER_URL, FILE_TYPES, MAX_FILE_BYTES, DesktopError, backendUrl, requestOrigin, validateRequest, validateUpload, uploadId, publicUrl, senderAllowed, bundlePath };
+module.exports = { DEFAULT_BACKEND, DEFAULT_ORIGIN, RENDERER_URL, FILE_TYPES, MAX_FILE_BYTES, DesktopError, backendUrl, requestOrigin, validateRequest, validateUpload, uploadId, publicUrl, imageReferenceUrl, senderAllowed, bundlePath };

@@ -1,7 +1,9 @@
 const { services } = require("./providers");
+const { imageWebStatus } = require("./image-web-check");
 
 // Configuration inspection only: no paid requests, messages or bucket mutations.
 function integrationChecklist(env = process.env, state = services()) {
+  const imageWeb = imageWebStatus(env);
   const missing = (names) =>
     names.filter((name) => !String(env[name] || "").trim());
   return {
@@ -21,11 +23,32 @@ function integrationChecklist(env = process.env, state = services()) {
           "Configura la clave privada en Railway. AI_REPORT_MODEL elige el modelo para evaluar reportes (gpt-6.1-sol por defecto); AI_CHAT_MODEL elige el del chatbot (gpt-4.1-mini por defecto). AI_MODEL sigue como alternativa compatible para ambos.",
       },
       {
+        id: "imagenWeb",
+        nombre: "Google Cloud Vision · origen de imágenes",
+        configurado: imageWeb.habilitado && imageWeb.configurado,
+        variablesPendientes: [
+          ...missing(["GOOGLE_VISION_API_KEY"]),
+          ...(imageWeb.habilitado ? [] : ["IMAGE_WEB_CHECK_ENABLED"]),
+        ],
+        indicacion:
+          "Habilita Cloud Vision API y la facturación en Google Cloud. Crea una clave restringida a esa API y guárdala solo en Railway como GOOGLE_VISION_API_KEY; activa IMAGE_WEB_CHECK_ENABLED=true. No uses la clave pública de Firebase. IMAGE_WEB_DAILY_LIMIT e IMAGE_WEB_MONTHLY_LIMIT limitan los intentos por imagen entre todas las réplicas.",
+        aviso:
+          (imageWeb.limites.diario === 0 || imageWeb.limites.mensual === 0
+            ? "Las comprobaciones están pausadas por una cuota de cero o inválida. Revisa IMAGE_WEB_DAILY_LIMIT e IMAGE_WEB_MONTHLY_LIMIT. "
+            : "") +
+          "Una coincidencia en Internet solicita revisión humana, sin sanción automática. No encontrar coincidencias no acredita autoría ni autenticidad. La cuota local no garantiza coste cero: también cuenta el uso de otras aplicaciones del mismo proyecto de Google.",
+      },
+      {
         id: "trafico",
         nombre: "TomTom",
-        configurado: !!env.TOMTOM_API_KEY?.trim() && env.TOMTOM_ENABLED === "true",
-        variablesPendientes: [...missing(["TOMTOM_API_KEY"]), ...(env.TOMTOM_ENABLED === "true" ? [] : ["TOMTOM_ENABLED"])],
-        indicacion: "Guarda TOMTOM_API_KEY únicamente en Railway y habilita TOMTOM_ENABLED=true después de aplicar las migraciones. Las cuotas se comprueban en la base. Las rutas a pie y bicicleta usan OpenStreetMap; los tiempos de tráfico compatibles se calculan para automóvil.",
+        configurado:
+          !!env.TOMTOM_API_KEY?.trim() && env.TOMTOM_ENABLED === "true",
+        variablesPendientes: [
+          ...missing(["TOMTOM_API_KEY"]),
+          ...(env.TOMTOM_ENABLED === "true" ? [] : ["TOMTOM_ENABLED"]),
+        ],
+        indicacion:
+          "Guarda TOMTOM_API_KEY únicamente en Railway y habilita TOMTOM_ENABLED=true después de aplicar las migraciones. Las cuotas se comprueban en la base. Las rutas a pie y bicicleta usan OpenStreetMap; los tiempos de tráfico compatibles se calculan para automóvil.",
       },
       {
         id: "correo",
@@ -64,7 +87,9 @@ function integrationChecklist(env = process.env, state = services()) {
       },
     ].map((provider) => ({
       ...provider,
-      ...(!provider.configurado && !provider.variablesPendientes.length
+      ...(!provider.configurado &&
+      !provider.variablesPendientes.length &&
+      !provider.aviso
         ? {
             aviso:
               "Las variables están definidas, pero la configuración no es válida. Revisa su formato y las opciones del proveedor en la guía de integraciones.",
