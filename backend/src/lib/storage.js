@@ -167,6 +167,14 @@ function createStorage({
       );
   }
 
+  function targetPath({ id, userId, filePath }) {
+    const provider = env.STORAGE_PROVIDER || 'local';
+    if (provider === 'local') return localPath(filePath, directory);
+    if (provider !== 'supabase') throw new HttpError(503, 'STORAGE_PROVIDER debe ser local o supabase.', 'STORAGE_CONFIG');
+    const value = 'supabase://' + remoteConfig(env).bucket + '/uploads/' + userId + '/' + id;
+    remotePath(value);
+    return value;
+  }
   async function save({ id, userId, filePath, mimeType }) {
     const provider = env.STORAGE_PROVIDER || "local";
     const source = localPath(filePath, directory);
@@ -374,7 +382,55 @@ function createStorage({
     await pipeline(Readable.fromWeb(response.body), res);
   }
 
-  return { save, remove, send, read, status: () => storageStatus(env) };
+  async function cleanupTemporary(db, now = new Date()) {
+    const cutoff = +now - 86400000;
+    if (!Number.isFinite(cutoff)) return 0;
+    const root = path.resolve(directory);
+    const uuid = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
+    const candidates = [];
+    let removed = 0;
+    try {
+      const rootInfo = await fs.promises.lstat(root);
+      if (!rootInfo.isDirectory() || rootInfo.isSymbolicLink()) return 0;
+      for (const entry of await fs.promises.readdir(root, { withFileTypes: true })) {
+        if (!entry.isFile() || !uuid.test(entry.name)) continue;
+        const filename = path.join(root, entry.name);
+        const info = await fs.promises.lstat(filename).catch(() => null);
+        if (info?.isFile() && !info.isSymbolicLink() && info.mtimeMs < cutoff)
+          candidates.push({ id: entry.name, path: filename, info });
+      }
+      // Finish every SQL lookup before deleting anything. A database outage
+      // must never make a durable local attachment look like an orphan.
+      const protectedIds = new Set(), protectedPaths = new Set();
+      for (let i = 0; i < candidates.length; i += 500) {
+        const batch = candidates.slice(i, i + 500);
+        const rows = await db.attachment.findMany({ where: { OR: [
+          { id: { in: batch.map(file => file.id) } }, { path: { in: batch.map(file => file.path) } },
+        ] }, select: { id: true, path: true } });
+        for (const row of rows) { protectedIds.add(row.id); protectedPaths.add(row.path); }
+      }
+      for (const file of candidates) {
+        if (protectedIds.has(file.id) || protectedPaths.has(file.path)) continue;
+        // Recheck the same plain file immediately before unlinking. Never
+        // follow links, recurse into directories or remove recently changed data.
+        const currentRoot = await fs.promises.lstat(root);
+        if (!currentRoot.isDirectory() || currentRoot.isSymbolicLink() || currentRoot.ino !== rootInfo.ino) break;
+        const info = await fs.promises.lstat(file.path).catch(() => null);
+        if (!info?.isFile() || info.isSymbolicLink() || info.mtimeMs >= cutoff ||
+          info.ino !== file.info.ino || info.size !== file.info.size || info.mtimeMs !== file.info.mtimeMs) continue;
+        await fs.promises.unlink(file.path);
+        removed++;
+        if (removed >= 100) break;
+      }
+      return removed;
+    } catch {
+      // Retry on the next maintenance cycle without guessing whether SQL or
+      // an inaccessible directory still owns a file.
+      return removed;
+    }
+  }
+
+  return { save, remove, send, read, targetPath, cleanupTemporary, status: () => storageStatus(env) };
 }
 
 module.exports = { createStorage, storageStatus, UPLOAD_DIR, MAX_FILE_SIZE };

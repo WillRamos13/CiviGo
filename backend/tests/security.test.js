@@ -129,6 +129,16 @@ test("Límites separan sesiones verificadas detrás de una IP y no aceptan cooki
   }
 });
 
+test('Password attempts share a strict IP limit across reset, forgot and change endpoints', async () => {
+  const { identity } = rateLimits({ passwordLimit: 3, passwordAccountLimit: 2, loadUser: async () => null });
+  const call = (route, correo) => new Promise(resolve => identity({ path: '/api/users/password/' + route, ip: '192.0.2.1', method: 'POST', body: { correo } }, { setHeader() {} }, error => resolve(error?.status ?? 204)));
+  assert.equal(await call('forgot', ' A@Example.com '), 204);
+  assert.equal(await call('forgot', 'a@example.com'), 204);
+  assert.equal(await call('forgot', 'A@example.com'), 429);
+  assert.equal(await call('reset'), 429);
+  assert.equal(await call('change'), 429);
+});
+
 test("La cuota vencida se renueva con Retry-After verificable", () => {
   let time = 1000;
   const consume = counter({ now: () => time, windowMs: 1000, maxBuckets: 2 });

@@ -1,4 +1,3 @@
-
 import { useState } from "react";
 import Link from "next/link";
 import { api } from "@/lib/api";
@@ -15,6 +14,8 @@ import {
   RemoteStatus,
   stateLabel,
   useRemote,
+  usePagedRemote,
+  Pagination,
 } from "./common";
 
 interface Evidence {
@@ -25,6 +26,7 @@ interface Evidence {
   tipo?: string;
 }
 interface ReportContribution {
+  evidenciaPrivada?: boolean;
   id: number;
   descripcion: string;
   estado: string;
@@ -50,6 +52,7 @@ interface IncidentReview {
   fechaCreacion: string;
   fechaEvento: string;
   totalReportes: number;
+  aportesPendientes?: number;
   evaluacion?: string;
   motivoRetiro?: string | null;
   reportes?: ReportContribution[];
@@ -95,6 +98,205 @@ const actions: { value: Action; label: string; permission: string }[] = [
   },
 ];
 
+function ReportDecision({
+  report,
+  incident,
+  done,
+}: {
+  report: ReportContribution;
+  incident: IncidentReview;
+  done: () => void;
+}) {
+  const { usuario } = useAuth();
+  const admin = usuario?.rol.toUpperCase() === "ADMIN";
+  const permitted = admin || usuario?.permisos?.includes("revisar");
+  const evidence = admin || usuario?.permisos?.includes("evidencia");
+  const [open, setOpen] = useState(false);
+  const [action, setAction] = useState(
+    report.estado === "FALSO" ? "RETIRAR_PUNTOS" : "VALIDAR",
+  );
+  const [severity, setSeverity] = useState(incident.nivelRiesgo ?? 1);
+  const [reason, setReason] = useState("");
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState("");
+  if (!permitted) return null;
+  if ((incident.individual || report.evidenciaPrivada) && !evidence)
+    return (
+      <p className="notice mt-3">
+        Este aporte contiene pruebas privadas. Necesitas permiso de evidencia
+        para revisarlo.
+      </p>
+    );
+  if (report.estado === "FALSO" && !admin)
+    return (
+      <p className="muted text-sm mt-3">
+        Para reconsiderar este aporte, un administrador debe aceptar su
+        apelación.
+      </p>
+    );
+  async function submit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (pending) return;
+    setPending(true);
+    setError("");
+    try {
+      await api(`/admin/reports/${report.id}/review`, {
+        method: "POST",
+        body: JSON.stringify({
+          accion: action,
+          motivo: reason.trim(),
+          nivelRiesgo: action === "VALIDAR" ? severity : undefined,
+        }),
+      });
+      done();
+    } catch (failure: unknown) {
+      setError(message(failure));
+    } finally {
+      setPending(false);
+    }
+  }
+  return (
+    <div className="mt-3">
+      <button
+        className="btn btn-secondary"
+        onClick={() => setOpen(!open)}
+        aria-expanded={open}
+        disabled={pending}
+      >
+        {open ? "Cerrar revisión del aporte" : "Revisar este aporte"}
+      </button>
+      {open && (
+        <form onSubmit={submit} className="mt-3 rounded-xl border p-4">
+          <Feedback error={error} />
+          <p className="muted text-sm mb-3">
+            La decisión se aplica a este reporte. Los demás aportes conservan su
+            revisión.
+          </p>
+          <div className="grid-2">
+            <label className="field">
+              Decisión
+              <select
+                value={action}
+                onChange={(event) => setAction(event.target.value)}
+              >
+                {report.estado === "FALSO" ? (
+                  <option value="RETIRAR_PUNTOS">
+                    Retirar puntos de este aporte
+                  </option>
+                ) : (
+                  <>
+                    <option value="VALIDAR">Validar aporte</option>
+                    <option value="FALSO">Declarar aporte falso</option>
+                  </>
+                )}
+              </select>
+            </label>
+            {action === "VALIDAR" && (
+              <label className="field">
+                Gravedad evaluada
+                <select
+                  value={severity}
+                  onChange={(event) => setSeverity(Number(event.target.value))}
+                >
+                  {[1, 2, 3, 4, 5].map((level) => (
+                    <option key={level} value={level}>
+                      Nivel {level}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+          </div>
+          <label className="field mt-3">
+            Motivo
+            <textarea
+              required
+              minLength={5}
+              maxLength={2000}
+              value={reason}
+              onChange={(event) => setReason(event.target.value)}
+              rows={3}
+            />
+          </label>
+          {action === "FALSO" && (
+            <p className="notice notice-warning mt-3">
+              Solo el autor de este aporte recibirá una falta. La retirada de
+              puntos requiere una decisión administrativa separada.
+            </p>
+          )}
+          {action === "RETIRAR_PUNTOS" && (
+            <p className="notice notice-warning mt-3">
+              Retirarás los puntos de este aporte, sus pruebas y la confirmación
+              de su autor. Las monedas liquidadas no cambian.
+            </p>
+          )}
+          <button className="btn btn-primary mt-3" disabled={pending}>
+            {pending ? "Guardando…" : "Guardar revisión del aporte"}
+          </button>
+        </form>
+      )}
+    </div>
+  );
+}
+
+function FlagDecision({
+  incidentId,
+  flagId,
+  done,
+}: {
+  incidentId: number;
+  flagId: number;
+  done: () => void;
+}) {
+  const { usuario } = useAuth();
+  const [reason, setReason] = useState("");
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState("");
+  if (
+    usuario?.rol.toUpperCase() !== "ADMIN" &&
+    !usuario?.permisos?.includes("revisar")
+  )
+    return null;
+  async function submit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (pending) return;
+    setPending(true);
+    setError("");
+    try {
+      await api(`/admin/incidents/${incidentId}/flags/${flagId}/review`, {
+        method: "POST",
+        body: JSON.stringify({ motivo: reason.trim() }),
+      });
+      done();
+    } catch (failure: unknown) {
+      setError(message(failure));
+    } finally {
+      setPending(false);
+    }
+  }
+  return (
+    <details className="mt-2">
+      <summary>Registrar atención del aviso</summary>
+      <form onSubmit={submit} className="mt-2">
+        <Feedback error={error} />
+        <label className="field">
+          Resultado de la revisión
+          <textarea
+            required
+            minLength={5}
+            maxLength={2000}
+            value={reason}
+            onChange={(event) => setReason(event.target.value)}
+          />
+        </label>
+        <button className="btn btn-secondary mt-2" disabled={pending}>
+          {pending ? "Guardando…" : "Marcar aviso revisado"}
+        </button>
+      </form>
+    </details>
+  );
+}
+
 function ReviewDetail({
   incident,
   done,
@@ -113,6 +315,7 @@ function ReviewDetail({
       (action.value !== "RETIRAR_PUNTOS" ||
         (admin && incident.estado === "FALSO")) &&
       (incident.estado !== "FALSO" || action.value === "RETIRAR_PUNTOS") &&
+      (action.value !== "FALSO" || incident.totalReportes <= 1) &&
       (!incident.individual ||
         !["VALIDAR", "FALSO"].includes(action.value) ||
         canEvidence),
@@ -217,7 +420,12 @@ function ReviewDetail({
           <strong className="text-sm">{dateTime(incident.fechaEvento)}</strong>
         </div>
       </div>
-      <p className="muted text-sm mt-3">La evaluación por IA es preliminar: no certifica la autenticidad de las imágenes ni del hecho. El peso de validación es un factor del cálculo de riesgo, no una probabilidad de que el reporte sea verdadero. Revisa las pruebas y las confirmaciones antes de validar.</p>
+      <p className="muted text-sm mt-3">
+        La evaluación por IA es preliminar: no certifica la autenticidad de las
+        imágenes ni del hecho. El peso de validación es un factor del cálculo de
+        riesgo, no una probabilidad de que el reporte sea verdadero. Revisa las
+        pruebas y las confirmaciones antes de validar.
+      </p>
       {incident.motivoRetiro && (
         <p className="notice mt-4">
           Motivo de retirada: {incident.motivoRetiro}
@@ -238,6 +446,13 @@ function ReviewDetail({
                 <span className="badge mr-2">{stateLabel(flag.tipo)}</span>
                 <span>{flag.motivo}</span>
                 <p className="muted text-sm mt-1">{stateLabel(flag.estado)}</p>
+                {flag.estado === "PENDIENTE" && (
+                  <FlagDecision
+                    incidentId={incident.id}
+                    flagId={flag.id}
+                    done={done}
+                  />
+                )}
               </li>
             ))}
           </ul>
@@ -256,9 +471,17 @@ function ReviewDetail({
                     "Autor registrado"}
                 </h4>
                 <p className="muted text-sm">
-                  {dateTime(report.fechaCreacion)} · {report.estado === "EN_REVISION" ? "En revisión humana" : stateLabel(report.estado)}
+                  {dateTime(report.fechaCreacion)} ·{" "}
+                  {report.estado === "EN_REVISION"
+                    ? "En revisión humana"
+                    : stateLabel(report.estado)}
                 </p>
-                {report.estado === "EN_REVISION" && <p className="notice notice-warning mt-2">Este aporte requiere revisión humana. El estado del incidente agrupado no valida este reporte.</p>}
+                {report.estado === "EN_REVISION" && (
+                  <p className="notice notice-warning mt-2">
+                    Este aporte requiere revisión humana. El estado del
+                    incidente agrupado no valida este reporte.
+                  </p>
+                )}
                 <p className="mt-2 whitespace-pre-wrap">{report.descripcion}</p>
                 <ul className="flex flex-wrap gap-2 mt-3">
                   {report.adjuntos?.map((attachment) => (
@@ -278,13 +501,27 @@ function ReviewDetail({
                     </li>
                   ))}
                 </ul>
+                <ReportDecision
+                  report={report}
+                  incident={incident}
+                  done={done}
+                />
               </article>
             ))}
           </div>
         </section>
       )}
       <form onSubmit={submit} className="mt-6 border-t pt-5">
-        <h3 className="font-bold text-lg mb-4">Registrar decisión</h3>
+        <h3 className="font-bold text-lg mb-4">
+          Registrar decisión del incidente
+        </h3>
+        {incident.totalReportes > 1 && (
+          <p className="notice mb-4">
+            Los aportes pendientes se revisan por separado en «Reportes y
+            documentación». Validar el incidente no aprueba esos aportes ni
+            sanciona a todos los autores.
+          </p>
+        )}
         <Feedback error={error} />
         {allowedActions.length === 0 ? (
           <p className="notice">
@@ -425,33 +662,17 @@ export default function IncidentReviewPanel({
 }: {
   onChanged?: () => void;
 }) {
-  const { data, error, loading, reload } =
-    useRemote<IncidentReview[]>("/admin/incidents");
   const [status, setStatus] = useState("TODOS");
   const [query, setQuery] = useState("");
+  const { data, error, loading, reload, page, pages, total, setPage } =
+    usePagedRemote<IncidentReview>("/admin/incidents", {
+      q: query,
+      estado: status,
+    });
   const [selected, setSelected] = useState<IncidentReview | null>(null);
   const [editorOpening, setEditorOpening] = useState(0);
   const [success, setSuccess] = useState("");
-  const incidents = (data ?? []).filter((incident) => {
-    const matchesStatus =
-      status === "TODOS" ||
-      (status === "REVISION"
-        ? incident.evaluacion === "PENDIENTE" || incident.reportes?.some(report => report.estado === "EN_REVISION")
-        : status === "PUBLICADOS"
-        ? incident.publicado
-        : status === "SIN_PUBLICAR"
-          ? !incident.publicado
-          : status === "ACTIVO"
-            ? incident.publicado &&
-              ["ACTIVO", "VALIDADO", "PENDIENTE"].includes(incident.estado)
-            : incident.estado === status);
-    return (
-      matchesStatus &&
-      `${incident.tipoNombre ?? incident.tipo} ${incident.descripcion} ${incident.distrito ?? ""} ${incident.id}`
-        .toLowerCase()
-        .includes(query.toLowerCase())
-    );
-  });
+  const incidents = data ?? [];
   return (
     <>
       <div className="grid-2 mb-5">
@@ -459,6 +680,7 @@ export default function IncidentReviewPanel({
           Buscar incidente
           <input
             value={query}
+            maxLength={160}
             onChange={(event) => setQuery(event.target.value)}
             placeholder="Tipo, distrito, descripción o número"
           />
@@ -526,12 +748,19 @@ export default function IncidentReviewPanel({
                         <span className="badge">
                           {incidentEvaluationLabel(incident)}
                         </span>
-                        {incident.reportes?.some(report => report.estado === 'EN_REVISION') && <span className="badge">Aportes en revisión humana</span>}
+                        {incident.reportes?.some(
+                          (report) => report.estado === "EN_REVISION",
+                        ) && (
+                          <span className="badge">
+                            Aportes en revisión humana
+                          </span>
+                        )}
                         <span className="badge">
                           Gravedad {incident.nivelRiesgo ?? "por evaluar"}
                         </span>
                         <span className="badge">
-                          {number(incident.validacion * 100)} % de peso de validación
+                          {number(incident.validacion * 100)} % de peso de
+                          validación
                         </span>
                       </div>
                     </div>
@@ -539,7 +768,7 @@ export default function IncidentReviewPanel({
                       className="btn btn-primary self-start"
                       onClick={() => {
                         setSelected(incident);
-                        setEditorOpening(value => value + 1);
+                        setEditorOpening((value) => value + 1);
                         setSuccess("");
                       }}
                     >
@@ -552,21 +781,31 @@ export default function IncidentReviewPanel({
           )}
         </section>
       )}
+      <Pagination
+        page={page}
+        pages={pages}
+        total={total}
+        onPage={setPage}
+        disabled={loading}
+      />
       {selected && (
-        <EditorPanel label={`Revisar incidente ${selected.id}`} selectionKey={`${selected.id}:${editorOpening}`}>
-        <ReviewDetail
-          key={selected.id}
-          incident={selected}
-          close={() => setSelected(null)}
-          done={() => {
-            setSelected(null);
-            setSuccess(
-              "La decisión quedó registrada y el incidente se actualizó.",
-            );
-            reload();
-            onChanged?.();
-          }}
-        />
+        <EditorPanel
+          label={`Revisar incidente ${selected.id}`}
+          selectionKey={`${selected.id}:${editorOpening}`}
+        >
+          <ReviewDetail
+            key={selected.id}
+            incident={selected}
+            close={() => setSelected(null)}
+            done={() => {
+              setSelected(null);
+              setSuccess(
+                "La decisión quedó registrada y el incidente se actualizó.",
+              );
+              reload();
+              onChanged?.();
+            }}
+          />
         </EditorPanel>
       )}
     </>

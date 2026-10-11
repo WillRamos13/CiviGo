@@ -167,6 +167,50 @@ test("incidentes Orbis v2 consultan presentes y Flow v2 valida bytes PNG", async
   assert.equal(Buffer.isBuffer(tile.data), true);
   assert.deepEqual(products, ["incidents", "tiles"]);
 });
+
+test("incident freshness defaults to five minutes, is configurable, and still reserves quota on refresh", async () => {
+  let clock = new Date("2026-10-11T12:00:00Z"),
+    calls = 0,
+    reservations = 0;
+  const client = createTomTomClient({
+    env,
+    now: () => clock,
+    quota: {
+      reserve: async (product) => {
+        assert.equal(product, "incidents");
+        reservations++;
+        return true;
+      },
+    },
+    fetchImpl: async () => {
+      calls++;
+      return new Response('{"incidents":[]}');
+    },
+  });
+  const bounds = [-75.8, -14.1, -75.7, -14];
+  assert.equal(client.configuration().frescuraIncidentesSegundos, 300);
+  await client.incidents(bounds);
+  clock = new Date(+clock + 299999);
+  await client.incidents(bounds);
+  assert.equal(calls, 1);
+  clock = new Date(+clock + 2);
+  await client.incidents(bounds);
+  assert.equal(calls, 2);
+  assert.equal(reservations, 2);
+  for (const [value, expected] of [
+    ["1", 60],
+    ["600", 600],
+    ["99999", 3600],
+    ["invalid", 300],
+  ]) {
+    assert.equal(
+      createTomTomClient({
+        env: { ...env, TOMTOM_INCIDENT_CACHE_SECONDS: value },
+      }).configuration().frescuraIncidentesSegundos,
+      expected,
+    );
+  }
+});
 test("reserva SQL atómica cuenta intentos y deniega cuota agotada antes de red", async () => {
   let count = 0;
   const db = {

@@ -7,7 +7,7 @@ const { ownUser } = require("../lib/projections");
 const { hashPassword, verifyPassword } = require("../lib/password");
 const providers = require("../lib/providers");
 const { firebaseEmailConfig } = require("../lib/firebase-email");
-const { transaction } = require("../lib/workflows");
+const { transaction, refreshVerificationEffects } = require("../lib/workflows");
 const {
   phone,
   email,
@@ -15,6 +15,58 @@ const {
   nicknameValue,
 } = require("../lib/account-input");
 const router = express.Router();
+router.post(
+  "/password/forgot",
+  asyncRoute(async (req, res) => {
+    const correo = email(req.body.correo);
+    if (!providers.services().correo.configurado)
+      throw new HttpError(
+        503,
+        "La recuperación por correo aún no está disponible. Contacta con la administración.",
+        "EMAIL_PROVIDER_MISSING",
+      );
+    await require("../lib/password-reset").requestReset(
+      prisma,
+      correo,
+      providers.sendEmail,
+    );
+    res.json({
+      mensaje:
+        "Si existe una cuenta con ese correo, recibirás un enlace para restablecer tu contraseña.",
+    });
+  }),
+);
+router.post(
+  "/password/reset",
+  asyncRoute(async (req, res) => {
+    await require("../lib/password-reset").finishReset(
+      prisma,
+      req.body.token,
+      text(req.body.password, "Contraseña", 128, 10),
+    );
+    res.clearCookie(COOKIE, { path: "/" });
+    res.json({
+      mensaje:
+        "Contraseña actualizada. Inicia sesión de nuevo en tus dispositivos.",
+    });
+  }),
+);
+router.post(
+  "/password/change",
+  auth,
+  asyncRoute(async (req, res) => {
+    await require("../lib/password-reset").changePassword(
+      prisma,
+      req.user.id,
+      text(req.body.actual, "Contraseña actual", 128),
+      text(req.body.password, "Nueva contraseña", 128, 10),
+    );
+    res.clearCookie(COOKIE, { path: "/" });
+    res.json({
+      mensaje: "Contraseña actualizada. Se cerraron todas tus sesiones.",
+    });
+  }),
+);
 router.post(
   "/register",
   asyncRoute(async (req, res) => {
@@ -50,10 +102,10 @@ router.post(
   asyncRoute(async (req, res) => {
     const correo = email(req.body.correo);
     const password = text(req.body.password, "Contraseña", 128);
-    const usuario = await prisma.user.findUnique({ where: { correo } });
+    let usuario = await prisma.user.findUnique({ where: { correo } });
     if (!usuario || !(await verifyPassword(password, usuario.password)))
       throw new HttpError(401, "Correo o contraseña incorrectos.");
-    await createSession(usuario, res);
+    usuario = await createSession(usuario, res, { passwordHash: usuario.password });
     if (usuario.bloqueado)
       return res.status(403).json({
         error:
@@ -243,6 +295,8 @@ async function finishVerification(
         409,
         "La cuenta cambió durante la verificación. Prepara otra verificación con Google.",
       );
+    if (verifiedField === "correoVerificado")
+      await refreshVerificationEffects(db, user.id);
   });
 }
 function requireGmailVerification(user) {
@@ -339,30 +393,33 @@ router.post(
   asyncRoute(async (req, res) => {
     const telefonoNuevo = phone(req.body.telefonoNuevo);
     const motivo = text(req.body.motivo, "Motivo", 2000, 10);
-    let adjuntoId = null;
-    if (req.body.adjuntoId) {
-      const a = await prisma.attachment.findFirst({
-        where: {
-          id: String(req.body.adjuntoId),
-          usuarioId: req.user.id,
-          tipo: "IDENTIDAD",
-          privado: true,
-        },
-      });
-      if (!a)
+    const recovery = await transaction(async (db) => {
+      let adjuntoId = null;
+      if (req.body.adjuntoId) {
+        const a = await db.attachment.findFirst({
+          where: {
+            id: String(req.body.adjuntoId),
+            usuarioId: req.user.id,
+            tipo: "IDENTIDAD",
+            privado: true,
+            estado: "LISTO",
+          },
+        });
+        if (!a)
+          throw new HttpError(
+            400,
+            "Adjunta un documento privado de identidad propio.",
+          );
+        adjuntoId = a.id;
+      }
+      if (!req.user.correoVerificado && !adjuntoId)
         throw new HttpError(
           400,
-          "Adjunta un documento privado de identidad propio.",
+          "Se necesita correo verificado o documentación privada.",
         );
-      adjuntoId = a.id;
-    }
-    if (!req.user.correoVerificado && !adjuntoId)
-      throw new HttpError(
-        400,
-        "Se necesita correo verificado o documentación privada.",
-      );
-    const recovery = await prisma.recovery.create({
-      data: { usuarioId: req.user.id, telefonoNuevo, motivo, adjuntoId },
+      return db.recovery.create({
+        data: { usuarioId: req.user.id, telefonoNuevo, motivo, adjuntoId },
+      });
     });
     res.status(201).json(recovery);
   }),

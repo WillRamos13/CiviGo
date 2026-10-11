@@ -2,9 +2,10 @@
 
 const fs = require("node:fs/promises");
 const path = require("node:path");
+const { parseRoads } = require("../src/lib/roads");
 
 const QUERY =
-  '[out:json][timeout:90];relation["boundary"="administrative"]["admin_level"="6"]["name"="Ica"];map_to_area->.province;(way(area.province)["highway"];relation(area.province)["boundary"="administrative"]["admin_level"="8"];relation["boundary"="administrative"]["admin_level"="6"]["name"="Ica"];);out body;>;out skel qt;';
+  '[out:json][timeout:90];relation["boundary"="administrative"]["admin_level"="6"]["name"="Ica"];map_to_area->.province;(way(area.province)["highway"];relation(area.province)["type"~"^restriction(:|$)"];relation(area.province)["boundary"="administrative"]["admin_level"="8"];relation["boundary"="administrative"]["admin_level"="6"]["name"="Ica"];);(._;>>;);out body qt;';
 
 async function importRoads({
   endpoint = process.env.OVERPASS_URL ||
@@ -24,6 +25,7 @@ async function importRoads({
     throw new Error(`El proveedor de red vial respondió ${response.status}.`);
   const json = await response.json();
   if (
+    json.remark ||
     !Array.isArray(json.elements) ||
     !json.elements.some(
       (element) => element.type === "way" && element.tags?.highway,
@@ -40,13 +42,26 @@ async function importRoads({
     query: QUERY,
     elements: json.elements,
   };
+  const parsed = parseRoads(document);
+  if (!parsed.boundary.outer.length || !parsed.segments.length)
+    throw new Error(
+      "La descarga no contiene los límites y nodos de la red vial completa. Se conserva el archivo anterior.",
+    );
   await fs.mkdir(path.dirname(destination), { recursive: true });
-  await fs.writeFile(destination, JSON.stringify(document), "utf8");
+  const temporary = `${destination}.${process.pid}.tmp`;
+  try {
+    await fs.writeFile(temporary, JSON.stringify(document), "utf8");
+    await fs.rename(temporary, destination);
+  } finally {
+    await fs.rm(temporary, { force: true });
+  }
   return {
     elementos: json.elements.length,
     vias: json.elements.filter(
       (element) => element.type === "way" && element.tags?.highway,
     ).length,
+    restricciones: parsed.restrictions.length,
+    nodosConEtiquetas: parsed.nodeTags.size,
   };
 }
 

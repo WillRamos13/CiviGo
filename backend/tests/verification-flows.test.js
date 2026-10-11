@@ -26,6 +26,7 @@ async function fixture() {
     records: [],
     googleConfigured: true,
     googleChecks: [],
+    refreshedUsers: [],
     approved: true,
   };
   const db = {
@@ -91,7 +92,13 @@ async function fixture() {
         next();
       },
     },
-    "../src/lib/workflows": { transaction: (work) => work(db) },
+    "../src/lib/workflows": {
+      transaction: (work) => work(db),
+      refreshVerificationEffects: async (database, userId) => {
+        assert.equal(database, db);
+        state.refreshedUsers.push(userId);
+      },
+    },
     "../src/lib/providers": fakeProviders,
     "../src/lib/projections": { ownUser: (user) => user },
   };
@@ -228,6 +235,7 @@ test("Google exige el desafío propio, consume el evento firmado y rechaza su re
     const verified = await f.request("/email/google/verify", body);
     assert.equal(verified.status, 200);
     assert.equal(verified.json.usuario.correoVerificado, true);
+    assert.deepEqual(f.state.refreshedUsers, [f.state.user.id]);
     assert.equal(f.state.records[0].usado, true);
     assert.equal(f.state.records[0].codigoHash, "signed-google-event-hash");
     assert.deepEqual(f.state.googleChecks[0], [

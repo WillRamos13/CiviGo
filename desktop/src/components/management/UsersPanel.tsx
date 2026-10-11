@@ -3,7 +3,7 @@ import { useState } from "react";
 import { api } from "@/lib/api";
 import { useAuth } from "@/components/AuthProvider";
 import EditorPanel from "@/components/EditorPanel";
-import { Feedback, message, number, RemoteStatus, useRemote } from "./common";
+import { Feedback, message, number, RemoteStatus, useRemote, usePagedRemote, Pagination } from "./common";
 
 interface ManagedUser {
   id: number;
@@ -146,7 +146,7 @@ function UserForm({
   const [role, setRole] = useState(user?.rol ?? "USUARIO");
   const [agentType, setAgentType] = useState(user?.tipoAgente ?? "SERENAZGO");
   const [district, setDistrict] = useState(user?.distrito ?? "");
-  const [grants, setGrants] = useState(user?.permisos ?? []);
+  const [grants, setGrants] = useState((user?.permisos ?? []).filter(key => permissions.some(permission => permission.key === key)));
   const [premium, setPremium] = useState(user?.premium ?? false);
   const [blocked, setBlocked] = useState(user?.bloqueado ?? false);
   const [verified, setVerified] = useState(user?.correoVerificado ?? false);
@@ -339,18 +339,14 @@ function UserForm({
 }
 
 export default function UsersPanel() {
-  const users = useRemote<ManagedUser[]>("/admin/users");
-  const catalog = useRemote<DistrictCatalog>("/catalog");
   const [query, setQuery] = useState("");
+  const users = usePagedRemote<ManagedUser>("/admin/users", { q: query });
+  const catalog = useRemote<DistrictCatalog>("/catalog");
   const [selected, setSelected] = useState<ManagedUser | null>(null);
   const [creating, setCreating] = useState(false);
   const [editorOpening, setEditorOpening] = useState(0);
   const [success, setSuccess] = useState("");
-  const filtered = (users.data ?? []).filter((user) =>
-    `${user.nickname} ${user.nombres} ${user.apellidos} ${user.correo}`
-      .toLowerCase()
-      .includes(query.toLowerCase()),
-  );
+  const filtered = users.data ?? [];
   return (
     <>
       <button className="btn btn-primary mb-5" onClick={() => { setCreating(true); setSelected(null); setEditorOpening(value => value + 1); setSuccess(''); }}>Crear usuario</button>
@@ -358,11 +354,13 @@ export default function UsersPanel() {
         Buscar usuario
         <input
           value={query}
+          maxLength={160}
           onChange={(event) => setQuery(event.target.value)}
           placeholder="Nickname, nombre o correo"
         />
       </label>
-      <Feedback success={success} />
+      <Feedback success={success} error={users.refreshError} />
+      <Pagination page={users.page} pages={users.pages} total={users.total} onPage={users.setPage} disabled={users.loading}/>
       <RemoteStatus
         loading={users.loading}
         error={users.error}

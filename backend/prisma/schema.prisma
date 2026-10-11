@@ -118,6 +118,7 @@ model Report {
   fechaEvento         DateTime      @default(now())
   fechaCreacion       DateTime      @default(now())
   recordatorioEnviado Boolean       @default(false)
+  sancionAplicada      Boolean       @default(false)
   adjuntos            Attachment[]
   apelaciones         Appeal[]
 
@@ -159,6 +160,14 @@ model Incident {
   @@index([tipoId, fechaCreacion])
 }
 
+model UsageCounter {
+  clave     String   @id
+  cantidad  Int      @default(0)
+  expiresAt DateTime
+
+  @@index([expiresAt])
+}
+
 model Attachment {
   id        String   @id
   usuarioId Int
@@ -169,9 +178,13 @@ model Attachment {
   mimeType  String
   size      Int
   path      String
+  estado    String   @default("LISTO")
   privado   Boolean  @default(false)
   tipo      String   @default("PUBLICO")
   creadoEn  DateTime @default(now())
+
+  @@index([usuarioId, creadoEn])
+  @@index([estado, reporteId, creadoEn])
 }
 
 model Vote {
@@ -261,6 +274,8 @@ model Recovery {
   motivo        String
   estado        String   @default("PENDIENTE")
   creadoEn      DateTime @default(now())
+
+  @@index([adjuntoId])
 }
 
 model PointEvent {

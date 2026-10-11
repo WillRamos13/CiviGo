@@ -82,12 +82,23 @@ function canReview(user, incident, permission = "revisar") {
       (!!user.distrito && incident.distrito === user.distrito))
   );
 }
-async function createSession(user, res) {
+async function createSession(user, res, { passwordHash } = {}) {
   const token = crypto.randomBytes(32).toString("hex");
   const expiresAt = new Date(Date.now() + 7 * 86400000);
-  await prisma.session.create({
-    data: { id: hashToken(token), usuarioId: user.id, expiresAt },
-  });
+  const data = { id: hashToken(token), usuarioId: user.id, expiresAt };
+  let current = user;
+  if (passwordHash !== undefined) {
+    // Password resets also update User and delete Session rows transactionally.
+    // Recheck the credential in the same serializable transaction as the new
+    // session: a login verified just before a reset cannot resurrect access.
+    current = await require('./upload-quota').serializable(prisma, async db => {
+      const stored = await db.user.findUnique({ where: { id: user.id } });
+      if (!stored || stored.password !== passwordHash || stored.correo !== user.correo)
+        throw new HttpError(401, 'Correo o contraseña incorrectos.');
+      await db.session.create({ data });
+      return stored;
+    });
+  } else await prisma.session.create({ data });
   res.cookie(COOKIE, token, {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
@@ -95,6 +106,7 @@ async function createSession(user, res) {
     expires: expiresAt,
     path: "/",
   });
+  return current;
 }
 module.exports = {
   auth,

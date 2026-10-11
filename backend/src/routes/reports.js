@@ -26,6 +26,7 @@ const router = express.Router();
 const reportQuota = counter();
 const includes = {
   adjuntos: true,
+  apelaciones: { orderBy: { creadoEn: "desc" } },
   usuario: true,
   incidente: {
     include: {
@@ -148,6 +149,7 @@ router.post(
         usuarioId: req.user.id,
         reporteId: null,
         tipo: "PUBLICO",
+        estado: "LISTO",
       },
     });
     if (attachments.length !== ids.length)
@@ -313,6 +315,8 @@ router.post(
             current.nivelRiesgo || 0,
             acceptedEvaluation.gravedad,
           );
+        if (current.evaluacion === "PENDIENTE" && acceptedEvaluation)
+          data.evaluacion = "IA";
         if (acceptedEvaluation && !current.publicado) {
           data.publicado = true;
           data.fechaPublicacion = current.fechaPublicacion || new Date();
@@ -342,7 +346,12 @@ router.post(
       });
       for (const a of attachments) {
         const connected = await db.attachment.updateMany({
-          where: { id: a.id, usuarioId: req.user.id, reporteId: null },
+          where: {
+            id: a.id,
+            usuarioId: req.user.id,
+            reporteId: null,
+            estado: "LISTO",
+          },
           data: {
             reporteId: created.id,
             ...(type.individual || requiresReview
@@ -504,6 +513,11 @@ router.post(
       include: { incidente: true },
     });
     if (!r) throw new HttpError(404, "Reporte no encontrado.");
+    if (["FALSO", "RETIRADO"].includes(r.estado))
+      throw new HttpError(
+        409,
+        "Solicita y espera la revisión de tu apelación antes de añadir pruebas.",
+      );
     if (r.incidente?.individual && !chatOpen(r.incidente))
       throw new HttpError(
         409,
@@ -516,6 +530,15 @@ router.post(
       const current = await db.incident.findUnique({
         where: { id: r.incidente.id },
       });
+      const currentReport = await db.report.findUnique({ where: { id: r.id } });
+      if (
+        !currentReport ||
+        ["FALSO", "RETIRADO"].includes(currentReport.estado)
+      )
+        throw new HttpError(
+          409,
+          "El reporte necesita una apelación aceptada antes de añadir pruebas.",
+        );
       if (current?.individual && !chatOpen(current))
         throw new HttpError(
           409,
@@ -533,6 +556,7 @@ router.post(
           reporteId: null,
           privado: true,
           tipo: "EVIDENCIA",
+          estado: "LISTO",
         },
         data: { reporteId: r.id },
       });
@@ -544,6 +568,7 @@ router.post(
         where: { id: r.id },
         data: { estado: "EN_REVISION" },
       });
+      await require("../lib/workflows").refreshCredibility(db, req.user.id);
       await alertAgents(
         db,
         r.incidente,
@@ -570,18 +595,17 @@ router.post(
       where: { id: id(req.params.id), usuarioId: req.user.id },
     });
     if (!r) throw new HttpError(404, "Reporte no encontrado.");
-    if (
-      await prisma.appeal.findFirst({
-        where: { reporteId: r.id, estado: "PENDIENTE" },
-      })
-    )
-      throw new HttpError(409, "Ya existe una revisión pendiente.");
-    const row = await prisma.appeal.create({
-      data: {
-        reporteId: r.id,
-        usuarioId: req.user.id,
-        motivo: text(req.body.motivo, "Motivo", 2000, 10),
-      },
+    const motivo = text(req.body.motivo, "Motivo", 2000, 10);
+    const row = await transaction(async (db) => {
+      if (
+        await db.appeal.findFirst({
+          where: { reporteId: r.id, estado: "PENDIENTE" },
+        })
+      )
+        throw new HttpError(409, "Ya existe una revisión pendiente.");
+      return db.appeal.create({
+        data: { reporteId: r.id, usuarioId: req.user.id, motivo },
+      });
     });
     res.status(201).json(row);
   }),

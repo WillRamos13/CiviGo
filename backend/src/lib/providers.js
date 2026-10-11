@@ -13,8 +13,7 @@ function services() {
 
 module.exports = {
   services,
-  evaluateReport: ai.evaluateReport,
-  assist: ai.assist,
+  ...require('./guarded-ai').createGuardedAi(),
   verifyFirebaseEmail: require("./firebase-email").verifyFirebaseEmail,
   sendEmail: contacts.sendEmail,
 };

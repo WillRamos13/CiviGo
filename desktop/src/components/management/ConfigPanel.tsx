@@ -95,13 +95,15 @@ const fields: {
   },
 ];
 
-function ConfigForm({ initial, done }: { initial: Config; done: () => void }) {
-  const [draft, setDraft] = useState(initial);
+function ConfigForm({ initial, done, discard }: { initial: Config; done: () => void; discard: () => void }) {
+  const [baseline] = useState(() => JSON.stringify(initial));
+  const [draft, setDraft] = useState({ ...initial, maxVideoBytes: Math.min(initial.maxVideoBytes, 15 * 1024 * 1024) });
+  const changedRemotely = JSON.stringify(initial) !== baseline;
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (pending) return;
+    if (pending || changedRemotely) return;
     setPending(true);
     setError("");
     try {
@@ -125,6 +127,10 @@ function ConfigForm({ initial, done }: { initial: Config; done: () => void }) {
         resultados.
       </p>
       <Feedback error={error} />
+      {changedRemotely && <div className="notice notice-error" role="alert">
+        <p>La configuración cambió desde que abriste este formulario. Conservamos tu borrador; carga los valores actuales antes de guardar para no sobrescribir cambios de otra sesión.</p>
+        <button type="button" className="btn btn-secondary mt-3" disabled={pending} onClick={discard}>Descartar borrador y cargar configuración actual</button>
+      </div>}
       <div className="grid-2">
         {fields.map((field) => (
           <label className="field" key={field.key}>
@@ -160,12 +166,12 @@ function ConfigForm({ initial, done }: { initial: Config; done: () => void }) {
           />
         </label>
         <label className="field">
-          Peso máximo de un video (MB)
+          Peso máximo de un video (MB, hasta 15)
           <input
             required
             type="number"
             min={1}
-            max={30}
+            max={15}
             step={1}
             value={draft.maxVideoBytes / (1024 * 1024)}
             onChange={(event) =>
@@ -213,7 +219,7 @@ function ConfigForm({ initial, done }: { initial: Config; done: () => void }) {
         Los cambios se registran para su revisión. No alteran retroactivamente
         los canjes ya solicitados ni sustituyen una decisión de un agente.
       </p>
-      <button className="btn btn-primary mt-5" disabled={pending}>
+      <button className="btn btn-primary mt-5" disabled={pending || changedRemotely}>
         {pending ? "Guardando…" : "Guardar configuración"}
       </button>
     </form>
@@ -221,16 +227,18 @@ function ConfigForm({ initial, done }: { initial: Config; done: () => void }) {
 }
 
 export default function ConfigPanel() {
-  const { data, loading, error, reload } = useRemote<Config>("/admin/config");
+  const { data, loading, error, refreshError, reload } = useRemote<Config>("/admin/config");
   const [success, setSuccess] = useState("");
+  const [draftVersion, setDraftVersion] = useState(0);
   return (
     <>
-      <Feedback success={success} />
+      <Feedback success={success} error={refreshError} />
       <RemoteStatus loading={loading} error={error} retry={reload} />
       {data && !loading && !error && (
         <ConfigForm
-          key={JSON.stringify(data)}
+          key={draftVersion}
           initial={data}
+          discard={() => { setDraftVersion(value => value + 1); setSuccess(''); }}
           done={() => {
             setSuccess("La configuración de CiviGo se guardó.");
             reload();

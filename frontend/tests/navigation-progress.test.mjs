@@ -41,3 +41,36 @@ test('GPS accuracy, heading, speed and timestamp reach navigation without invent
     callback({coords: {latitude: -14.06, longitude: -75.72, accuracy: 18, heading: null, speed: 1.4}, timestamp: 1000});
     assert.deepEqual(result, {latitud: -14.06, longitud: -75.72, accuracy: 18, speed: 1.4, timestamp: 1000}); stop();
 });
+
+test('a turn remains announced before the intersection and is released only after passing it', () => {
+    const sevenMetersBefore = navigationProgress({latitud: -14.06, longitud: -75.720065}, route);
+    assert.equal(sevenMetersBefore.stepId, 'turn');
+    assert.ok(sevenMetersBefore.distanceToTurn > 6 && sevenMetersBefore.distanceToTurn < 8);
+    assert.equal(navigationProgress({latitud: -14.05995, longitud: -75.72}, route).stepId, 'turn');
+    assert.equal(navigationProgress({latitud: -14.05988, longitud: -75.72}, route).stepId, 'arrive');
+});
+
+test('a repeated street uses previous progress instead of jumping back to the first lap', () => {
+    const loop = {...route, modo: 'driving', geometria: {type: 'LineString', coordinates: [[-75.73, -14.06], [-75.72, -14.06], [-75.72, -14.05], [-75.73, -14.05], [-75.73, -14.06], [-75.72, -14.06]]}};
+    const previous = navigationProgress({latitud: -14.0598, longitud: -75.73, timestamp: 1000}, loop);
+    const current = {latitud: -14.06, longitud: -75.7295, timestamp: 5000};
+    assert.ok(previous.progressMeters > 4000);
+    assert.ok(navigationProgress(current, loop).progressMeters < 100);
+    const continued = navigationProgress(current, loop, previous);
+    assert.ok(continued.progressMeters > previous.progressMeters);
+    assert.ok(continued.progressMeters - previous.progressMeters < 100);
+    assert.ok(navigationProgress(current, {...loop, id: 'new-route'}, previous).progressMeters < 100);
+});
+
+test('temporary GPS errors keep watching and recover; permission denial stops exactly once', () => {
+    let position, error, received = 0, waiting = 0, denied = 0, stopped = 0;
+    const stop = watchRoutePosition({watchPosition: (p, e) => {position = p; error = e; return 4;}, clearWatch: () => stopped++}, () => received++, () => denied++, () => waiting++);
+    error({code: 2}); error({code: 3});
+    assert.equal(waiting, 2); assert.equal(stopped, 0); assert.equal(denied, 0);
+    position({coords: {latitude: -14.06, longitude: -75.72, accuracy: 10}, timestamp: 1000});
+    assert.equal(received, 1);
+    error({code: 1}); stop();
+    assert.equal(stopped, 1); assert.equal(denied, 1);
+    position({coords: {latitude: -14.06, longitude: -75.72}, timestamp: 2000});
+    assert.equal(received, 1);
+});

@@ -21,10 +21,13 @@ function requestOrigin(value = DEFAULT_ORIGIN, development = false) { return bac
 const numeric = '[1-9][0-9]{0,9}';
 const readRoutes = [
   /^\/admin(?:\/(?:incidents|users|catalog|businesses|config|rewards|redemptions|appeals|recoveries|audit|integrations))?$/,
-  /^\/catalog$/, /^\/users\/me$/,
+  /^\/catalog$/, /^\/users\/me$/, /^\/notifications$/,
   /^\/announcements\/(?:manage|traffic-moderation)$/, /^\/navigation\/traffic\/incidents$/,
 ];
 const writeRoutes = [
+  ['PUT', new RegExp(`^/notifications/${numeric}/read$`)],
+  ['POST', new RegExp(`^/admin/reports/${numeric}/review$`)],
+  ['POST', new RegExp(`^/admin/incidents/${numeric}/flags/${numeric}/review$`)],
   ['POST', /^\/announcements\/(?:manage|traffic-moderation)$/],
   ['PATCH', new RegExp(`^/announcements/manage/${numeric}$`)],
   ['DELETE', new RegExp(`^/announcements/manage/${numeric}$`)],
@@ -36,8 +39,23 @@ const writeRoutes = [
 function validateRequest(input) {
   if (!input || typeof input !== 'object' || Array.isArray(input)) throw new DesktopError('Solicitud inválida.');
   const { route, method = 'GET', body, requestId } = input;
-  if (typeof route !== 'string' || route.length > 500 || !route.startsWith('/') || /[%\\?#\s]/.test(route) || route.includes('..') || route.includes('//')) throw new DesktopError('Ruta no permitida.');
-  if (!(method === 'GET' && readRoutes.some(r => r.test(route))) && !writeRoutes.some(([m, r]) => method === m && r.test(route))) throw new DesktopError('Operación no permitida.');
+  if (typeof route !== 'string' || route.length > 2000 || !route.startsWith('/') || /[#\\\s]/.test(route)) throw new DesktopError('Ruta no permitida.');
+  const [pathname, query, extra] = route.split('?');
+  if (/[%]/.test(pathname) || pathname.includes('..') || pathname.includes('//') || extra !== undefined) throw new DesktopError('Ruta no permitida.');
+  if (query !== undefined) {
+    if (method !== 'GET' || !/^\/admin\/(incidents|users|appeals|audit)$/.test(pathname)) throw new DesktopError('Consulta no permitida.');
+    const params = new URLSearchParams(query), seen = new Set();
+    if (!params.has('page')) throw new DesktopError('Página requerida.');
+    for (const [key, value] of params) {
+      if (seen.has(key) || !['page', 'limit', 'q', 'estado'].includes(key)) throw new DesktopError('Filtro no permitido.');
+      seen.add(key);
+      if (key === 'page' && (!/^[1-9]\d{0,5}$/.test(value))) throw new DesktopError('Página inválida.');
+      if (key === 'limit' && (!/^[1-9]\d{0,2}$/.test(value) || Number(value) > 100)) throw new DesktopError('Límite inválido.');
+      if (key === 'q' && (value.length > 160 || /[\x00-\x1f\x7f]/.test(value))) throw new DesktopError('Búsqueda inválida.');
+      if (key === 'estado' && !['REVISION', 'PUBLICADOS', 'SIN_PUBLICAR', 'ACTIVO', 'FALSO', 'RETIRADO', 'RESUELTO', 'VALIDADO', 'PENDIENTE', 'ACEPTADA', 'RECHAZADA'].includes(value)) throw new DesktopError('Estado inválido.');
+    }
+  }
+  if (!(method === 'GET' && readRoutes.some(r => r.test(pathname))) && !writeRoutes.some(([m, r]) => method === m && r.test(pathname))) throw new DesktopError('Operación no permitida.');
   if (method === 'GET' && body !== undefined) throw new DesktopError('Solicitud inválida.');
   if (body !== undefined && (typeof body !== 'string' || Buffer.byteLength(body, 'utf8') > 3 * 1024 * 1024)) throw new DesktopError('La solicitud supera el tamaño permitido.');
   if (body !== undefined) { try { const json = JSON.parse(body); if (!json || typeof json !== 'object' || Array.isArray(json)) throw new Error(); } catch { throw new DesktopError('Datos de solicitud inválidos.'); } }

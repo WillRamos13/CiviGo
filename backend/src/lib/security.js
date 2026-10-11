@@ -92,7 +92,7 @@ function rateLimits(options = {}) {
     try {
       count("ip:" + req.ip, options.ipLimit ?? 2400, res);
       if (
-        /^\/api\/users\/(login|register|email\/google\/(request|verify))\/?$/.test(
+        /^\/api\/users\/(login|register|password\/(forgot|reset|change)|email\/google\/(request|verify))\/?$/.test(
           req.path,
         )
       )
@@ -107,6 +107,13 @@ function rateLimits(options = {}) {
     const route = req.path
       .replace(/\/\d+(?=\/|$)/g, "/:id")
       .replace(/\/[a-f0-9-]{36}(?=\/|$)/gi, "/:id");
+    if (/^\/api\/users\/password\/(forgot|reset|change)\/?$/.test(req.path)) {
+      count('password-ip:' + req.ip, options.passwordLimit ?? 20, res);
+      if (typeof req.body?.correo === 'string') {
+        const hash = crypto.createHash('sha256').update(req.body.correo.trim().toLowerCase()).digest('hex');
+        count('password-account:' + hash, options.passwordAccountLimit ?? 5, res);
+      }
+    }
     if (/^\/api\/users\/login\/?$/.test(req.path)) {
       if (typeof req.body?.correo === "string") {
         const emailHash = crypto

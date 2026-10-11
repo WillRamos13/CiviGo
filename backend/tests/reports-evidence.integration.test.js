@@ -1,5 +1,4 @@
 "use strict";
-
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const crypto = require("node:crypto");
@@ -7,7 +6,6 @@ const fs = require("node:fs/promises");
 const os = require("node:os");
 const path = require("node:path");
 const connection = process.env.TEST_DATABASE_URL;
-
 if (connection) {
   const url = new URL(connection);
   if (
@@ -22,12 +20,10 @@ if (connection) {
   process.env.NODE_ENV = "test";
   delete process.env.TRUST_PROXY;
 }
-
 const photo = Buffer.from(
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aTFcAAAAASUVORK5CYII=",
   "base64",
 );
-
 function shortVideo() {
   const ftyp = Buffer.alloc(16);
   ftyp.writeUInt32BE(16);
@@ -43,7 +39,6 @@ function shortVideo() {
   moov.write("moov", 4);
   return Buffer.concat([ftyp, moov, mvhd]);
 }
-
 test(
   "Reportes HTTP: evidencias visuales autorizadas y revisión humana sin publicación, votos ni premios indebidos",
   { skip: !connection, timeout: 90000 },
@@ -396,6 +391,21 @@ test(
           await assertNoSanction(author);
           await assertNoRewards(author);
           await assertReviewAlert(result.incidente.id, admin);
+          const witness = await actor("emergency_witness");
+          const compatible = await upload(witness);
+          simulated([compatible], { emergenciaActiva: true });
+          const evaluated = await submit(witness, selected, [compatible]);
+          assert.equal(evaluated.incidente.id, result.incidente.id);
+          assert.equal(evaluated.incidente.evaluacion, "IA");
+          assert.equal(evaluated.incidente.porEvaluar, false);
+          assert.equal(
+            (
+              await prisma.report.findUnique({
+                where: { id: result.reporte.id },
+              })
+            ).estado,
+            "EN_REVISION",
+          );
         },
       );
       await t.test(
@@ -500,7 +510,22 @@ test(
           await assertNoSanction(doubtful);
           await assertNoRewards(doubtful);
           await assertReviewAlert(first.incidente.id, admin);
-          const accepted = await review(admin, first.incidente);
+          assert.equal((await review(admin, first.incidente)).status, 200);
+          assert.equal(
+            (await prisma.report.findUnique({ where: { id: bad.reporte.id } }))
+              .estado,
+            "EN_REVISION",
+          );
+          const accepted = await request(
+            `/admin/reports/${bad.reporte.id}/review`,
+            admin,
+            {
+              accion: "VALIDAR",
+              nivelRiesgo: 2,
+              motivo:
+                "Este aporte específico fue revisado con sus pruebas privadas.",
+            },
+          );
           assert.equal(accepted.status, 200, JSON.stringify(accepted.json));
           assert.equal(
             (await prisma.report.findUnique({ where: { id: bad.reporte.id } }))
@@ -556,6 +581,31 @@ test(
             (row) => row.id === held.incidente.id,
           );
           assert.equal(privateDetail.reportes.length, 2);
+          const falseAccepted = await request(
+            `/admin/reports/${accepted.reporte.id}/review`,
+            admin,
+            {
+              accion: "FALSO",
+              motivo:
+                "Se declara falso únicamente el aporte que había sido aceptado.",
+            },
+          );
+          assert.equal(
+            falseAccepted.status,
+            200,
+            JSON.stringify(falseAccepted.json),
+          );
+          const pendingGroup = await prisma.incident.findUnique({
+            where: { id: held.incidente.id },
+          });
+          assert.equal(pendingGroup.publicado, false);
+          assert.equal(pendingGroup.evaluacion, "PENDIENTE");
+          assert.equal(
+            (await prisma.report.findUnique({ where: { id: held.reporte.id } }))
+              .estado,
+            "EN_REVISION",
+          );
+          await assertNoSanction(firstAuthor);
         },
       );
       await t.test(

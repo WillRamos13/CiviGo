@@ -8,6 +8,8 @@ const { auth, optionalAuth, requireEmail, canReview } = require("../lib/auth");
 const { asyncRoute, HttpError } = require("../lib/http");
 const { attachment } = require("../lib/projections");
 const { createStorage, UPLOAD_DIR, MAX_FILE_SIZE } = require("../lib/storage");
+const { config } = require('../lib/catalog');
+const { reserveUpload, claimOrphan, removeClaimed } = require('../lib/upload-quota');
 const allowed = new Set([
   "image/jpeg",
   "image/png",
@@ -53,6 +55,7 @@ function createUploadRouter({
   authenticate = auth,
   authenticateOptional = optionalAuth,
   verifyEmail = requireEmail,
+  getConfig = () => config(db),
 } = {}) {
   fs.mkdirSync(directory, { recursive: true });
   const router = express.Router();
@@ -82,6 +85,8 @@ function createUploadRouter({
         throw new HttpError(400, "Adjunta un archivo en el campo archivo.");
       let storedPath;
       let registered = false;
+      let reservedId;
+      let reservedPath;
       try {
         const tipo = ["EVIDENCIA", "IDENTIDAD"].includes(req.body.tipo)
           ? req.body.tipo
@@ -108,40 +113,51 @@ function createUploadRouter({
             400,
             "El contenido no coincide con el tipo del archivo.",
           );
-        if (file.mimetype.startsWith("video/"))
+        if (file.mimetype.startsWith("video/")) {
+          const rules = await getConfig();
+          if (file.size > Math.min(MAX_FILE_SIZE, rules.maxVideoBytes))
+            throw new HttpError(413, `El video supera el límite de ${Math.round(rules.maxVideoBytes / 1048576)} MB.`, 'FILE_TOO_LARGE');
           require("../lib/media").videoDuration(
             await fs.promises.readFile(file.path),
             file.mimetype,
           );
+        }
         const privado = req.body.privado === "true" || tipo !== "PUBLICO";
         if (file.mimetype === "application/pdf" && !privado)
           throw new HttpError(400, "Los documentos PDF deben ser privados.");
         const fileId = path.basename(file.path);
+        reservedPath = storage.targetPath({ id: fileId, userId: req.user.id, filePath: file.path });
+        await reserveUpload(db, { id: fileId, usuarioId: req.user.id,
+          nombre: path.basename(file.originalname).slice(0, 150), mimeType: file.mimetype,
+          size: file.size, path: reservedPath, privado, tipo });
+        reservedId = fileId;
         storedPath = await storage.save({
           id: fileId,
           userId: req.user.id,
           filePath: file.path,
           mimeType: file.mimetype,
         });
-        const row = await db.attachment.create({
+        const row = await db.attachment.update({
+          where: { id: fileId, estado: 'RESERVADO' },
           data: {
-            id: fileId,
-            usuarioId: req.user.id,
-            nombre: path.basename(file.originalname).slice(0, 150),
-            mimeType: file.mimetype,
-            size: file.size,
             path: storedPath,
-            privado,
-            tipo,
+            estado: 'LISTO',
           },
         });
         registered = true;
         res.status(201).json(attachment(row));
       } catch (error) {
-        if (storedPath && !registered)
-          await storage.remove(storedPath).catch(() => {
-            console.error("No se pudo limpiar un archivo sin registro.");
-          });
+        if (reservedId && !registered) {
+          try {
+            // The exact object path is reserved before storage I/O. Even if
+            // the process dies or upload response is lost, cleanup can find it.
+            if (!['STORAGE_CONFIG', 'STORAGE_PRIVATE_BUCKET_REQUIRED'].includes(error.code)) await storage.remove(reservedPath);
+            await db.attachment.deleteMany({ where: { id: reservedId, estado: 'RESERVADO' } });
+          } catch {
+            await db.attachment.updateMany({ where: { id: reservedId, estado: 'RESERVADO' }, data: { estado: 'BORRANDO' } }).catch(() => {});
+            console.warn('[Archivos] Limpieza pendiente; se reintentará.');
+          }
+        }
         throw error;
       } finally {
         // Local files are durable; remote files use the disk only during validation.
@@ -150,6 +166,12 @@ function createUploadRouter({
       }
     }),
   );
+  router.delete('/:id', authenticate, asyncRoute(async (req, res) => {
+    const row = await claimOrphan(db, req.params.id, null, req.user.id);
+    if (!row) throw new HttpError(409, 'Este archivo no existe o ya está asociado a una solicitud o reporte.');
+    await removeClaimed(db, storage, row);
+    res.json({ eliminado: true });
+  }));
   router.get(
     "/:id",
     authenticateOptional,
@@ -165,7 +187,7 @@ function createUploadRouter({
           },
         },
       });
-      if (!row) throw new HttpError(404, "Archivo no encontrado.");
+      if (!row || row.estado !== 'LISTO') throw new HttpError(404, "Archivo no encontrado.");
       const owner = req.user?.id === row.usuarioId;
       const staff =
         req.user &&
@@ -177,13 +199,14 @@ function createUploadRouter({
       const publicAccess =
         !privateFile &&
         row.reporte?.incidente?.publicado &&
+        !['EN_REVISION', 'FALSO', 'RETIRADO'].includes(row.reporte.estado) &&
         row.reporte.usuario.correoVerificado;
       if (!owner && !staff && !publicAccess)
         throw new HttpError(403, "No puedes acceder a este archivo.");
       res.setHeader("Content-Type", row.mimeType);
       res.setHeader(
         "Cache-Control",
-        publicAccess ? "public, max-age=300" : "private, no-store",
+        "private, no-store",
       );
       res.setHeader("X-Content-Type-Options", "nosniff");
       res.setHeader(

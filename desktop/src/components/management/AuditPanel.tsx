@@ -1,7 +1,7 @@
 
 import { useState } from "react";
 import { api } from "@/lib/api";
-import { dateTime, Feedback, message, RemoteStatus, useRemote } from "./common";
+import { dateTime, Feedback, message, RemoteStatus, usePagedRemote, Pagination } from "./common";
 
 interface AuditEntry {
   id: number;
@@ -54,8 +54,8 @@ const actions: Record<string, string> = {
 };
 
 export default function AuditPanel() {
-  const { data, loading, error, reload } =
-    useRemote<AuditEntry[]>("/admin/audit");
+  const { data, loading, error, refreshError, reload, page, pages, total, setPage } =
+    usePagedRemote<AuditEntry>("/admin/audit");
   const [pending, setPending] = useState(false);
   const [failure, setFailure] = useState("");
   const [success, setSuccess] = useState("");
@@ -110,6 +110,7 @@ export default function AuditPanel() {
             Actualizar
           </button>
         </div>
+        <Feedback error={refreshError}/><Pagination page={page} pages={pages} total={total} onPage={setPage} disabled={loading}/>
         <RemoteStatus loading={loading} error={error} retry={reload} />
         {data &&
           !loading &&

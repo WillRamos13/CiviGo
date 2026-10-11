@@ -27,6 +27,8 @@ export class SessionController {
     constructor(private dependencies: Dependencies) {}
     private update(state: SessionState) { this.state = state; this.dependencies.onChange(state); }
     invalidate() { this.revision++; this.request?.abort(); this.request = null; }
+    needsRecovery() { return this.state.offline || this.hasPendingLogout(); }
+    async recover() { if (!this.request && this.needsRecovery()) await this.refresh(); }
     private hasPendingLogout() {
         try { return this.pendingLogout || this.dependencies.storage.getItem('civigo:logout-pending') === 'true'; }
         catch { return this.pendingLogout; }
@@ -53,7 +55,7 @@ export class SessionController {
         this.invalidate();
         const revision = this.revision, controller = new AbortController();
         this.request = controller;
-        if (!this.dependencies.networkAvailable()) { this.update({ usuario: this.offlineAccount(), loading: false, offline: true }); return; }
+        if (!this.dependencies.networkAvailable()) { this.request = null; this.update({ usuario: this.offlineAccount(), loading: false, offline: true }); return; }
         try {
             await this.flushLogout();
             if (revision !== this.revision) return;
@@ -66,7 +68,7 @@ export class SessionController {
             const unavailable = this.dependencies.isUnavailable(error);
             this.update({ usuario: unavailable ? this.offlineAccount() : null, loading: false, offline: unavailable });
             if (!unavailable) try { this.dependencies.storage.removeItem('civigo:offline-account'); } catch {}
-        }
+        } finally { if (revision === this.revision) this.request = null; }
     }
     async prepareLogin() {
         this.invalidate();

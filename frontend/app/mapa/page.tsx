@@ -17,6 +17,7 @@ import { useNavigation } from '@/lib/use-navigation';
 import { recentNearbyIncidents } from '@/lib/recent-incidents';
 import { useMapLocation } from '@/lib/use-map-location';
 import { useNearbyIncidents } from '@/lib/use-nearby-incidents';
+import { loadMapIncidents, normalizeMapBounds, type MapBounds } from '@/lib/map-incidents';
 import BusinessDetailsDialog from '@/components/BusinessDetailsDialog';
 interface Business {
     id: number;
@@ -37,6 +38,16 @@ export default function Mapa() {
 function AccountMap() {
     const { usuario } = useAuth();
     const [incidents, setIncidents] = useState<Incidente[]>([]), [selected, setSelected] = useState<Incidente | null>(null), [route, setRoute] = useState<Ruta | null>(null), [following, setFollowing] = useState(false), [error, setError] = useState(''), [updated, setUpdated] = useState(''), [loading, setLoading] = useState(true), [routeAlert, setRouteAlert] = useState(''), [recalculate, setRecalculate] = useState(0), [ad, setAd] = useState<Business | null>(null), [businessDetail, setBusinessDetail] = useState<Business | null>(null), [category, setCategory] = useState('');
+    const [bounds, setBounds] = useState<MapBounds>([-76.3, -15, -75.1, -13.3]);
+    const boundsTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const changeBounds = useCallback((next: MapBounds) => {
+        if (boundsTimer.current) clearTimeout(boundsTimer.current);
+        boundsTimer.current = setTimeout(() => setBounds(previous => {
+            const rounded = normalizeMapBounds(next);
+            return rounded.every((n, i) => n === previous[i]) ? previous : rounded;
+        }), 350);
+    }, []);
+    useEffect(() => () => { if (boundsTimer.current) clearTimeout(boundsTimer.current); }, []);
     const [catalog, setCatalog] = useState<Catalogo | null>(null);
     const [filterLabel, setFilterLabel] = useState('');
     const changeFollowing = useCallback((value: boolean) => { setFollowing(value); setAd(null); }, []);
@@ -53,7 +64,10 @@ function AccountMap() {
     useEffect(() => { activeRoute.current = route; }, [route]);
     const load = useCallback(async (signal: AbortSignal) => {
         try {
-        const data = await api<Incidente[]>('/incidents', {signal: AbortSignal.any([signal, AbortSignal.timeout(30000)])});
+        const area: MapBounds = [...bounds];
+        for (const point of activeRoute.current?.geometria.coordinates ?? []) { area[0] = Math.min(area[0], point[0] - .002); area[1] = Math.min(area[1], point[1] - .002); area[2] = Math.max(area[2], point[0] + .002); area[3] = Math.max(area[3], point[1] + .002); }
+        const requestSignal = AbortSignal.any([signal, AbortSignal.timeout(30000)]);
+        const data = await loadMapIncidents(area, path => api(path, { signal: requestSignal }));
         if (signal.aborted) return;
         const newOnRoute = data.filter(i => (!previous.current.has(i.id)||((i.gravedad??i.nivelRiesgo??0)>(lastGravity.current.get(i.id)??0))) && activeRoute.current && nearRoute(i, activeRoute.current) && isRouteWarning(i));
         if (hasLoaded.current && newOnRoute.length) {
@@ -78,7 +92,7 @@ function AccountMap() {
     }
     finally {
         if (!signal.aborted) setLoading(false);
-    } }, []);
+    } }, [bounds]);
     const refresh = useLiveRefresh(load);
     useEffect(() => {
         if (!following) return;
@@ -117,7 +131,7 @@ function AccountMap() {
         <div className="map-workspace">
             <div className="map-column">
                 <div className="map-frame" aria-busy={loading}>
-                    <MapView incidentes={filtered} ruta={route} onSelect={setSelected} posicion={position} onLocate={location.acceptPosition} navigating={following} heading={navigation.progress?.heading} centerVersion={navigation.centerVersion} onTrafficChange={() => { if (tracking.current) setRecalculate(v => v + 1); }} typeFilter={{ value: category, groups: filterGroups, onChange: changeTypeFilter }}/>
+                    <MapView onBounds={changeBounds} incidentes={filtered} ruta={route} onSelect={setSelected} posicion={position} onLocate={location.acceptPosition} navigating={following} heading={navigation.progress?.heading} centerVersion={navigation.centerVersion} onTrafficChange={() => { if (tracking.current) setRecalculate(v => v + 1); }} typeFilter={{ value: category, groups: filterGroups, onChange: changeTypeFilter }}/>
                 </div>
             <aside className="side-panel map-floating-panels" aria-label="Paneles del mapa">
                 <CollapsiblePanel title="¿A dónde vamos?" className="map-side-panel map-route-panel" defaultOpen>

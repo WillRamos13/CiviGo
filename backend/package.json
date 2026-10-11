@@ -20,7 +20,8 @@
     "db:local": "node scripts/local-db.js",
     "roads:import": "node scripts/import-roads.js",
     "places:import": "node scripts/import-places.js",
-    "jobs:run": "node scripts/run-lifecycle.js"
+    "jobs:run": "node scripts/run-lifecycle.js",
+    "test:local": "node scripts/test-local.js"
   },
   "keywords": [],
   "author": "",
@@ -42,5 +43,9 @@
   },
   "overrides": {
     "deepmerge-ts": "^8.0.0"
-  }
+  },
+  "engines": {
+    "node": ">=24 <25"
+  },
+  "packageManager": "npm@11.12.1"
 }

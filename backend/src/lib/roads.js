@@ -4,6 +4,7 @@ const path = require("node:path");
 const { HttpError } = require("./http");
 const { distanceMeters, projectToLine } = require("./risk");
 const { searchLocalPlaces } = require("./local-places");
+const { parseTurnRestrictions } = require("./navigation-restrictions");
 let cached;
 const coverageCache = new WeakMap();
 const normalize = (value) =>
@@ -66,6 +67,11 @@ function containsRing(point, ring) {
   return inside;
 }
 function parseRoads(data) {
+  const nodeTags = new Map(
+    data.elements
+      .filter((e) => e.type === "node" && e.tags)
+      .map((e) => [String(e.id), e.tags]),
+  );
   const nodes = new Map(
     data.elements
       .filter((e) => e.type === "node")
@@ -75,6 +81,10 @@ function parseRoads(data) {
     data.elements.filter((e) => e.type === "way").map((e) => [e.id, e]),
   );
   const usage = new Map();
+  const restrictions = parseTurnRestrictions(data.elements, ways);
+  const restrictionNodes = new Set(
+    restrictions.filter((rule) => rule.node !== null).map((rule) => rule.node),
+  );
   const roads = [...ways.values()].filter(
     (w) =>
       w.tags?.highway && !["proposed", "construction"].includes(w.tags.highway),
@@ -92,7 +102,10 @@ function parseRoads(data) {
       current.push(node);
       if (
         current.length > 1 &&
-        (i === way.nodes.length - 1 || usage.get(node) > 1)
+        (i === way.nodes.length - 1 ||
+          usage.get(node) > 1 ||
+          nodeTags.has(String(node)) ||
+          restrictionNodes.has(String(node)))
       ) {
         const coordinates = current.map((n) => nodes.get(n));
         const length = lengthOf(coordinates);
@@ -133,6 +146,8 @@ function parseRoads(data) {
     segments,
     boundary,
     districts,
+    nodeTags,
+    restrictions,
     actualizadoEn: data.actualizadoEn,
     fuente: data.fuente,
     atribucion: data.atribucion,

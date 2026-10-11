@@ -86,6 +86,13 @@ export interface Incidente {
     motivoRetiro?: string | null;
 }
 export interface Reporte {
+    apelaciones?: {
+        id: number;
+        motivo: string;
+        estado: 'PENDIENTE' | 'ACEPTADA' | 'RECHAZADA';
+        respuesta?: string | null;
+        creadoEn: string;
+    }[];
     id: number;
     tipo: string;
     descripcion: string;

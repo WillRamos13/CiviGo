@@ -38,7 +38,7 @@ function attachment(a) {
     url: "/api/uploads/" + a.id,
   };
 }
-function report(r, privateView = false) {
+function report(r, privateView = false, staffView = false) {
   return {
     id: r.id,
     tipo: r.tipo,
@@ -49,6 +49,9 @@ function report(r, privateView = false) {
     nivelRiesgo: r.nivelRiesgo,
     estado: r.estado,
     requiereRevision: r.estado === "EN_REVISION",
+    ...(privateView || staffView
+      ? { evidenciaPrivada: (r.adjuntos || []).some((a) => a.privado) }
+      : {}),
     incidenteId: r.incidenteId,
     fechaEvento: r.fechaEvento,
     fechaPublicacion: r.incidente?.fechaPublicacion ?? null,
@@ -57,6 +60,19 @@ function report(r, privateView = false) {
     adjuntos: (r.adjuntos || [])
       .filter((a) => privateView || !a.privado)
       .map(attachment),
+    ...(privateView
+      ? {
+          apelaciones: (r.apelaciones || []).map(
+            ({ id, motivo, estado, respuesta, creadoEn }) => ({
+              id,
+              motivo,
+              estado,
+              respuesta,
+              creadoEn,
+            }),
+          ),
+        }
+      : {}),
     incidente: r.incidente
       ? incident({
           ...r.incidente,
@@ -68,15 +84,15 @@ function report(r, privateView = false) {
       : undefined,
   };
 }
-function incident(i, privateView = false) {
+function incident(i, privateView = false, staffView = false) {
   const allReports = i.reportes || [];
   const verifiedReports = allReports.filter(
     (r) => r.usuario?.correoVerificado === true,
   );
   const publicReports = verifiedReports.filter(
-    (r) => r.estado !== "EN_REVISION",
+    (r) => !["EN_REVISION", "FALSO", "RETIRADO"].includes(r.estado),
   );
-  const visibleReports = privateView ? allReports : publicReports;
+  const visibleReports = privateView || staffView ? allReports : publicReports;
   const votes = (i.votos || []).filter(
     (v) => v.usuario?.correoVerificado === true,
   );
@@ -115,6 +131,13 @@ function incident(i, privateView = false) {
       !privateView && allReports.length
         ? verifiedReports.length
         : (i._count?.reportes ?? i.totalReportes),
+    ...(privateView || staffView
+      ? {
+          aportesPendientes: allReports.filter(
+            (r) => r.estado === "EN_REVISION",
+          ).length,
+        }
+      : {}),
     confirmaciones: votes.filter((v) => v.tipo === "CONFIRMAR").length,
     resoluciones: votes.filter((v) => v.tipo === "RESOLVER").length,
     validacion: i.validacion,
@@ -137,7 +160,7 @@ function incident(i, privateView = false) {
     chatAbierto: require("./workflows").chatOpen(i),
     porEvaluar: i.nivelRiesgo == null || i.evaluacion === "PENDIENTE",
     reportes: visibleReports.map((r) =>
-      report({ ...r, incidente: undefined }, privateView),
+      report({ ...r, incidente: undefined }, privateView, staffView),
     ),
     revisiones: privateView ? i.revisiones : undefined,
     flags: privateView ? i.flags : undefined,

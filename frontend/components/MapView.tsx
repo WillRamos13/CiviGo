@@ -6,6 +6,7 @@ import { getImageProps } from 'next/image';
 import { getIncidentIcon } from '@/lib/incident-icons';
 import { EMPTY_MAP_DATA, MAP_STYLE, bindIncidentMarkerZoom, syncMapLayers, type MapLayerState } from '@/lib/map-layers';
 import { api, errorMessage } from '@/lib/api';
+import { applyRoadRisk, type RoadGeometry, type RoadRisk } from '@/lib/road-map';
 import { useLiveRefresh } from '@/lib/use-live-refresh';
 import type { IncidentFilterGroup } from '@/lib/incident-filters';
 import type { Incidente, Ruta, Posicion, LocationFix } from '@/lib/types';
@@ -29,14 +30,16 @@ type Props = {
     heading?: number;
     centerVersion?: number;
     onTrafficChange?: () => void;
+    onBounds?: (bounds: [number, number, number, number]) => void;
     typeFilter?: { value: string; groups: IncidentFilterGroup[]; onChange: (value: string) => void };
 };
 const brandColor = (element: HTMLElement | null) => element ? getComputedStyle(element).getPropertyValue('--map-route-color').trim() || '#1554D8' : '#1554D8';
 const EMPTY_INCIDENTS: Incidente[] = [];
-export default function MapView({ incidentes = EMPTY_INCIDENTS, ruta = null, onSelect, onPosition, onLocate, posicion = null, editor = false, typeFilter, navigating = false, heading, centerVersion = 0, onTrafficChange }: Props) {
+export default function MapView({ incidentes = EMPTY_INCIDENTS, ruta = null, onSelect, onPosition, onLocate, posicion = null, editor = false, typeFilter, navigating = false, heading, centerVersion = 0, onTrafficChange, onBounds }: Props) {
     const container = useRef<HTMLDivElement>(null), mapRef = useRef<mapboxgl.Map | null>(null), markers = useRef<mapboxgl.Marker[]>([]), positionMarker = useRef<mapboxgl.Marker | null>(null);
-    const callbacks = useRef({ onSelect, onPosition, onLocate });
+    const callbacks = useRef({ onSelect, onPosition, onLocate, onBounds });
     const [loaded, setLoaded] = useState(false), [risk, setRisk] = useState(true), [events, setEvents] = useState(true), [zones, setZones] = useState(true), [error, setError] = useState(''), [roads, setRoads] = useState<GeoJSON.FeatureCollection>(EMPTY_MAP_DATA), [roadError, setRoadError] = useState('');
+    const geometryCache = useRef<RoadGeometry | null>(null), roadRevision = useRef('');
     const styleReady = useRef(false);
     const [controlsOpen, setControlsOpen] = useState(false), [legendOpen, setLegendOpen] = useState(true), [traffic, setTraffic] = useState(false);
     const [trafficStatus, setTrafficStatus] = useState<TrafficStatus | null>(null), [trafficData, setTrafficData] = useState<TrafficResponse | null>(null), [externalSelected, setExternalSelected] = useState<ExternalTrafficIncident | null>(null);
@@ -52,7 +55,7 @@ export default function MapView({ incidentes = EMPTY_INCIDENTS, ruta = null, onS
     const token = process.env.NEXT_PUBLIC_MAPBOX_TOKEN
     const [online, setOnline] = useState(true);
     useEffect(() => { const change = () => setOnline(navigator.onLine); window.addEventListener('online', change); window.addEventListener('offline', change); void Promise.resolve().then(change); return () => { window.removeEventListener('online', change); window.removeEventListener('offline', change); }; }, []);
-    useEffect(() => { callbacks.current = { onSelect, onPosition, onLocate }; }, [onSelect, onPosition, onLocate]);
+    useEffect(() => { callbacks.current = { onSelect, onPosition, onLocate, onBounds }; }, [onSelect, onPosition, onLocate, onBounds]);
     useEffect(() => {
         layerState.current = { roads, incidents: incidentes, route: ruta, risk, events, zones, editor,
             brand: brandColor(container.current),
@@ -69,6 +72,9 @@ export default function MapView({ incidentes = EMPTY_INCIDENTS, ruta = null, onS
         const geolocate = new mapboxgl.GeolocateControl({ positionOptions: { enableHighAccuracy: true }, trackUserLocation: false, showUserHeading: true });
         geolocate.on('geolocate', (event: GeolocationPosition) => callbacks.current.onLocate?.({ latitud: event.coords.latitude, longitud: event.coords.longitude, accuracy: event.coords.accuracy, timestamp: event.timestamp }));
         map.addControl(geolocate, editor ? 'top-right' : 'bottom-right');
+        const publishBounds = () => { const b = map.getBounds(); if (b) callbacks.current.onBounds?.([b.getWest(), b.getSouth(), b.getEast(), b.getNorth()]); };
+        map.on('moveend', publishBounds);
+        map.on('load', publishBounds);
         map.on('dragstart', () => { followCamera.current = false; });
         map.on('rotatestart', e => { if (e.originalEvent) followCamera.current = false; });
         map.on('style.load', () => {
@@ -87,9 +93,15 @@ export default function MapView({ incidentes = EMPTY_INCIDENTS, ruta = null, onS
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [token, editor]);
     const loadRoads = useCallback(async (signal: AbortSignal) => { if (editor) return; try {
-        const data = await api<GeoJSON.FeatureCollection>('/navigation/roads', { signal: AbortSignal.any([signal, AbortSignal.timeout(30000)]) });
+        const requestSignal = AbortSignal.any([signal, AbortSignal.timeout(30000)]);
+        const riskData = await api<RoadRisk>('/navigation/roads/risk', { signal: requestSignal });
+        let geometry = geometryCache.current;
+        if (!geometry || geometry.version !== riskData.version) {
+            geometry = await api<RoadGeometry>(`/navigation/roads/geometry?v=${encodeURIComponent(riskData.version)}`, { signal: requestSignal, cache: 'force-cache' });
+            geometryCache.current = geometry; roadRevision.current = '';
+        }
         if (!signal.aborted) {
-            setRoads(data);
+            if (roadRevision.current !== riskData.revision) { setRoads(applyRoadRisk(geometry, riskData)); roadRevision.current = riskData.revision; }
             setRoadError('');
         }
     }
@@ -214,7 +226,7 @@ export default function MapView({ incidentes = EMPTY_INCIDENTS, ruta = null, onS
             const marker = new mapboxgl.Marker({element: button}).setLngLat([item.longitud, item.latitud]).addTo(map); button.setAttribute('role', 'button'); externalMarkers.current.push(marker);
         }
     }, [loaded, trafficData, events, editor]);
-    return <><div className="map-container" ref={container}/>{!online && ruta && <OfflineRoute ruta={ruta}/>}{!token && <div className="map-fallback" style={{ position: 'absolute', inset: 0 }}><MapPin size={38} color="var(--brand)"/></div>}{!editor && <>
+    return <><div className="map-container" ref={container}/>{!online && ruta && <OfflineRoute ruta={ruta}/>}{!token && <div className="map-fallback" style={{ position: 'absolute', inset: 0 }}><MapPin size={38} color="var(--brand)"/><p>No se pudo cargar la cartografía.</p><small>Los reportes siguen disponibles en la lista. Comunícalo a la administración si el problema continúa.</small></div>}{!editor && <>
         <CollapsiblePanel title={typeFilter?.value ? 'Capas y filtros · 1 filtro' : 'Capas y filtros'} className="map-controls" open={controlsOpen} onOpenChange={setControlsOpen}>
             <div className="map-layer-options">
                 <label><input type="checkbox" checked={risk} onChange={e => { setRisk(e.target.checked); if (e.target.checked) setTraffic(false); }}/>Riesgo por tramo</label>

@@ -31,15 +31,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     useEffect(() => {
         void refresh();
         const reconnect = () => { void refresh(); };
+        const visible = () => { if (document.visibilityState === 'visible') void controller.recover(); };
+        const retry = setInterval(() => { if (navigator.onLine && document.visibilityState === 'visible') void controller.recover(); }, 15000);
         const changed = (event: StorageEvent) => { if (event.key === 'civigo:offline-account' || event.key === 'civigo:logout-pending') void refresh(); };
         window.addEventListener('online', reconnect);
         window.addEventListener('offline', reconnect);
         window.addEventListener('storage', changed);
+        window.addEventListener('focus', visible);
+        document.addEventListener('visibilitychange', visible);
         return () => {
             controller.invalidate();
             window.removeEventListener('online', reconnect);
             window.removeEventListener('offline', reconnect);
             window.removeEventListener('storage', changed);
+            window.removeEventListener('focus', visible);
+            document.removeEventListener('visibilitychange', visible);
+            clearInterval(retry);
         };
     }, [controller, refresh]);
     return <Context.Provider value={{ ...session, refresh, logout, prepareLogin }}>{children}</Context.Provider>;

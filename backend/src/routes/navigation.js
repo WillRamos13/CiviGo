@@ -46,6 +46,16 @@ async function incidents() {
       })),
     );
 }
+router.use(
+  "/roads",
+  require("./road-map")({
+    getRoads,
+    coveredSegments,
+    incidents,
+    config,
+    scoreSegments,
+  }),
+);
 router.get(
   "/roads",
   asyncRoute(async (req, res) => {

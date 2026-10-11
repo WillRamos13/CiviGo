@@ -2,20 +2,31 @@ export const API_URL = (process.env.NEXT_PUBLIC_API_URL || '/api').replace(/\/$/
 export class ApiError extends Error {
     constructor(message: string, public status: number, public code?: string) { super(message); this.name = 'ApiError'; }
 }
-export async function api<T>(path: string, options: RequestInit = {}): Promise<T> {
+export type ApiOptions = RequestInit & { timeoutMs?: number };
+export async function api<T>(path: string, options: ApiOptions = {}): Promise<T> {
+    const { timeoutMs = options.method && options.method !== 'GET' ? 90000 : 20000, ...requestOptions } = options;
+    if (options.signal?.aborted) throw new DOMException('Solicitud cancelada.', 'AbortError');
+    const controller = new AbortController();
+    const cancel = () => controller.abort();
+    options.signal?.addEventListener('abort', cancel, { once: true });
+    let timedOut = false;
+    const timer = setTimeout(() => { timedOut = true; controller.abort(); }, timeoutMs);
+    try {
     const headers = new Headers(options.headers);
     if (options.body && !(options.body instanceof FormData))
         headers.set('Content-Type', 'application/json');
     let response: Response;
     try {
-        response = await fetch(`${API_URL}${path}`, { ...options, headers, credentials: 'include', cache: 'no-store' });
+        response = await fetch(`${API_URL}${path}`, { ...requestOptions, signal: controller.signal, headers, credentials: 'include', cache: requestOptions.cache ?? 'no-store' });
     }
     catch (error) {
         if (options.signal?.aborted) throw error;
+        if (timedOut) throw new ApiError('La solicitud tardó demasiado. Comprueba tu conexión e inténtalo de nuevo.', 0, 'REQUEST_TIMEOUT');
         throw new ApiError('No se pudo conectar con CiviGo. Comprueba tu conexión y vuelve a intentarlo.', 0);
     }
     const data = await response.json().catch(() => null);
     if (options.signal?.aborted) throw new DOMException('Solicitud cancelada.', 'AbortError');
+    if (timedOut) throw new ApiError('La solicitud tardó demasiado. Comprueba tu conexión e inténtalo de nuevo.', 0, 'REQUEST_TIMEOUT');
     if (!response.ok) {
         let message = 'No se pudo completar la solicitud.';
         if (response.status >= 500) {
@@ -28,11 +39,15 @@ export async function api<T>(path: string, options: RequestInit = {}): Promise<T
                 message = 'La verificación con Google no está disponible en este momento. Inténtalo de nuevo más tarde.';
             else if (response.status === 503 && typeof data?.code === 'string' && data.code.startsWith('STORAGE_'))
                 message = 'No se pudo acceder al archivo. Inténtalo de nuevo más tarde o comunícalo al administrador.';
+            else if (response.status === 503 && data?.code === 'EMAIL_PROVIDER_MISSING')
+                message = 'La recuperación por correo aún no está disponible. Contacta con la administración.';
         }
-        else message = data?.error || data?.mensaje || message;
+        else message = typeof data?.error === 'string' ? data.error : typeof data?.mensaje === 'string' ? data.mensaje : message;
         throw new ApiError(message, response.status, data?.code);
     }
+    if (data === null && response.status !== 204) throw new ApiError('CiviGo recibió una respuesta incompleta. Inténtalo de nuevo.', 502, 'INVALID_RESPONSE');
     return data as T;
+    } finally { clearTimeout(timer); options.signal?.removeEventListener('abort', cancel); }
 }
 export const post = <T>(path: string, body: unknown = {}, options: RequestInit = {}) => api<T>(path, { ...options, method: 'POST', body: JSON.stringify(body) });
 export async function upload(file: File, privado = false, tipo: 'PUBLICO' | 'EVIDENCIA' | 'IDENTIDAD' = 'PUBLICO') { const form = new FormData(); form.append('archivo', file); form.append('privado', String(privado)); form.append('tipo', tipo); return api<import('./types').Adjunto>('/uploads', { method: 'POST', body: form }); }

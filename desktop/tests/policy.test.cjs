@@ -37,6 +37,22 @@ test('los archivos se limitan a 15 MB y a tipos de adjuntos aceptados por el bac
   for (const value of ['../file', 'x?secret', '', 'http://evil']) assert.throws(() => uploadId(value));
 });
 
+test('la paginación IPC permite filtros concretos sin abrir endpoints o parámetros arbitrarios', () => {
+  for (const route of ['/admin/users?page=2&limit=50&q=Ana+P%C3%A9rez', '/admin/incidents?page=1&estado=REVISION', '/admin/appeals?page=1&estado=PENDIENTE', '/admin/audit?page=3&limit=100']) {
+    assert.equal(validateRequest({route}).route, route);
+  }
+  for (const route of ['/admin/users?page=0', '/admin/users?page=1&limit=101', '/admin/users?page=1&page=2', '/admin/users?page=1&redirect=https://evil.test', '/admin/users?page=1&estado=INVALIDO', '/admin/users?page=1&q=%00', '/admin/users?page=1&q=' + 'x'.repeat(161), '/users/me?page=1', '/admin/%75sers?page=1']) assert.throws(() => validateRequest({route}));
+  assert.throws(() => validateRequest({route: '/admin/users?page=1', method: 'POST', body: '{}'}));
+});
+
+test('alertas y revisión de aportes tienen rutas IPC específicas y no habilitan mutaciones generales', () => {
+  assert.equal(validateRequest({route: '/notifications'}).method, 'GET');
+  assert.equal(validateRequest({route: '/notifications/3/read', method: 'PUT', body: '{}'}).method, 'PUT');
+  assert.equal(validateRequest({route: '/admin/reports/4/review', method: 'POST', body: '{}'}).method, 'POST');
+  assert.equal(validateRequest({route: '/admin/incidents/5/flags/7/review', method: 'POST', body: '{}'}).method, 'POST');
+  for (const route of ['/notifications/3', '/notifications/0/read', '/admin/reports/4', '/admin/incidents/5/flags/7']) assert.throws(() => validateRequest({route, method: 'PUT', body: '{}'}));
+});
+
 test('los enlaces públicos son una lista limitada y nunca aceptan URLs arbitrarias', () => {
   assert.equal(publicUrl('/mapa'), 'https://civigo.online/mapa');
   assert.equal(publicUrl('/incidentes/12'), 'https://civigo.online/incidentes/12');

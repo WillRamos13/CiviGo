@@ -260,7 +260,7 @@ test(
       });
       for (let attempt = 0; attempt < 2; attempt++) {
         const reviewed = await fetch(
-          base + "/admin/incidents/" + incident.id + "/review",
+          base + "/admin/reports/" + result.reporte.id + "/review",
           {
             method: "POST",
             headers: {

@@ -67,10 +67,11 @@ export type MapLayerState = {
 
 type LayerMap = Pick<Map, 'getSource' | 'addSource' | 'getLayer' | 'addLayer' | 'getStyle' | 'setLayoutProperty' | 'setPaintProperty'>;
 
+const sourceData = new WeakMap<object, GeoJSON.GeoJSON>();
 export function syncMapLayers(map: LayerMap, state: MapLayerState) {
     const source = (id: string, data: GeoJSON.GeoJSON) => {
         const current = map.getSource(id) as GeoJSONSource | undefined;
-        if (current) current.setData(data);
+        if (current) { if (sourceData.get(current) !== data) { current.setData(data); sourceData.set(current, data); } }
         else map.addSource(id, { type: 'geojson', data });
     };
     source('civigo-incidents', state.editor ? EMPTY_MAP_DATA : incidentAreaPoints(state.incidents));

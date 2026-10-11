@@ -13,7 +13,8 @@ function loadSource(name, imports, browser, globals = {}) {
   return exports;
 }
 const ok = data => ({ ok: true, data });
-const unwrap = value => { if (!value.ok) throw new Error(value.error.message); return value.data; };
+class ApiError extends Error { constructor(message, status) { super(message); this.status = status; } }
+const unwrap = value => { if (!value.ok) throw new ApiError(value.error.message, value.error.status); return value.data; };
 
 test('AbortSignal del renderer cancela en main la lectura correspondiente', async () => {
   const cancellations = []; let requested;
@@ -40,7 +41,7 @@ test('la cancelación de interfaz no intenta abortar una mutación ya enviada', 
 function authFixture(bridge) {
   const state = []; const effects = []; let index = 0;
   const react = { createContext: () => ({ Provider: 'Provider' }), useState: initial => { const position = index++; state[position] = initial; return [initial, value => { state[position] = typeof value === 'function' ? value(state[position]) : value; }]; }, useCallback: value => value, useContext: () => null, useRef: value => ({ current: value }), useEffect: value => effects.push(value) };
-  const source = loadSource('components/AuthProvider.tsx', { react, 'react/jsx-runtime': { jsx: (type, props) => ({ type, props }) }, '@/lib/api': { unwrap } }, { civigoDesktop: bridge });
+  const source = loadSource('components/AuthProvider.tsx', { react, 'react/jsx-runtime': { jsx: (type, props) => ({ type, props }) }, '@/lib/api': { unwrap, ApiError } }, { civigoDesktop: bridge });
   const tree = source.AuthProvider({ children: null });
   return { auth: tree.props.value, state, effects };
 }
@@ -61,6 +62,23 @@ test('un refresh antiguo exitoso no repone usuario después de logout', async ()
   const refresh = fixture.auth.refresh();
   await fixture.auth.logout(); resolve(ok({ id: 1, rol: 'ADMIN' })); await refresh;
   assert.equal(fixture.state[0], null);
+});
+
+test('una caída temporal conserva el panel y la recuperación quita el aviso sin perder la sesión', async () => {
+  let unavailable = false;
+  const current = { id: 1, rol: 'ADMIN' };
+  const fixture = authFixture({login: async () => ok(current), session: async () => unavailable ? {ok: false, error: {message: 'Sin conexión', status: 503}} : ok(current)});
+  await fixture.auth.login('admin@example.test', 'fixture');
+  unavailable = true; await fixture.auth.refresh();
+  assert.equal(fixture.state[0], current); assert.match(fixture.state[2], /conexión/);
+  unavailable = false; await fixture.auth.refresh();
+  assert.equal(fixture.state[0], current); assert.equal(fixture.state[2], '');
+});
+
+test('la denegación de sesión sí retira el acceso administrativo', async () => {
+  const fixture = authFixture({login: async () => ok({id: 1, rol: 'ADMIN'}), session: async () => ({ok: false, error: {message: 'Sesión revocada', status: 403}})});
+  await fixture.auth.login('admin@example.test', 'fixture'); await fixture.auth.refresh();
+  assert.equal(fixture.state[0], null); assert.equal(fixture.state[2], '');
 });
 
 test('un evento de sesión nuevo prevalece sobre una consulta vieja', async () => {
@@ -101,7 +119,7 @@ function componentFixture(file, imports = {}) {
 }
 function usersFixture(user = null) {
   const requests = [], saved = [];
-  const common = { useRemote: route => ({ data: route === '/catalog' ? { distritos: ['Ica'] } : user ? [user] : [], reload() {}, loading: false }), Feedback: 'feedback', RemoteStatus: 'remote', number: String, message: error => error.message };
+  const common = { useRemote: route => ({ data: route === '/catalog' ? { distritos: ['Ica'] } : user ? [user] : [], reload() {}, loading: false }), usePagedRemote: () => ({ data: user ? [user] : [], total: user ? 1 : 0, page: 1, pages: 1, setPage() {}, reload() {}, loading: false }), Pagination: 'pagination', Feedback: 'feedback', RemoteStatus: 'remote', number: String, message: error => error.message };
   const renderer = componentFixture('components/management/UsersPanel.tsx', {
     '@/lib/api': { api: async (route, options) => { requests.push({ route, method: options.method, body: JSON.parse(options.body) }); } },
     '@/components/AuthProvider': { useAuth: () => ({ usuario: { id: 1 }, refresh: async () => {} }) }, './common': common,

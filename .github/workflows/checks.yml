@@ -32,6 +32,8 @@ jobs:
         working-directory: frontend
       - run: npm run lint && npx tsc --noEmit && npm test && npm run build
         working-directory: frontend
+      - run: npm audit --omit=dev --audit-level=high
+        working-directory: frontend
       - name: Validar Compose y construir imágenes sin publicarlas
         env:
           BACKEND_ENV_FILE: backend/.env.example
@@ -61,3 +63,16 @@ jobs:
         run: |
           docker rm -f civigo-ci-web civigo-ci-api || true
           docker volume rm civigo-ci-uploads || true
+  desktop:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: npm ci
+        working-directory: desktop
+      - run: npm test
+        working-directory: desktop
+      - run: npm run test:electron
+        working-directory: desktop

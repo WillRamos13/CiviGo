@@ -150,6 +150,36 @@ test(
             }),
             0,
           );
+          const contributions = await prisma.report.findMany({
+            where: { incidenteId: grouped },
+          });
+          const held = await request(
+            `/admin/incidents/${grouped}/review`,
+            admin,
+            {
+              accion: "VALIDAR",
+              nivelRiesgo: 2,
+              motivo:
+                "No aprobar automáticamente todos los aportes pendientes.",
+            },
+          );
+          assert.equal(held.status, 409);
+          for (const contribution of contributions) {
+            const reviewedReport = await request(
+              `/admin/reports/${contribution.id}/review`,
+              admin,
+              {
+                accion: "VALIDAR",
+                nivelRiesgo: 2,
+                motivo: "Pruebas revisadas de este aporte individual.",
+              },
+            );
+            assert.equal(
+              reviewedReport.status,
+              200,
+              JSON.stringify(reviewedReport.json),
+            );
+          }
           const reviewed = await request(
             `/admin/incidents/${grouped}/review`,
             admin,
@@ -271,7 +301,7 @@ test(
         },
       );
       await t.test(
-        "Una apelación revierte el veredicto agrupado una vez, anula puntos falsos y preserva bloqueos manuales",
+        "Una apelación revierte solo su aporte, restaura puntos originales y preserva bloqueos manuales",
         async () => {
           const agent = await actor("agent", "AGENTE");
           const reports = await prisma.report.findMany({
@@ -338,8 +368,16 @@ test(
                 falseReview,
               )
             ).status,
-            200,
+            409,
           );
+          for (const contribution of reports) {
+            const decision = await request(
+              `/admin/reports/${contribution.id}/review`,
+              agent,
+              falseReview,
+            );
+            assert.equal(decision.status, 200, JSON.stringify(decision.json));
+          }
           assert.equal(
             (await prisma.user.findUnique({ where: { id: actors[0].id } }))
               .faltas,
@@ -408,7 +446,7 @@ test(
             1,
           );
           const appeals = [];
-          for (let n = 0; n < 2; n++) {
+          for (let n = 0; n < reports.length; n++) {
             const report = reports.find((r) => r.usuarioId === actors[n].id);
             const result = await request(
               `/reports/${report.id}/appeal`,
@@ -424,7 +462,7 @@ test(
           const decision = {
             estado: "ACEPTADA",
             respuesta:
-              "Se revierte el veredicto falso del incidente para todos sus autores.",
+              "Se revierte el veredicto falso únicamente del reporte apelado.",
           };
           const accepted = await request(
             `/admin/appeals/${appeals[0]}`,
@@ -440,15 +478,22 @@ test(
           });
           assert.equal(u0.faltas, 3);
           assert.equal(u0.bloqueado, false);
-          assert.equal(u1.faltas, 0);
+          assert.equal(u1.faltas, 1);
           assert.equal(u1.bloqueado, true);
           assert.equal(
             (await prisma.appeal.findUnique({ where: { id: appeals[1] } }))
               .estado,
-            "ACEPTADA",
+            "PENDIENTE",
           );
+          for (const appealId of appeals.slice(1)) {
+            assert.equal(
+              (await request(`/admin/appeals/${appealId}`, admin, decision))
+                .status,
+              200,
+            );
+          }
           assert.equal(
-            (await request(`/admin/appeals/${appeals[1]}`, admin, decision))
+            (await request(`/admin/appeals/${appeals[0]}`, admin, decision))
               .status,
             409,
           );
@@ -463,6 +508,18 @@ test(
             motivo:
               "Incidente confirmado tras aceptar la apelación correspondiente.",
           };
+          for (const contribution of reports) {
+            assert.equal(
+              (
+                await request(
+                  `/admin/reports/${contribution.id}/review`,
+                  admin,
+                  validation,
+                )
+              ).status,
+              200,
+            );
+          }
           assert.equal(
             (
               await request(
@@ -519,6 +576,381 @@ test(
               .bloqueado,
             true,
           );
+        },
+      );
+      await t.test(
+        "Revocar correo recalcula votos y conserva decisiones humanas",
+        async () => {
+          const author = await actor("verified_author");
+          const voters = [
+            await actor("verify_v0"),
+            await actor("verify_v1"),
+            await actor("verify_v2"),
+          ];
+          const row = await createIncident({
+            estado: "VALIDADO",
+            publicado: true,
+            evaluacion: "IA",
+            nivelRiesgo: 3,
+            validacion: 1,
+          });
+          const contribution = await prisma.report.create({
+            data: {
+              usuarioId: author.id,
+              incidenteId: row.id,
+              tipo: row.tipo,
+              descripcion: "Caso comunitario",
+              estado: "VALIDADO",
+              ...p,
+            },
+          });
+          const human = await createIncident({
+            estado: "VALIDADO",
+            publicado: true,
+            evaluacion: "AGENTE",
+            nivelRiesgo: 3,
+            validacion: 1,
+          });
+          for (const voter of voters)
+            for (const incident of [row, human])
+              await prisma.vote.create({
+                data: {
+                  usuarioId: voter.id,
+                  incidenteId: incident.id,
+                  tipo: "CONFIRMAR",
+                  ...p,
+                },
+              });
+          for (const voter of voters) {
+            const result = await request(
+              `/admin/users/${voter.id}`,
+              admin,
+              {
+                correoVerificado: false,
+                motivoVerificacion: "Correo revocado en prueba aislada.",
+              },
+              "PATCH",
+            );
+            assert.equal(result.status, 200, JSON.stringify(result.json));
+          }
+          const updated = await prisma.incident.findUnique({
+            where: { id: row.id },
+          });
+          assert.equal(updated.validacion, 0.5);
+          assert.equal(updated.estado, "ACTIVO");
+          assert.equal(
+            (await prisma.report.findUnique({ where: { id: contribution.id } }))
+              .estado,
+            "PENDIENTE",
+          );
+          assert.equal(
+            (await prisma.incident.findUnique({ where: { id: human.id } }))
+              .validacion,
+            1,
+          );
+          for (const voter of voters)
+            assert.equal(
+              (
+                await request(
+                  `/admin/users/${voter.id}`,
+                  admin,
+                  {
+                    correoVerificado: true,
+                    motivoVerificacion: "Correo restaurado en prueba aislada.",
+                  },
+                  "PATCH",
+                )
+              ).status,
+              200,
+            );
+          assert.equal(
+            (await prisma.incident.findUnique({ where: { id: row.id } }))
+              .validacion,
+            1,
+          );
+          assert.equal(
+            (await prisma.report.findUnique({ where: { id: contribution.id } }))
+              .estado,
+            "VALIDADO",
+          );
+        },
+      );
+      await t.test(
+        "Apelaciones notifican al autor y revalidar restaura credibilidad sin duplicar puntos",
+        async () => {
+          const author = await actor("credibility");
+          const contributions = [];
+          for (let n = 0; n < 3; n++) {
+            const row = await createIncident({
+              estado: "VALIDADO",
+              publicado: true,
+              evaluacion: "AGENTE",
+              nivelRiesgo: 2,
+              validacion: 1,
+            });
+            const contribution = await prisma.report.create({
+              data: {
+                usuarioId: author.id,
+                incidenteId: row.id,
+                tipo: row.tipo,
+                descripcion: "Caso de credibilidad",
+                estado: "VALIDADO",
+                ...p,
+              },
+            });
+            contributions.push(contribution);
+            await prisma.pointEvent.create({
+              data: {
+                usuarioId: author.id,
+                clave: "reporte:" + contribution.id,
+                tipo: "REPORTE_VALIDADO",
+                puntos: 10,
+              },
+            });
+          }
+          const target = contributions[0];
+          assert.equal(
+            (
+              await request(`/admin/reports/${target.id}/review`, admin, {
+                accion: "FALSO",
+                motivo: "Falsedad de este aporte concreto.",
+              })
+            ).status,
+            200,
+          );
+          assert.equal(
+            (await prisma.user.findUnique({ where: { id: author.id } }))
+              .reputacion,
+            70,
+          );
+          const appeal = await request(`/reports/${target.id}/appeal`, author, {
+            motivo: "Solicito revisar este aporte con nuevas pruebas.",
+          });
+          const rejected = await request(
+            `/admin/appeals/${appeal.json.id}`,
+            admin,
+            {
+              estado: "RECHAZADA",
+              respuesta:
+                "Las pruebas aportadas no modifican el resultado inicial.",
+            },
+          );
+          assert.equal(rejected.status, 200, JSON.stringify(rejected.json));
+          const mine = await request("/reports/mine", author);
+          assert.equal(
+            mine.json.find((r) => r.id === target.id).apelaciones[0].estado,
+            "RECHAZADA",
+          );
+          assert.equal(
+            await prisma.notification.count({
+              where: { usuarioId: author.id, tipo: "APELACION" },
+            }),
+            1,
+          );
+          const nextAppeal = await request(
+            `/reports/${target.id}/appeal`,
+            author,
+            {
+              motivo:
+                "Nueva prueba para solicitar otra oportunidad de revisar.",
+            },
+          );
+          assert.equal(
+            (
+              await request(`/admin/appeals/${nextAppeal.json.id}`, admin, {
+                estado: "ACEPTADA",
+                respuesta:
+                  "Nueva prueba aceptada; corresponde revisar el aporte.",
+              })
+            ).status,
+            200,
+          );
+          assert.equal(
+            (await prisma.user.findUnique({ where: { id: author.id } }))
+              .reputacion,
+            null,
+          );
+          assert.equal(
+            (
+              await request(`/admin/reports/${target.id}/review`, admin, {
+                accion: "VALIDAR",
+                nivelRiesgo: 2,
+                motivo: "Aporte corroborado tras revisar la nueva evidencia.",
+              })
+            ).status,
+            200,
+          );
+          const restored = await prisma.user.findUnique({
+            where: { id: author.id },
+          });
+          assert.equal(restored.faltas, 0);
+          assert.equal(restored.reputacion, 100);
+          assert.equal(
+            await prisma.pointEvent.count({ where: { usuarioId: author.id } }),
+            3,
+          );
+        },
+      );
+      await t.test(
+        "Personal sin evidencia ve pendientes pero no puede aprobarlos; avisos guardan revisor",
+        async () => {
+          const agent = await actor("limited_agent", "AGENTE");
+          await prisma.user.update({
+            where: { id: agent.id },
+            data: {
+              permisos: ["revisar"],
+              tipoAgente: "POLICIA",
+              distrito: "Ica",
+            },
+          });
+          assert.equal(
+            (
+              await request(
+                `/admin/users/${agent.id}`,
+                admin,
+                { distrito: null },
+                "PATCH",
+              )
+            ).status,
+            400,
+          );
+          assert.equal(
+            (
+              await request(
+                `/admin/users/${agent.id}`,
+                admin,
+                { permisos: ["usuarios"] },
+                "PATCH",
+              )
+            ).status,
+            400,
+          );
+          const row = await createIncident({
+            distrito: "Ica",
+            evaluacion: "PENDIENTE",
+            publicado: false,
+          });
+          const contribution = await prisma.report.create({
+            data: {
+              usuarioId: actors[6].id,
+              incidenteId: row.id,
+              tipo: row.tipo,
+              descripcion: "Aporte reservado",
+              estado: "EN_REVISION",
+              ...p,
+            },
+          });
+          await prisma.attachment.create({
+            data: {
+              id: "moderation-" + run,
+              usuarioId: actors[6].id,
+              reporteId: contribution.id,
+              nombre: "prueba.png",
+              mimeType: "image/png",
+              size: 1,
+              path: "fixture-not-used",
+              privado: true,
+            },
+          });
+          const inbox = await request(
+            `/admin/incidents?page=1&limit=50&q=${row.id}&estado=REVISION`,
+            agent,
+          );
+          assert.equal(inbox.status, 200, JSON.stringify(inbox.json));
+          const visible = inbox.json.items.find((i) => i.id === row.id);
+          assert.equal(visible.reportes[0].estado, "EN_REVISION");
+          assert.equal(visible.reportes[0].evidenciaPrivada, true);
+          assert.equal(visible.reportes[0].adjuntos.length, 0);
+          assert.equal(
+            (
+              await request(`/admin/reports/${contribution.id}/review`, agent, {
+                accion: "VALIDAR",
+                nivelRiesgo: 2,
+                motivo: "No debe aprobar sin permiso de prueba privada.",
+              })
+            ).status,
+            403,
+          );
+          assert.equal(
+            (
+              await request(`/admin/incidents/${row.id}/review`, agent, {
+                accion: "VALIDAR",
+                nivelRiesgo: 2,
+                motivo: "La vista general tampoco permite evitar el permiso.",
+              })
+            ).status,
+            403,
+          );
+          const flag = await prisma.flag.create({
+            data: {
+              usuarioId: actors[6].id,
+              incidenteId: row.id,
+              tipo: "FALSO",
+              motivo: "Aviso ciudadano para revisar",
+            },
+          });
+          assert.equal(
+            (
+              await request(
+                `/admin/incidents/${row.id}/flags/${flag.id}/review`,
+                agent,
+                {
+                  motivo:
+                    "Aviso revisado y evidencia pendiente de otro agente.",
+                },
+              )
+            ).status,
+            200,
+          );
+          assert.equal(
+            (await prisma.flag.findUnique({ where: { id: flag.id } })).estado,
+            "REVISADO",
+          );
+          const revised = await request(
+            `/admin/incidents?page=1&q=${row.id}`,
+            admin,
+          );
+          assert.equal(
+            revised.json.items.find((i) => i.id === row.id).revisiones[0]
+              .usuario.nombreUsuario,
+            agent.nombreUsuario,
+          );
+        },
+      );
+      await t.test(
+        "Paginación administrativa consulta todo y valida parámetros",
+        async () => {
+          const userPage = await request(
+            `/admin/users?page=2&limit=2&q=${run}`,
+            admin,
+          );
+          assert.equal(userPage.status, 200, JSON.stringify(userPage.json));
+          assert.equal(userPage.json.items.length, 2);
+          assert.equal(userPage.json.total, users.length);
+          assert.equal(userPage.json.page, 2);
+          assert.equal(userPage.json.pageSize, 2);
+          assert.equal(
+            (await request("/admin/users?page=0", admin)).status,
+            400,
+          );
+          assert.equal(
+            (await request("/admin/audit?page=1&limit=101", admin)).status,
+            400,
+          );
+          const auditPage = await request(
+            "/admin/audit?page=1&limit=1&q=VALIDAR_CORREO_ADMIN",
+            admin,
+          );
+          assert.equal(auditPage.status, 200, JSON.stringify(auditPage.json));
+          assert.equal(auditPage.json.items.length, 1);
+          assert.ok(auditPage.json.total >= 3);
+          const appealPage = await request(
+            "/admin/appeals?page=1&limit=1&estado=RECHAZADA",
+            admin,
+          );
+          assert.equal(appealPage.status, 200, JSON.stringify(appealPage.json));
+          assert.equal(appealPage.json.items[0].estado, "RECHAZADA");
+          assert.ok(appealPage.json.total >= 1);
         },
       );
       await t.test(
@@ -621,6 +1053,9 @@ test(
           where: { incidenteId: { in: incidents } },
         });
         await prisma.chatMessage.deleteMany({
+          where: { incidenteId: { in: incidents } },
+        });
+        await prisma.flag.deleteMany({
           where: { incidenteId: { in: incidents } },
         });
         await prisma.review.deleteMany({

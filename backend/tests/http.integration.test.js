@@ -387,6 +387,31 @@ test(
             ).status,
             403,
           );
+          // La emergencia agrupada contiene aportes retenidos por IA no disponible.
+          // El personal revisa cada uno antes de premiarlo, sin liberación masiva.
+          const contributions = await prisma.report.findMany({
+            where: { incidenteId: grouped },
+          });
+          for (const contribution of contributions) {
+            const reviewedReport = await request(
+              `/admin/reports/${contribution.id}/review`,
+              {
+                method: "POST",
+                cookie: admin.cookie,
+                body: {
+                  accion: "VALIDAR",
+                  nivelRiesgo: 4,
+                  motivo:
+                    "Pruebas del aporte revisadas individualmente para el ensayo.",
+                },
+              },
+            );
+            assert.equal(
+              reviewedReport.status,
+              200,
+              JSON.stringify(reviewedReport.json),
+            );
+          }
           const review = await request(
             "/admin/incidents/" + grouped + "/review",
             {

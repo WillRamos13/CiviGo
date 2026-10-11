@@ -39,10 +39,15 @@ function createTomTomClient({
     pending = new Map();
   let active = 0,
     blockedUntil = 0;
+  const requestedFreshness = Number(env.TOMTOM_INCIDENT_CACHE_SECONDS || 300);
+  const incidentCacheSeconds = Number.isFinite(requestedFreshness)
+    ? Math.max(60, Math.min(3600, Math.trunc(requestedFreshness)))
+    : 300;
   const configuration = () => ({
     configurado: configured(env),
     habilitado: env.TOMTOM_ENABLED === "true",
     conexionesProbadas: false,
+    frescuraIncidentesSegundos: incidentCacheSeconds,
     api: {
       routing: "Orbis v3 (auto)",
       incidents: "Orbis v2",
@@ -203,7 +208,7 @@ function createTomTomClient({
         {
           attributes:
             "incidents(type,geometry(type,coordinates),properties(id,iconCategory,events,startTime,endTime,from,to,delayInSeconds,timeValidity))",
-          ttl: 2400000,
+          ttl: incidentCacheSeconds * 1000,
         },
       );
     },

@@ -27,61 +27,70 @@ const trafficFixtures = [{ id: 'tomtom:tt_fixture', externoId: 'tt_fixture', fue
 const moderationFixtures = [];
 const rewardFixtures = Array.from({ length: 24 }, (_, index) => ({ id: 20 + index, nombre: `Cupón de prueba ${index}`, descripcion: 'Recompensa de demostración local', costoMonedas: 50, stock: 1, activo: true }));
 const categories = [{ id: 1, nombre: 'Infraestructura', slug: 'infraestructura', orden: 1, tipos: Array.from({ length: 24 }, (_, index) => ({ id: 30 + index, nombre: `Bache de prueba ${index}`, slug: `bache-fixture-${index}`, categoriaId: 1, emergencia: false, historico: false, fotoObligatoria: false, individual: false, ubicacionRemota: false, persistente: true, activo: true })) }];
+const notificationFixtures = [{ id: 1, titulo: 'Emergencia pendiente', mensaje: 'Revisar incidente #15.', tipo: 'REVISION', incidenteId: 15, leida: false, creadoEn: '2026-01-01T12:00:00Z' }];
+const auditFixtures = Array.from({ length: 61 }, (_, index) => ({ id: index + 1, usuarioId: 1, accion: 'VALIDAR', entidad: 'INCIDENTE', entidadId: String(index + 1), creadoEn: '2026-01-01T12:00:00Z' }));
+let groupingMeters = 50;
 let backendLogin = false;
 const server = http.createServer(async (request, response) => {
+  const url = new URL(request.url, 'http://localhost');
+  const requestPath = url.pathname;
+  const list = rows => { const page = Number(url.searchParams.get('page') || 1), pageSize = Number(url.searchParams.get('limit') || 50); return JSON.stringify(url.searchParams.has('page') ? {items: rows.slice((page - 1) * pageSize, page * pageSize), total: rows.length, page, pageSize, pages: Math.max(1, Math.ceil(rows.length / pageSize))} : rows); };
   let body = ''; for await (const chunk of request) body += chunk;
-  calls.push({ path: request.url, method: request.method, cookie: !!request.headers.cookie, origin: request.headers.origin, ...(body && request.headers['content-type']?.includes('application/json') ? { body: JSON.parse(body) } : {}) });
+  calls.push({ path: requestPath, query: url.search, method: request.method, cookie: !!request.headers.cookie, origin: request.headers.origin, ...(body && request.headers['content-type']?.includes('application/json') ? { body: JSON.parse(body) } : {}) });
   response.setHeader('Content-Type', 'application/json');
-  if (request.url === '/api/users/login') {
+  if (requestPath === '/api/users/login') {
     backendLogin = true;
     response.setHeader('Set-Cookie', `civigo_session=${token}; Path=/; HttpOnly; Expires=${new Date(Date.now() + 86400000).toUTCString()}`);
     const role = JSON.parse(body).correo.startsWith('citizen') ? 'USUARIO' : 'ADMIN';
     return response.end(JSON.stringify({ usuario: { ...actor, rol: role } }));
   }
-  if (request.url === '/api/users/logout') { backendLogin = false; return response.end('{"ok":true}'); }
+  if (requestPath === '/api/users/logout') { backendLogin = false; return response.end('{"ok":true}'); }
   if (!backendLogin || request.headers.cookie !== `civigo_session=${token}`) { response.statusCode = 401; return response.end('{"error":"Sesión requerida"}'); }
-  if (request.url === '/api/users/me') return response.end(JSON.stringify({ usuario: actor }));
-  if (request.url === '/api/admin/users' && request.method === 'POST') {
+  if (requestPath === '/api/users/me') return response.end(JSON.stringify({ usuario: actor }));
+  if (requestPath === '/api/admin/users' && request.method === 'POST') {
     const value = JSON.parse(body);
     const created = { id: 2, ...value, password: undefined, premium: false, bloqueado: false, monedas: 0, credibilidad: null, faltas: 0 };
     managedUsers.unshift(created);
     response.statusCode = 201;
     return response.end(JSON.stringify({ usuario: created }));
   }
-  if (request.url === '/api/admin/users/2' && request.method === 'PATCH') {
+  if (requestPath === '/api/admin/users/2' && request.method === 'PATCH') {
     Object.assign(managedUsers[0], JSON.parse(body));
     return response.end(JSON.stringify({ usuario: managedUsers[0] }));
   }
-  if (request.url === '/api/admin/users') return response.end(JSON.stringify(managedUsers));
-  if (request.url === '/api/admin/incidents') return response.end(JSON.stringify(incidentFixtures));
-  if (request.url === '/api/admin/recoveries') return response.end(JSON.stringify(recoveryFixtures));
-  if (request.url === '/api/admin/appeals') return response.end(JSON.stringify(appealFixtures));
-  if (request.url === '/api/admin/businesses') return response.end(JSON.stringify(businessFixtures));
-  if (request.url === '/api/announcements/manage' && request.method === 'POST') {
+  if (requestPath === '/api/admin/users') return response.end(list(managedUsers));
+  if (requestPath === '/api/admin/incidents') return response.end(list(incidentFixtures));
+  if (requestPath === '/api/admin/recoveries') return response.end(JSON.stringify(recoveryFixtures));
+  if (requestPath === '/api/admin/appeals') return response.end(list(appealFixtures));
+  if (requestPath === '/api/admin/audit') return response.end(list(auditFixtures));
+  if (requestPath === '/api/notifications') return response.end(JSON.stringify(notificationFixtures));
+  if (requestPath === '/api/notifications/1/read' && request.method === 'PUT') { notificationFixtures[0].leida = true; return response.end('{"leida":true}'); }
+  if (requestPath === '/api/admin/businesses') return response.end(JSON.stringify(businessFixtures));
+  if (requestPath === '/api/announcements/manage' && request.method === 'POST') {
     const value = { ...JSON.parse(body), id: 90 }; announcementFixtures.unshift(value); response.statusCode = 201;
     return response.end(JSON.stringify(value));
   }
-  if (request.url === '/api/announcements/manage/90' && request.method === 'PATCH') {
+  if (requestPath === '/api/announcements/manage/90' && request.method === 'PATCH') {
     Object.assign(announcementFixtures[0], JSON.parse(body)); return response.end(JSON.stringify(announcementFixtures[0]));
   }
-  if (request.url === '/api/announcements/manage/90' && request.method === 'DELETE') {
+  if (requestPath === '/api/announcements/manage/90' && request.method === 'DELETE') {
     announcementFixtures.shift(); return response.end('{"eliminado":true}');
   }
-  if (request.url === '/api/announcements/manage') return response.end(JSON.stringify(announcementFixtures));
-  if (request.url === '/api/navigation/traffic/incidents') return response.end(JSON.stringify({ incidentes: trafficFixtures.filter(row => !moderationFixtures.some(saved => saved.externoId === row.externoId && saved.oculto)), trafico: { disponible: true } }));
-  if (request.url === '/api/announcements/traffic-moderation' && request.method === 'POST') {
+  if (requestPath === '/api/announcements/manage') return response.end(JSON.stringify(announcementFixtures));
+  if (requestPath === '/api/navigation/traffic/incidents') return response.end(JSON.stringify({ incidentes: trafficFixtures.filter(row => !moderationFixtures.some(saved => saved.externoId === row.externoId && saved.oculto)), trafico: { disponible: true } }));
+  if (requestPath === '/api/announcements/traffic-moderation' && request.method === 'POST') {
     const value = JSON.parse(body), previous = moderationFixtures.find(row => row.externoId === value.externoId);
     if (previous) Object.assign(previous, value); else moderationFixtures.push({ id: 1, proveedor: 'TOMTOM', usuarioId: 1, ...value, actualizadoEn: new Date().toISOString() });
     return response.end(JSON.stringify(previous ?? moderationFixtures[0]));
   }
-  if (request.url === '/api/announcements/traffic-moderation') return response.end(JSON.stringify(moderationFixtures));
-  if (request.url === '/api/admin/rewards') return response.end(JSON.stringify(rewardFixtures));
-  if (request.url === '/api/admin') return response.end(JSON.stringify({ estadisticas: { usuarios: 2, incidentes: 0 }, servicios: { ia: { configurado: true }, correoGoogle: { configurado: true } } }));
-  if (request.url === '/api/catalog') return response.end(JSON.stringify({ categorias: categories, config: {}, distritos: ['Ica'] }));
-  if (request.url === '/api/admin/catalog') return response.end(JSON.stringify({ categorias: categories }));
-  if (request.url === '/api/admin/integrations') return response.end(JSON.stringify({ proveedores: [], frontend: { variables: [], plataforma: 'Vercel', indicacion: 'Fixture local' }, navegacion: 'Fixture local', pagos: 'Demostración' }));
-  if (request.url === '/api/admin/config') return response.end(JSON.stringify({ agrupacionMetros: 50, agrupacionHoras: 2, confirmacionMetros: 50, confirmaciones: 3, resoluciones: 5, influenciaVecina: 0.15, puntosReporte: 10, puntosConfirmacion: 5, puntosPrueba: 5, premiosRanking: [100, 75, 50, 30, 20, 10, 8, 6, 4, 2], anuncioMetros: 50, intervaloAnuncioMetros: 500, duracionAnuncioSegundos: 5, maxVideoBytes: 15 * 1024 * 1024 }));
-  if (request.url === '/api/uploads/private-fixture') {
+  if (requestPath === '/api/announcements/traffic-moderation') return response.end(JSON.stringify(moderationFixtures));
+  if (requestPath === '/api/admin/rewards') return response.end(JSON.stringify(rewardFixtures));
+  if (requestPath === '/api/admin') return response.end(JSON.stringify({ estadisticas: { usuarios: 2, incidentes: 0 }, servicios: { ia: { configurado: true }, correoGoogle: { configurado: true } } }));
+  if (requestPath === '/api/catalog') return response.end(JSON.stringify({ categorias: categories, config: {}, distritos: ['Ica'] }));
+  if (requestPath === '/api/admin/catalog') return response.end(JSON.stringify({ categorias: categories }));
+  if (requestPath === '/api/admin/integrations') return response.end(JSON.stringify({ proveedores: [], frontend: { variables: [], plataforma: 'Vercel', indicacion: 'Fixture local' }, navegacion: 'Fixture local', pagos: 'Demostración' }));
+  if (requestPath === '/api/admin/config') return response.end(JSON.stringify({ agrupacionMetros: groupingMeters, agrupacionHoras: 2, confirmacionMetros: 50, confirmaciones: 3, resoluciones: 5, influenciaVecina: 0.15, puntosReporte: 10, puntosConfirmacion: 5, puntosPrueba: 5, premiosRanking: [100, 75, 50, 30, 20, 10, 8, 6, 4, 2], anuncioMetros: 50, intervaloAnuncioMetros: 500, duracionAnuncioSegundos: 5, maxVideoBytes: 15 * 1024 * 1024 }));
+  if (requestPath === '/api/uploads/private-fixture') {
     response.setHeader('Content-Type', 'application/pdf'); response.setHeader('Content-Disposition', 'inline; filename="identidad.pdf"');
     return response.end('%PDF-local-fixture');
   }
@@ -146,6 +155,13 @@ async function run() {
   assert.equal(markup.includes('Verificar teléfonos'), false);
   assert.equal(markup.includes('Correo por código'), false);
   await capture(window, 'panel.png');
+  await waitUntil(window, '!!document.querySelector(".desktop-notifications strong")');
+  await window.webContents.executeJavaScript('document.querySelector(".desktop-notifications button").click()');
+  await waitUntil(window, 'document.body.innerText.includes("Emergencia pendiente")');
+  await window.webContents.executeJavaScript(`Array.from(document.querySelectorAll('#desktop-notices button')).find(button => button.textContent === 'Marcar como leída').click()`);
+  await waitUntil(window, '!document.querySelector(".desktop-notifications > button strong")');
+  assert.equal(calls.some(call => call.path === '/api/notifications/1/read' && call.cookie), true);
+  await window.webContents.executeJavaScript('document.querySelector(".desktop-notifications button").click()');
   const panels = [
     ['Incidentes', '/api/admin/incidents'], ['Apelaciones', '/api/admin/appeals'],
     ['Usuarios', '/api/admin/users'], ['Categorías y tipos', '/api/admin/catalog'],
@@ -164,6 +180,27 @@ async function run() {
     assert.equal(await window.webContents.executeJavaScript(`document.querySelectorAll('.notice-error').length`), 0, label + ' no debe mostrar un error');
   }
   assert.equal(await window.webContents.executeJavaScript(`document.cookie.includes('${token}')`), false);
+  await window.webContents.executeJavaScript(`Array.from(document.querySelectorAll('nav[aria-label="Herramientas de administración"] button')).find(button=>button.textContent==='Configuración').click()`);
+  await waitUntil(window, `!!document.querySelector('form input[type="number"]')`);
+  await window.webContents.executeJavaScript(`(() => { const field=document.querySelector('form input[type="number"]'); Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(field,'75'); field.dispatchEvent(new Event('input',{bubbles:true})); })()`);
+  groupingMeters = 60;
+  const configReads = calls.filter(call => call.path === '/api/admin/config').length;
+  await window.webContents.executeJavaScript('window.dispatchEvent(new Event("civigo:management-refresh"))');
+  await new Promise(resolve => setTimeout(resolve, 200));
+  assert.ok(calls.filter(call => call.path === '/api/admin/config').length > configReads);
+  assert.equal(await window.webContents.executeJavaScript(`document.querySelector('form input[type="number"]').value`), '75', 'external configuration refresh must preserve the draft');
+  assert.equal(await window.webContents.executeJavaScript(`Array.from(document.querySelectorAll('form button')).find(button=>button.textContent==='Guardar configuración').disabled`), true);
+  await window.webContents.executeJavaScript(`Array.from(document.querySelectorAll('form button')).find(button=>button.textContent==='Descartar borrador y cargar configuración actual').click()`);
+  await waitUntil(window, `document.querySelector('form input[type="number"]').value==='60'`);
+  assert.equal(await window.webContents.executeJavaScript(`Array.from(document.querySelectorAll('form button')).find(button=>button.textContent==='Guardar configuración').disabled`), false);
+  await window.webContents.executeJavaScript(`Array.from(document.querySelectorAll('nav[aria-label="Herramientas de administración"] button')).find(button=>button.textContent==='Actividad y plazos').click()`);
+  await waitUntil(window, `document.body.innerText.includes('Página 1 de 2') && !document.body.innerText.includes('Cargando')`);
+  await window.webContents.executeJavaScript(`Array.from(document.querySelectorAll('nav[aria-label="Paginación de resultados"] button')).find(button=>button.textContent==='Siguiente').click()`);
+  await waitUntil(window, `document.body.innerText.includes('Página 2 de 2') && document.body.innerText.includes('Registro #61')`);
+  assert.ok(calls.some(call => call.path === '/api/admin/audit' && call.query.includes('page=2')));
+  auditFixtures.splice(10);
+  await window.webContents.executeJavaScript('window.dispatchEvent(new Event("civigo:management-refresh"))');
+  await waitUntil(window, `document.body.innerText.includes('Página 1 de 1') && document.body.innerText.includes('Registro #10') && !document.body.innerText.includes('Cargando')`);
   await window.webContents.executeJavaScript(`Array.from(document.querySelectorAll('nav[aria-label="Herramientas de administración"] button')).find(button=>button.textContent==='Anuncios y novedades').click()`);
   await waitUntil(window, `!document.body.innerText.includes('Cargando')`);
   await openEditor(window, 'Crear anuncio');
@@ -224,6 +261,13 @@ async function run() {
     Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value').set.call(field,'Titular comprobado por el administrador de la prueba.');
     field.dispatchEvent(new Event('input',{bubbles:true}));
   })()`);
+  const readsBeforeRefresh = calls.filter(call => call.path === '/api/admin/users' && call.method === 'GET').length;
+  await window.webContents.executeJavaScript('window.dispatchEvent(new Event("civigo:management-refresh"))');
+  await waitUntil(window, `!!document.querySelector('input[name="password"]')`);
+  // An automatic refresh must preserve an open editor and the user's draft.
+  await new Promise(resolve => setTimeout(resolve, 100));
+  assert.equal(calls.filter(call => call.path === '/api/admin/users' && call.method === 'GET').length > readsBeforeRefresh, true);
+  assert.equal(await window.webContents.executeJavaScript(`document.querySelector('input[name="nickname"]').value`), 'ana_smoke');
   await capture(window, 'crear-usuario.png');
   await window.webContents.executeJavaScript(`document.querySelector('input[name="password"]').form.requestSubmit()`);
   await waitUntil(window, `document.body.innerText.includes('La cuenta se creó')`);
@@ -297,7 +341,7 @@ async function run() {
   assert.equal(calls.filter(call => call.cookie).every(call => call.origin === 'https://civigo.online'), true);
   // CSP rejection must happen before an attempted remote network request.
   assert.equal(await window.webContents.executeJavaScript(`fetch('https://invalid.example.test').then(()=>false,()=>true)`), true);
-  await fs.writeFile(path.join(local, archive ? 'package-smoke-result.json' : 'smoke-result.json'), JSON.stringify({ passed: true, packagedArchive: archive, calls: calls.length, panels: panels.length, isolation: { node: isolation.node, process: isolation.process, cookie: isolation.cookie }, createUserFromPanel: true, auditedEmailVerificationFromPanel: true, downloadFromIncidentAndRecoveryPanels: true, authenticatedDownloads: true, logoutPreventsStaleDownload: true, revokedRoleRemovesPanel: true }, null, 2));
+  await fs.writeFile(path.join(local, archive ? 'package-smoke-result.json' : 'smoke-result.json'), JSON.stringify({ passed: true, completedAt: new Date().toISOString(), packagedArchive: archive, calls: calls.length, panels: panels.length, isolation: { node: isolation.node, process: isolation.process, cookie: isolation.cookie }, createUserFromPanel: true, notificationsFromPanel: true, backgroundRefreshPreservesDraft: true, externalConfigRefreshPreservesDraft: true, paginationAndShrinkRecovery: true, auditedEmailVerificationFromPanel: true, downloadFromIncidentAndRecoveryPanels: true, authenticatedDownloads: true, logoutPreventsStaleDownload: true, revokedRoleRemovesPanel: true }, null, 2));
   window.destroy(); server.closeAllConnections(); server.close();
   console.log('Electron smoke: acceso ADMIN, interfaz local, IPC, adjuntos privados, CSP y cierre de sesión verificados.');
   app.exit(0);

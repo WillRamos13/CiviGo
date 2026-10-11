@@ -85,19 +85,18 @@ async function rewardValidated(db, incidenteId) {
   const seen = new Set();
   // Una apelación aceptada restaura la contribución en su mes original;
   // no convierte el mismo aporte en una segunda recompensa mensual.
-  const previousWithdrawal = await db.auditLog.findFirst({
+  const previousWithdrawals = await db.auditLog.findMany({
     where: {
-      accion: "ANULAR_PUNTOS_FALSO",
+      accion: { in: ["ANULAR_PUNTOS_FALSO", "ANULAR_PUNTOS_APORTE_FALSO"] },
       entidad: "INCIDENTE",
       entidadId: String(incidenteId),
     },
-    orderBy: [{ creadoEn: "desc" }, { id: "desc" }],
+    orderBy: [{ creadoEn: "asc" }, { id: "asc" }],
   });
   const originals = new Map(
-    (previousWithdrawal?.datos?.puntosAnulados || []).map((point) => [
-      point.clave,
-      point,
-    ]),
+    previousWithdrawals
+      .flatMap((row) => row.datos?.puntosAnulados || [])
+      .map((point) => [point.clave, point]),
   );
   let pos = 0;
   for (const r of reports) {
@@ -118,8 +117,9 @@ async function rewardValidated(db, incidenteId) {
         rules.puntosReporte * factor,
         originals.get("reporte:" + r.id),
       );
-      await refreshCredibility(db, r.usuarioId);
     }
+    // Una apelación puede restaurar el estado sin crear puntos nuevos.
+    await refreshCredibility(db, r.usuarioId);
     if (r.adjuntos.length && !existing.has("prueba:" + r.id))
       await award(
         db,
@@ -243,17 +243,24 @@ async function reviewIncident(db, incident, user, input) {
     const reports = await db.report.findMany({
       where: { incidenteId: incident.id },
     });
-    for (const uid of new Set(reports.map((r) => r.usuarioId))) {
-      await db.user.update({
-        where: { id: uid },
-        data: { faltas: { increment: 1 } },
-      });
-      await refreshCredibility(db, uid);
-    }
-    await db.report.updateMany({
-      where: { incidenteId: incident.id },
-      data: { estado: "FALSO" },
-    });
+    if (reports.length > 1)
+      throw new HttpError(
+        409,
+        "Revisa cada aporte por separado. Declarar un incidente agrupado falso no puede sancionar a todos sus autores.",
+        "REPORT_REVIEW_REQUIRED",
+      );
+    if (
+      reports.length &&
+      (await db.attachment.count({
+        where: { reporteId: reports[0].id, privado: true },
+      })) &&
+      !canReview(actor, incident, "evidencia")
+    )
+      throw new HttpError(
+        403,
+        "Necesitas permiso para revisar las pruebas privadas de este aporte.",
+      );
+    for (const report of reports) await declareReportFalse(db, report);
   }
   if (accion === "RETIRAR_PUNTOS") {
     if (actor.rol !== "ADMIN")
@@ -308,16 +315,37 @@ async function reviewIncident(db, incident, user, input) {
       evaluacion: "AGENTE",
       motivoRetiro: null,
     };
-    // La aprobación explícita del personal libera los aportes retenidos por
-    // evidencia dudosa. Confirmaciones comunitarias no pueden hacer esto.
-    await db.report.updateMany({
-      where: {
-        incidenteId: incident.id,
-        estado: "EN_REVISION",
-        usuario: { correoVerificado: true },
-      },
-      data: { estado: "PENDIENTE" },
+    const contributions = await db.report.findMany({
+      where: { incidenteId: incident.id },
     });
+    if (
+      contributions.length > 1 &&
+      !contributions.some(
+        (r) => !["EN_REVISION", "FALSO", "RETIRADO"].includes(r.estado),
+      )
+    )
+      throw new HttpError(
+        409,
+        "Revisa y aprueba al menos un aporte por separado antes de validar este incidente.",
+        "REPORT_REVIEW_REQUIRED",
+      );
+    if (
+      contributions.length === 1 &&
+      contributions[0].estado === "EN_REVISION"
+    ) {
+      const privateEvidence = await db.attachment.count({
+        where: { reporteId: contributions[0].id, privado: true },
+      });
+      if (privateEvidence && !canReview(actor, incident, "evidencia"))
+        throw new HttpError(
+          403,
+          "Necesitas permiso para revisar las pruebas privadas de este aporte.",
+        );
+      await db.report.update({
+        where: { id: contributions[0].id },
+        data: { estado: "PENDIENTE" },
+      });
+    }
     await rewardValidated(db, incident.id);
   }
   if (accion === "GRAVEDAD") data = { nivelRiesgo, evaluacion: "AGENTE" };
@@ -337,7 +365,7 @@ async function reviewIncident(db, incident, user, input) {
         409,
         "Solo puede reabrirse un incidente resuelto o retirado.",
       );
-    if (!(await canPublishIncident(db, incident.id)))
+    if (!(await canPublishIncident(db, incident.id, { includeRetired: true })))
       throw new HttpError(
         409,
         "El autor debe verificar su correo con Google antes de publicar el reporte.",
@@ -354,7 +382,7 @@ async function reviewIncident(db, incident, user, input) {
       where: {
         incidenteId: incident.id,
         usuario: { correoVerificado: true },
-        estado: { not: "EN_REVISION" },
+        estado: { notIn: ["EN_REVISION", "FALSO"] },
       },
       data: {
         estado: incident.validacion >= 1 ? "VALIDADO" : "PENDIENTE",
@@ -366,6 +394,11 @@ async function reviewIncident(db, incident, user, input) {
     });
   }
   const result = await db.incident.update({ where: { id: incident.id }, data });
+  if (["VALIDAR", "FALSO", "RESOLVER", "REABRIR", "GRAVEDAD"].includes(accion))
+    await db.flag.updateMany({
+      where: { incidenteId: incident.id, estado: "PENDIENTE" },
+      data: { estado: "REVISADO" },
+    });
   await db.review.create({
     data: {
       usuarioId: user.id,
@@ -385,6 +418,248 @@ async function reviewIncident(db, incident, user, input) {
   await notifyOwners(db, incident, "Revisión del incidente", motivo);
   return result;
 }
+async function declareReportFalse(db, report) {
+  const changed = await db.report.updateMany({
+    where: { id: report.id, sancionAplicada: false },
+    data: { estado: "FALSO", sancionAplicada: true },
+  });
+  if (changed.count)
+    await db.user.update({
+      where: { id: report.usuarioId },
+      data: { faltas: { increment: 1 } },
+    });
+  else
+    await db.report.update({
+      where: { id: report.id },
+      data: { estado: "FALSO" },
+    });
+  await refreshCredibility(db, report.usuarioId);
+}
+async function reviewReport(db, reportId, user, input) {
+  const r = await db.report.findUnique({
+    where: { id: reportId },
+    include: { incidente: true, adjuntos: true, usuario: true },
+  });
+  if (!r?.incidente) throw new HttpError(404, "Reporte no encontrado.");
+  const actor = await db.user.findUnique({ where: { id: user.id } });
+  if (
+    !canReview(actor, r.incidente) ||
+    ((r.incidente.individual || r.adjuntos.some((a) => a.privado)) &&
+      !canReview(actor, r.incidente, "evidencia"))
+  )
+    throw new HttpError(
+      403,
+      "No tienes permisos para revisar este aporte y sus pruebas.",
+    );
+  const { accion, motivo, nivelRiesgo } = input;
+  if (!["VALIDAR", "FALSO", "RETIRAR_PUNTOS"].includes(accion))
+    throw new HttpError(400, "Decisión de aporte inválida.");
+  if (r.estado === "FALSO" && accion !== "RETIRAR_PUNTOS")
+    throw new HttpError(
+      409,
+      "Primero debe aceptarse la apelación de este aporte.",
+    );
+  if (accion === "RETIRAR_PUNTOS") {
+    if (actor.rol !== "ADMIN")
+      throw new HttpError(403, "Solo un administrador puede retirar puntos.");
+    if (r.estado !== "FALSO")
+      throw new HttpError(
+        409,
+        "Solo pueden retirarse puntos de un aporte declarado falso.",
+      );
+    const votes = await db.vote.findMany({
+      where: {
+        incidenteId: r.incidenteId,
+        usuarioId: r.usuarioId,
+        tipo: "CONFIRMAR",
+      },
+    });
+    const keys = [
+      "reporte:" + r.id,
+      "prueba:" + r.id,
+      ...votes.map((v) => "confirmacion:" + v.id),
+    ];
+    const puntosAnulados = await db.pointEvent.findMany({
+      where: { clave: { in: keys } },
+    });
+    if (puntosAnulados.length) {
+      await db.pointEvent.deleteMany({ where: { clave: { in: keys } } });
+      await db.auditLog.create({
+        data: {
+          usuarioId: actor.id,
+          accion: "ANULAR_PUNTOS_APORTE_FALSO",
+          entidad: "INCIDENTE",
+          entidadId: String(r.incidenteId),
+          datos: { reporteId: r.id, motivo, puntosAnulados },
+        },
+      });
+    }
+  } else if (accion === "VALIDAR") {
+    if (!r.usuario.correoVerificado)
+      throw new HttpError(
+        409,
+        "El autor debe verificar su correo antes de validar el aporte.",
+        "REPORT_EMAIL_REQUIRED",
+      );
+    if (!Number.isInteger(nivelRiesgo) || nivelRiesgo < 1 || nivelRiesgo > 5)
+      throw new HttpError(400, "Asigna una gravedad entre 1 y 5.");
+    await db.report.update({
+      where: { id: r.id },
+      data: { estado: "VALIDADO", nivelRiesgo },
+    });
+    await db.incident.update({
+      where: { id: r.incidenteId },
+      data: {
+        estado: "VALIDADO",
+        publicado: true,
+        fechaPublicacion: r.incidente.fechaPublicacion || new Date(),
+        evaluacion: "AGENTE",
+        validacion: 1,
+        nivelRiesgo: Math.max(r.incidente.nivelRiesgo || 0, nivelRiesgo),
+        motivoRetiro: null,
+      },
+    });
+    await rewardValidated(db, r.incidenteId);
+  } else {
+    await declareReportFalse(db, r);
+    const remaining = await db.report.count({
+      where: {
+        incidenteId: r.incidenteId,
+        estado: { notIn: ["FALSO", "RETIRADO"] },
+      },
+    });
+    if (!remaining) {
+      await db.incident.update({
+        where: { id: r.incidenteId },
+        data: { estado: "FALSO", publicado: false, motivoRetiro: motivo },
+      });
+      await db.flag.updateMany({
+        where: { incidenteId: r.incidenteId, estado: "PENDIENTE" },
+        data: { estado: "REVISADO" },
+      });
+    } else {
+      const accepted = await db.report.count({
+        where: {
+          incidenteId: r.incidenteId,
+          estado: { notIn: ["EN_REVISION", "FALSO", "RETIRADO"] },
+          usuario: { correoVerificado: true },
+        },
+      });
+      // Un aporte retenido no puede heredar la aprobación del único aporte
+      // que acaba de declararse falso. Las emergencias siguen por evaluar.
+      if (!accepted)
+        await db.incident.update({
+          where: { id: r.incidenteId },
+          data: {
+            estado: "PENDIENTE",
+            evaluacion: "PENDIENTE",
+            validacion: 0.5,
+            publicado:
+              r.incidente.emergencia &&
+              (await canPublishIncident(db, r.incidenteId)),
+            motivoRetiro: null,
+          },
+        });
+    }
+  }
+  await db.review.create({
+    data: {
+      usuarioId: actor.id,
+      incidenteId: r.incidenteId,
+      accion: accion + "_REPORTE",
+      motivo,
+      datos: { reporteId: r.id, anterior: r.estado },
+    },
+  });
+  await db.notification.create({
+    data: {
+      usuarioId: r.usuarioId,
+      incidenteId: r.incidenteId,
+      titulo: "Revisión del reporte #" + r.id,
+      mensaje: motivo,
+      tipo: "REVISION_REPORTE",
+    },
+  });
+  return db.report.findUnique({
+    where: { id: r.id },
+    include: { usuario: true, adjuntos: true },
+  });
+}
+// Recalcula solo conclusiones comunitarias. Una revisión de agente no depende
+// del número de votos ni se invalida por revocar el correo a otro participante.
+async function refreshVerificationEffects(db, usuarioId) {
+  const rules = await config(db);
+  const incidents = await db.incident.findMany({
+    where: {
+      OR: [
+        { votos: { some: { usuarioId } } },
+        { reportes: { some: { usuarioId } } },
+      ],
+    },
+  });
+  for (const row of incidents) {
+    if (["FALSO", "RETIRADO"].includes(row.estado)) continue;
+    const data = {};
+    if (row.evaluacion !== "AGENTE" && !row.individual) {
+      const confirms = await db.vote.count({
+        where: {
+          incidenteId: row.id,
+          tipo: "CONFIRMAR",
+          usuario: { correoVerificado: true },
+        },
+      });
+      const resolves = await db.vote.count({
+        where: {
+          incidenteId: row.id,
+          tipo: "RESOLVER",
+          usuario: { correoVerificado: true },
+        },
+      });
+      data.validacion = Math.min(
+        1,
+        0.5 + (0.5 * confirms) / rules.confirmaciones,
+      );
+      if (
+        row.estado !== "RESUELTO" ||
+        row.motivoRetiro === "Resuelto por cinco vecinos"
+      ) {
+        data.estado =
+          resolves >= rules.resoluciones
+            ? "RESUELTO"
+            : data.validacion >= 1
+              ? "VALIDADO"
+              : row.evaluacion === "PENDIENTE"
+                ? "PENDIENTE"
+                : "ACTIVO";
+        const wasPublic =
+          row.publicado ||
+          (row.estado === "RESUELTO" &&
+            row.motivoRetiro === "Resuelto por cinco vecinos");
+        data.publicado =
+          wasPublic &&
+          (data.estado !== "RESUELTO" ||
+            (row.historico && data.validacion >= 1));
+        if (row.estado === "RESUELTO" && data.estado !== "RESUELTO")
+          data.motivoRetiro = null;
+      }
+    }
+    if (Object.keys(data).length)
+      await db.incident.update({ where: { id: row.id }, data });
+    if (data.validacion < 1) {
+      const affected = await db.report.findMany({
+        where: { incidenteId: row.id, estado: "VALIDADO" },
+        select: { usuarioId: true },
+      });
+      await db.report.updateMany({
+        where: { incidenteId: row.id, estado: "VALIDADO" },
+        data: { estado: "PENDIENTE" },
+      });
+      for (const id of new Set(affected.map((r) => r.usuarioId)))
+        await refreshCredibility(db, id);
+    } else if (data.validacion >= 1 && data.estado !== "RESUELTO")
+      await rewardValidated(db, row.id);
+  }
+}
 module.exports = {
   transaction,
   award,
@@ -395,4 +670,6 @@ module.exports = {
   notifyOwners,
   chatOpen,
   reviewIncident,
+  reviewReport,
+  refreshVerificationEffects,
 };

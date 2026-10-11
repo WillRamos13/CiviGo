@@ -58,6 +58,12 @@ router.get(
     }
     const where = publicIncidentWhere(now);
     if (req.query.tipo) where.tipoCatalogo = { slug: String(req.query.tipo) };
+    const viewport = require('../lib/map-query').mapQuery(req.query);
+    if (viewport) {
+      const page = await prisma.incident.findMany({ where: { ...where, ...viewport.where }, include, orderBy: { id: 'desc' }, take: viewport.take + 1 });
+      const rows = page.slice(0, viewport.take);
+      return res.json({ items: rows.filter(i => isVisiblePublicIncident(i, now)).map(i => incident(i)), nextCursor: page.length > viewport.take ? rows.at(-1).id : null });
+    }
     const [active, historical] = await Promise.all([
       prisma.incident.findMany({
         where: {

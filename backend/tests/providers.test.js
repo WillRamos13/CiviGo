@@ -1,6 +1,11 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const providers = require("../src/lib/providers");
+// Pure provider contract tests inject an unlimited fixture reservation. Durable
+// reservation and concurrency are exercised against local PostgreSQL separately.
+const providers = {
+  ...require("../src/lib/providers"),
+  ...require("../src/lib/guarded-ai").createGuardedAi({ reserve: async () => true }),
+};
 const keys = [
   "NODE_ENV",
   "AI_API_KEY",

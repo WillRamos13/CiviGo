@@ -1,7 +1,7 @@
 const prisma = require("./db");
 const { sendEmail, services } = require("./providers");
 const { alertAgents, transaction } = require("./workflows");
-async function processLifecycle(now = new Date(), db = prisma) {
+async function processLifecycle(now = new Date(), db = prisma, storage = require('./storage').createStorage()) {
   const reports = await db.report.findMany({
     where: {
       incidente: { individual: true, publicado: true, validacion: { lt: 1 } },
@@ -121,6 +121,9 @@ async function processLifecycle(now = new Date(), db = prisma) {
   await db.verification.deleteMany({
     where: { expiresAt: { lt: new Date(+now - 86400000) } },
   });
-  return { reminders, expired, reduced };
+  let archivosEliminados = await require('./upload-quota').cleanupUploads(db, storage, now);
+  archivosEliminados += await storage.cleanupTemporary?.(db, now) || 0;
+  await db.usageCounter.deleteMany({ where: { expiresAt: { lt: now } } });
+  return { reminders, expired, reduced, archivosEliminados };
 }
 module.exports = { processLifecycle };

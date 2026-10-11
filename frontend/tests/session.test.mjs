@@ -78,6 +78,38 @@ test('service outage uses readonly cache without leaving session loading', async
     await f.controller.refresh();
     assert.equal(f.state().usuario.id, 1); assert.equal(f.state().offline, true); assert.equal(f.state().loading, false);
 });
+
+test('an online browser recovers from a temporary service outage without an online event', async () => {
+    let unavailable = true, calls = 0;
+    const f = fixture({loadUser: async () => { calls++; if (unavailable) throw {status: 503}; return user(1); }});
+    f.entries.set('civigo:offline-account', JSON.stringify(user(1)));
+    await f.controller.refresh();
+    assert.equal(f.controller.needsRecovery(), true);
+    unavailable = false;
+    await f.controller.recover();
+    assert.equal(f.state().offline, false); assert.equal(f.state().usuario.correoVerificado, true);
+    await f.controller.recover(); assert.equal(calls, 2);
+});
+
+test('focus and periodic recovery do not compete with a pending session request', async () => {
+    let online = false, calls = 0; const pending = defer();
+    const f = fixture({networkAvailable: () => online, loadUser: () => { calls++; return pending.promise; }});
+    await f.controller.refresh(); online = true;
+    const recovering = f.controller.recover(); await tick();
+    await f.controller.recover(); await f.controller.recover();
+    assert.equal(calls, 1);
+    pending.resolve(user(1)); await recovering;
+    assert.equal(f.state().offline, false);
+});
+
+test('a failed logout is retried before session recovery and cannot restore cached identity', async () => {
+    let unavailable = true; const order = [];
+    const f = fixture({endSession: async () => { order.push('logout'); if (unavailable) throw {status: 503}; }, loadUser: async () => { order.push('me'); throw {status: 401}; }});
+    await assert.rejects(f.controller.logout());
+    unavailable = false; await f.controller.recover();
+    assert.deepEqual(order, ['logout', 'logout', 'me']);
+    assert.equal(f.state().usuario, null); assert.equal(f.controller.needsRecovery(), false);
+});
 test('offline consultation preserves the saved advertising preference', async () => {
     let online = true;
     const f = fixture({networkAvailable: () => online, loadUser: async () => ({...user(1), premium: true, ocultarAnuncios: true})});

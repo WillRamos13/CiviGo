@@ -8,7 +8,8 @@ import {
   message,
   RemoteStatus,
   stateLabel,
-  useRemote,
+  usePagedRemote,
+  Pagination,
 } from "./common";
 
 interface Appeal {
@@ -106,14 +107,17 @@ function AppealForm({
 }
 
 export default function AppealsPanel() {
-  const { data, loading, error, reload } =
-    useRemote<Appeal[]>("/admin/appeals");
+  const [status, setStatus] = useState('PENDIENTE');
+  const { data, loading, error, refreshError, reload, page, pages, total, setPage } =
+    usePagedRemote<Appeal>("/admin/appeals", { estado: status });
   const [selected, setSelected] = useState<Appeal | null>(null);
   const [editorOpening, setEditorOpening] = useState(0);
   const [success, setSuccess] = useState("");
   return (
     <>
-      <Feedback success={success} />
+      <label className="field">Estado<select value={status} onChange={event => setStatus(event.target.value)}><option value="TODOS">Todos</option><option value="PENDIENTE">Pendientes</option><option value="ACEPTADA">Aceptadas</option><option value="RECHAZADA">Rechazadas</option></select></label>
+      <Feedback success={success} error={refreshError}/>
+      <Pagination page={page} pages={pages} total={total} onPage={setPage} disabled={loading}/>
       <RemoteStatus loading={loading} error={error} retry={reload} />
       {data && !loading && !error && (
         <section className="card">

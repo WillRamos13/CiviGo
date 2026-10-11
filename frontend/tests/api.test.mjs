@@ -32,6 +32,7 @@ for (const [code, message] of [
     ['PLACES_SEARCH_UNAVAILABLE', 'No se pudo ampliar la búsqueda de lugares. Prueba con otro nombre o dirección, o inténtalo más tarde.'],
     ['EMAIL_GOOGLE_CONFIG', 'La verificación con Google no está disponible en este momento. Inténtalo de nuevo más tarde.'],
     ['EMAIL_GOOGLE_UNAVAILABLE', 'La verificación con Google no está disponible en este momento. Inténtalo de nuevo más tarde.'],
+    ['EMAIL_PROVIDER_MISSING', 'La recuperación por correo aún no está disponible. Contacta con la administración.'],
     ['STORAGE_PRIVATE_BUCKET_REQUIRED', 'No se pudo acceder al archivo. Inténtalo de nuevo más tarde o comunícalo al administrador.'],
     ['STORAGE_CONFIG', 'No se pudo acceder al archivo. Inténtalo de nuevo más tarde o comunícalo al administrador.'],
 ]) {
@@ -67,5 +68,28 @@ test('real network failure keeps the readable connection error and zero status',
     const original = globalThis.fetch;
     globalThis.fetch = async () => { throw new TypeError('synthetic network failure'); };
     try { await assert.rejects(api('/synthetic'), error => error instanceof ApiError && error.status === 0 && /conectar/.test(error.message)); }
+    finally { globalThis.fetch = original; }
+});
+
+test('a stalled request times out and mutations are never retried automatically', async () => {
+    const original = globalThis.fetch; let calls = 0;
+    globalThis.fetch = (_url, options) => { calls++; return new Promise((_resolve, reject) => options.signal.addEventListener('abort', () => reject(new DOMException('timeout', 'AbortError')), {once: true})); };
+    try {
+        await assert.rejects(api('/synthetic', {method: 'POST', body: '{}', timeoutMs: 5}), error => error instanceof ApiError && error.code === 'REQUEST_TIMEOUT' && error.status === 0);
+        assert.equal(calls, 1);
+    } finally { globalThis.fetch = original; }
+});
+
+test('a malformed successful response is an unavailable response rather than usable data', async () => {
+    const original = globalThis.fetch;
+    globalThis.fetch = async () => ({ok: true, status: 200, json: async () => { throw new SyntaxError('invalid'); }});
+    try { await assert.rejects(api('/synthetic'), error => error instanceof ApiError && error.code === 'INVALID_RESPONSE' && error.status === 502); }
+    finally { globalThis.fetch = original; }
+});
+
+test('public versioned data can opt into caching while private requests stay no-store', async () => {
+    const original = globalThis.fetch, cacheModes = [];
+    globalThis.fetch = async (_url, options) => { cacheModes.push(options.cache); return {ok: true, status: 200, json: async () => ({ok: true})}; };
+    try { await api('/users/me'); await api('/public?v=1', {cache: 'force-cache'}); assert.deepEqual(cacheModes, ['no-store', 'force-cache']); }
     finally { globalThis.fetch = original; }
 });

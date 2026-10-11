@@ -183,7 +183,9 @@ async function seedCatalog(db = prisma) {
 }
 async function config(db = prisma) {
   const stored = await db.appConfig.findUnique({ where: { clave: "reglas" } });
-  return { ...DEFAULT_CONFIG, ...stored?.valor };
+  const value = { ...DEFAULT_CONFIG, ...stored?.valor };
+  value.maxVideoBytes = Math.min(15728640, Math.max(1048576, Number(value.maxVideoBytes) || 15728640));
+  return value;
 }
 function validateConfig(input) {
   const out = {};
@@ -209,12 +211,14 @@ function validateConfig(input) {
       v <= 0 ||
       v >
         (k === "maxVideoBytes"
-          ? 52428800
+          ? 15728640
           : k === "influenciaVecina"
             ? 1
             : 10000)
     )
       throw new HttpError(400, "Parámetro inválido: " + k);
+    if (k === 'maxVideoBytes' && (v < 1048576 || !Number.isInteger(v)))
+      throw new HttpError(400, 'El límite de video debe estar entre 1 y 15 MB.');
     if (["confirmaciones", "resoluciones"].includes(k) && !Number.isInteger(v))
       throw new HttpError(400, "El número de votos debe ser entero.");
     out[k] = v;

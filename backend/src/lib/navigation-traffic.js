@@ -5,6 +5,7 @@ const { updateStepDurations } = require("./navigation-steps");
 const { getRoads } = require("./roads");
 const { createTomTomClient, unavailable } = require("./tomtom");
 const { createDatabaseQuota } = require("./traffic-quota");
+const { closureExclusions } = require("./navigation-closures");
 const {
   normalizeTrafficIncidents,
   deduplicateTrafficAlerts,
@@ -109,9 +110,29 @@ function applyTraffic(route, response) {
 async function planRoutesWithTraffic(
   input,
   incidents,
-  { client, roads = getRoads(), rules = {}, now = new Date() } = {},
+  {
+    client,
+    roads = getRoads(),
+    rules = {},
+    now = new Date(),
+    trafficIncidents = [],
+  } = {},
 ) {
-  const local = routeCandidates(input, incidents, now, roads, rules);
+  const closures =
+    input.modo === "driving"
+      ? closureExclusions(trafficIncidents, roads, now)
+      : null;
+  const local = routeCandidates(input, incidents, now, roads, rules, closures);
+  for (const route of local.candidates) {
+    if (closures?.applied)
+      route.advertencias.push(
+        "Se evitan los tramos con cierres temporales de TomTom que coinciden con la cartografía, en ambos sentidos. No modifican el riesgo CiviGo.",
+      );
+    if (closures?.unmapped)
+      route.advertencias.push(
+        "Hay cierres externos cuya ubicación no permite asociarlos a una calle. Comprueba los avisos del mapa y la señalización.",
+      );
+  }
   if (input.modo !== "driving" || !client) {
     const { candidates, ...meta } = local;
     return {
@@ -122,10 +143,10 @@ async function planRoutesWithTraffic(
   }
   const evaluated = [];
   let failure = null;
-  // At most two calls per batch keep six candidates within the browser's
-  // request timeout. If one fails, use local times for the complete comparison.
-  for (let index = 0; index < local.candidates.length; index += 2) {
-    const batch = local.candidates.slice(index, index + 2);
+  // Two batches of three leave room for the closure lookup inside the browser's
+  // request deadline. The provider still bounds concurrency and total quota.
+  for (let index = 0; index < local.candidates.length; index += 3) {
+    const batch = local.candidates.slice(index, index + 3);
     const outcomes = await Promise.allSettled(
       batch.map(async (route) =>
         applyTraffic(route, await client.route(route)),
@@ -205,22 +226,39 @@ function createTrafficService({
       now,
     });
   const network = () => roads || getRoads();
-  return {
+  const service = {
     status: () => provider.status(),
-    plan: (input, civic, options = {}) =>
-      planRoutesWithTraffic(input, civic, {
+    async plan(input, civic, options = {}) {
+      // Do not deduplicate closures against civic reports: an unvalidated civic
+      // duplicate must not make a known external road closure traversable.
+      const alerts =
+        input.modo === "driving" ? await service.incidents() : null;
+      const result = await planRoutesWithTraffic(input, civic, {
         client: provider,
         roads: network(),
         now: now(),
+        trafficIncidents: alerts?.incidentes || [],
         ...options,
-      }),
+      });
+      if (alerts && !alerts.trafico.disponible)
+        for (const route of result.rutas) {
+          route.advertencias.push(
+            "No se pudieron comprobar los cierres externos actuales. Respeta la señalización durante el recorrido.",
+          );
+        }
+      return result;
+    },
     async incidents(civic = [], requestedBounds = null) {
       const currentRoads = network();
       try {
         const features = [],
           timestamps = [];
-        for (const bounds of incidentBounds(currentRoads)) {
-          const response = await provider.incidents(bounds);
+        const responses = await Promise.all(
+          incidentBounds(currentRoads).map((bounds) =>
+            provider.incidents(bounds),
+          ),
+        );
+        for (const response of responses) {
           features.push(
             ...(Array.isArray(response.data?.incidents)
               ? response.data.incidents
@@ -300,6 +338,7 @@ function createTrafficService({
       return provider.tile(z, x, y);
     },
   };
+  return service;
 }
 module.exports = {
   pathMatches,

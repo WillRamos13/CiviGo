@@ -27,6 +27,11 @@ const {
 const { ranking, currentMonth, monthRange } = require("../lib/ranking");
 const { processLifecycle } = require("../lib/lifecycle");
 const { hashPassword } = require("../lib/password");
+const { pagination, searchText, pageResult } = require("../lib/pagination");
+const {
+  reviewReport,
+  refreshVerificationEffects,
+} = require("../lib/workflows");
 const {
   phone,
   email,
@@ -54,17 +59,7 @@ async function audit(db, user, accion, entidad, entidadId, datos = {}) {
     },
   });
 }
-const permissions = [
-  "revisar",
-  "resolver",
-  "reabrir",
-  "evidencia",
-  "catalogo",
-  "usuarios",
-  "negocios",
-  "premios",
-  "ranking",
-];
+const permissions = ["revisar", "resolver", "reabrir", "evidencia"];
 router.get(
   "/catalog",
   adminOnly,
@@ -90,6 +85,7 @@ router.get(
         prisma.incident.count({
           where: {
             ...scope,
+            estado: { notIn: ["FALSO", "RETIRADO", "RESUELTO"] },
             OR: [
               { evaluacion: "PENDIENTE" },
               { reportes: { some: { estado: "EN_REVISION" } } },
@@ -117,8 +113,49 @@ router.get(
   "/incidents",
   requirePermission("revisar"),
   asyncRoute(async (req, res) => {
+    const paging = pagination(req.query, 250);
+    const q = searchText(req.query);
+    const where = { AND: [districtScope(req.user)] };
+    if (q)
+      where.AND.push({
+        OR: [
+          ...["tipo", "descripcion", "distrito"].map((field) => ({
+            [field]: { contains: q, mode: "insensitive" },
+          })),
+          ...(/^\d+$/.test(q) && Number(q) <= 2147483647
+            ? [{ id: Number(q) }]
+            : []),
+        ],
+      });
+    const status = req.query.estado;
+    if (status && status !== "TODOS") {
+      if (status === "REVISION")
+        where.AND.push({
+          OR: [
+            {
+              evaluacion: "PENDIENTE",
+              estado: { notIn: ["FALSO", "RETIRADO", "RESUELTO"] },
+            },
+            { reportes: { some: { estado: "EN_REVISION" } } },
+          ],
+        });
+      else if (status === "PUBLICADOS" || status === "SIN_PUBLICAR")
+        where.AND.push({ publicado: status === "PUBLICADOS" });
+      else if (status === "ACTIVO")
+        where.AND.push({
+          publicado: true,
+          estado: { in: ["ACTIVO", "VALIDADO", "PENDIENTE"] },
+        });
+      else if (
+        ["VALIDADO", "RESUELTO", "FALSO", "RETIRADO", "PENDIENTE"].includes(
+          status,
+        )
+      )
+        where.AND.push({ estado: status });
+      else throw new HttpError(400, "Estado de incidente inválido.");
+    }
     const rows = await prisma.incident.findMany({
-      where: districtScope(req.user),
+      where,
       include: {
         tipoCatalogo: { include: { categoria: true } },
         reportes: {
@@ -127,17 +164,73 @@ router.get(
         },
         votos: verifiedVoteInclude(),
         flags: true,
-        revisiones: { orderBy: { creadoEn: "desc" } },
+        revisiones: {
+          orderBy: { creadoEn: "desc" },
+          include: {
+            usuario: { select: { id: true, nombreUsuario: true, rol: true } },
+          },
+        },
       },
-      orderBy: { fechaActualizacion: "desc" },
-      take: 250,
+      orderBy: [{ fechaActualizacion: "desc" }, { id: "desc" }],
+      ...paging.args,
+    });
+    const views = rows.map((i) => {
+      const view = incident(i, canReview(req.user, i, "evidencia"), true);
+      return { ...view, flags: i.flags, revisiones: i.revisiones };
     });
     res.json(
-      rows.map((i) => {
-        const view = incident(i, canReview(req.user, i, "evidencia"));
-        return { ...view, flags: i.flags, revisiones: i.revisiones };
+      pageResult(
+        views,
+        paging.paged ? await prisma.incident.count({ where }) : views.length,
+        paging,
+      ),
+    );
+  }),
+);
+router.post(
+  "/reports/:id/review",
+  asyncRoute(async (req, res) => {
+    const result = await transaction((db) =>
+      reviewReport(db, id(req.params.id), req.user, {
+        accion: req.body.accion,
+        motivo: text(req.body.motivo, "Motivo", 2000, 5),
+        nivelRiesgo: req.body.nivelRiesgo,
       }),
     );
+    res.json(require("../lib/projections").report(result, true));
+  }),
+);
+router.post(
+  "/incidents/:id/flags/:flagId/review",
+  asyncRoute(async (req, res) => {
+    const motivo = text(req.body.motivo, "Motivo", 2000, 5);
+    const row = await transaction(async (db) => {
+      const flag = await db.flag.findUnique({
+        where: { id: id(req.params.flagId) },
+        include: { incidente: true },
+      });
+      const actor = await db.user.findUnique({ where: { id: req.user.id } });
+      if (!flag || flag.incidenteId !== id(req.params.id))
+        throw new HttpError(404, "Aviso no encontrado.");
+      if (!canReview(actor, flag.incidente))
+        throw new HttpError(403, "No tienes permiso para revisar este aviso.");
+      if (flag.estado !== "PENDIENTE")
+        throw new HttpError(409, "El aviso ya fue revisado.");
+      await db.review.create({
+        data: {
+          usuarioId: actor.id,
+          incidenteId: flag.incidenteId,
+          accion: "REVISAR_AVISO",
+          motivo,
+          datos: { flagId: flag.id },
+        },
+      });
+      return db.flag.update({
+        where: { id: flag.id },
+        data: { estado: "REVISADO" },
+      });
+    });
+    res.json(row);
   }),
 );
 router.post(
@@ -234,16 +327,33 @@ router.post(
 router.get(
   "/users",
   adminOnly,
-  asyncRoute(async (req, res) =>
+  asyncRoute(async (req, res) => {
+    const paging = pagination(req.query, 500),
+      q = searchText(req.query);
+    const where = q
+      ? {
+          OR: [
+            "nombreUsuario",
+            "correo",
+            "nombres",
+            "apellidos",
+            "telefono",
+          ].map((field) => ({ [field]: { contains: q, mode: "insensitive" } })),
+        }
+      : {};
+    const rows = await prisma.user.findMany({
+      where,
+      orderBy: [{ fechaCreacion: "desc" }, { id: "desc" }],
+      ...paging.args,
+    });
     res.json(
-      (
-        await prisma.user.findMany({
-          orderBy: { fechaCreacion: "desc" },
-          take: 500,
-        })
-      ).map(ownUser),
-    ),
-  ),
+      pageResult(
+        rows.map(ownUser),
+        paging.paged ? await prisma.user.count({ where }) : rows.length,
+        paging,
+      ),
+    );
+  }),
 );
 router.post(
   "/users",
@@ -394,11 +504,14 @@ router.patch(
         : null;
       if (
         (data.rol || existing.rol) === "AGENTE" &&
-        (data.tipoAgente ?? existing.tipoAgente) !== "COLABORADOR" &&
-        !(data.distrito ?? existing.distrito)
+        (data.tipoAgente !== undefined
+          ? data.tipoAgente
+          : existing.tipoAgente) !== "COLABORADOR" &&
+        !(data.distrito !== undefined ? data.distrito : existing.distrito)
       )
         throw new HttpError(400, "Asigna un distrito al agente.");
       const u = await db.user.update({ where: { id: target }, data });
+      if (verificationChanged) await refreshVerificationEffects(db, target);
       if (!u.premium && u.ocultarAnuncios)
         await db.user.update({
           where: { id: target },
@@ -554,12 +667,32 @@ router.get(
   "/appeals",
   adminOnly,
   asyncRoute(async (req, res) => {
+    const paging = pagination(req.query, 100),
+      q = searchText(req.query),
+      where = {};
+    if (req.query.estado && req.query.estado !== "TODOS") {
+      if (!["PENDIENTE", "ACEPTADA", "RECHAZADA"].includes(req.query.estado))
+        throw new HttpError(400, "Estado de apelación inválido.");
+      where.estado = req.query.estado;
+    }
+    if (q)
+      where.OR = [
+        { motivo: { contains: q, mode: "insensitive" } },
+        { usuario: { nombreUsuario: { contains: q, mode: "insensitive" } } },
+      ];
     const rows = await prisma.appeal.findMany({
+      where,
       include: { usuario: true, reporte: { include: { incidente: true } } },
-      orderBy: { creadoEn: "desc" },
-      take: 100,
+      orderBy: [{ creadoEn: "desc" }, { id: "desc" }],
+      ...paging.args,
     });
-    res.json(rows.map((a) => ({ ...a, usuario: ownUser(a.usuario) })));
+    res.json(
+      pageResult(
+        rows.map((a) => ({ ...a, usuario: ownUser(a.usuario) })),
+        paging.paged ? await prisma.appeal.count({ where }) : rows.length,
+        paging,
+      ),
+    );
   }),
 );
 router.post(
@@ -571,6 +704,9 @@ router.post(
       throw new HttpError(400, "Decisión inválida.");
     const respuesta = text(req.body.respuesta, "Respuesta", 2000, 5);
     const row = await transaction(async (db) => {
+      const actor = await db.user.findUnique({ where: { id: req.user.id } });
+      if (!actor || actor.rol !== "ADMIN" || actor.bloqueado)
+        throw new HttpError(403, "Tu acceso administrativo cambió.");
       const a = await db.appeal.findUnique({
         where: { id: id(req.params.id) },
         include: { reporte: { include: { incidente: true } } },
@@ -578,18 +714,10 @@ router.post(
       if (!a || a.estado !== "PENDIENTE")
         throw new HttpError(409, "Apelación ya revisada o inexistente.");
       if (estado === "ACEPTADA") {
-        const afectados =
-          a.reporte.estado === "FALSO"
-            ? await db.report.findMany({
-                where: {
-                  ...(a.reporte.incidenteId
-                    ? { incidenteId: a.reporte.incidenteId }
-                    : { id: a.reporteId }),
-                  estado: "FALSO",
-                },
-              })
-            : [a.reporte];
-        if (a.reporte.estado === "FALSO") {
+        // La apelación pertenece a un aporte: no cambia sanciones ni decisiones
+        // de vecinos que no están incluidos en esta revisión.
+        const afectados = [a.reporte];
+        if (a.reporte.sancionAplicada) {
           for (const usuarioId of new Set(
             afectados.map((report) => report.usuarioId),
           )) {
@@ -632,7 +760,7 @@ router.post(
         }
         await db.report.updateMany({
           where: { id: { in: afectados.map((report) => report.id) } },
-          data: { estado: "PENDIENTE" },
+          data: { estado: "EN_REVISION", sancionAplicada: false },
         });
         await db.appeal.updateMany({
           where: {
@@ -641,7 +769,10 @@ router.post(
           },
           data: { estado: "ACEPTADA", respuesta },
         });
-        if (a.reporte.incidenteId) {
+        if (
+          a.reporte.incidenteId &&
+          ["FALSO", "RETIRADO"].includes(a.reporte.incidente.estado)
+        ) {
           const publicado =
             a.reporte.incidente.emergencia &&
             (await canPublishIncident(db, a.reporte.incidenteId));
@@ -661,14 +792,20 @@ router.post(
           afectados.map((report) => report.usuarioId),
         ))
           await refreshCredibility(db, usuarioId);
-        if (a.reporte.incidente)
-          await notifyOwners(
-            db,
-            a.reporte.incidente,
-            "Apelación aceptada",
-            respuesta,
-          );
       }
+      await db.notification.create({
+        data: {
+          usuarioId: a.usuarioId,
+          incidenteId: a.reporte.incidenteId,
+          titulo:
+            "Apelación " +
+            (estado === "ACEPTADA" ? "aceptada" : "rechazada") +
+            " · reporte #" +
+            a.reporteId,
+          mensaje: respuesta,
+          tipo: "APELACION",
+        },
+      });
       await audit(db, req.user, estado, "APELACION", a.id, { respuesta });
       return db.appeal.update({
         where: { id: a.id },
@@ -914,14 +1051,29 @@ router.post(
 router.get(
   "/audit",
   adminOnly,
-  asyncRoute(async (req, res) =>
+  asyncRoute(async (req, res) => {
+    const paging = pagination(req.query, 200),
+      q = searchText(req.query);
+    const where = q
+      ? {
+          OR: ["accion", "entidad", "entidadId"].map((field) => ({
+            [field]: { contains: q, mode: "insensitive" },
+          })),
+        }
+      : {};
+    const rows = await prisma.auditLog.findMany({
+      where,
+      orderBy: [{ creadoEn: "desc" }, { id: "desc" }],
+      ...paging.args,
+    });
     res.json(
-      await prisma.auditLog.findMany({
-        orderBy: { creadoEn: "desc" },
-        take: 200,
-      }),
-    ),
-  ),
+      pageResult(
+        rows,
+        paging.paged ? await prisma.auditLog.count({ where }) : rows.length,
+        paging,
+      ),
+    );
+  }),
 );
 module.exports = router;
 module.exports.permissions = permissions;

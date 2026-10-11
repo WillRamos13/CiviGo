@@ -11,6 +11,7 @@ const {
 const MODES = new Set(["walking", "cycling", "driving"]);
 const { createHash } = require("node:crypto");
 const { stepsFromEdges } = require("./navigation-steps");
+const { permitsNode, turnController } = require("./navigation-restrictions");
 class Heap {
   constructor() {
     this.items = [];
@@ -103,7 +104,14 @@ function directionFor(tags, mode) {
     ? "forward"
     : "both";
 }
-function graphFor(segments, origin, destination, mode) {
+function graphFor(
+  segments,
+  origin,
+  destination,
+  mode,
+  roads = {},
+  temporaryClosures = null,
+) {
   const a = nearest(origin, segments),
     b = nearest(destination, segments);
   if (!a || !b || a.projection.distance > 200 || b.projection.distance > 200)
@@ -113,11 +121,17 @@ function graphFor(segments, origin, destination, mode) {
       "ROAD_NOT_FOUND",
     );
   const graph = new Map();
+  graph.nodeTags = roads.nodeTags || new Map();
+  graph.aliases = new Map();
+  graph.turns = turnController(roads.restrictions, mode);
   const add = (start, end, segment, coordinates) => {
     const length = lengthOf(coordinates);
     if (length < 0.01) return;
+    if (temporaryClosures?.blocks(segment, coordinates)) return;
     if (!graph.has(start)) graph.set(start, []);
-    graph.get(start).push({ to: end, segment, coordinates, length });
+    graph
+      .get(start)
+      .push({ from: start, to: end, segment, coordinates, length });
   };
   for (const segment of segments) {
     const cuts = [
@@ -154,15 +168,21 @@ function graphFor(segments, origin, destination, mode) {
       let coordinates = sliceLine(segment.coordinates, from, to);
       // Co-located snapped nodes must remain connected without fabricating a road.
       if (to.offset - from.offset < 0.01) {
+        if (from.node.startsWith("@") && !to.node.startsWith("@"))
+          graph.aliases.set(from.node, to.node);
+        if (to.node.startsWith("@") && !from.node.startsWith("@"))
+          graph.aliases.set(to.node, from.node);
         if (!graph.has(from.node)) graph.set(from.node, []);
         if (!graph.has(to.node)) graph.set(to.node, []);
         graph.get(from.node).push({
+          from: from.node,
           to: to.node,
           segment,
           coordinates: [from.coordinates, to.coordinates],
           length: 0,
         });
         graph.get(to.node).push({
+          from: to.node,
           to: from.node,
           segment,
           coordinates: [to.coordinates, from.coordinates],
@@ -183,17 +203,47 @@ function shortestPath(graph, profile, mode = "walking", penalties = new Map()) {
     times = new Map([["@origin", 0]]),
     previous = new Map(),
     heap = new Heap();
-  heap.push({ node: "@origin", cost: 0, time: 0 });
+  heap.push({
+    node: "@origin",
+    key: "@origin",
+    cost: 0,
+    time: 0,
+    incoming: null,
+    turns: [],
+  });
+  let destinationKey = null;
   while (heap.items.length) {
     const current = heap.pop();
     if (
-      current.cost !== costs.get(current.node) ||
-      current.time !== times.get(current.node)
+      current.cost !== costs.get(current.key) ||
+      current.time !== times.get(current.key)
     )
       continue;
-    if (current.node === "@destination") break;
+    if (current.node === "@destination") {
+      destinationKey = current.key;
+      break;
+    }
     for (const edge of graph.get(current.node) || []) {
       const s = edge.segment;
+      const node = graph.aliases?.get(current.node) || current.node;
+      if (edge.length > 0 && !permitsNode(graph.nodeTags?.get(node), mode))
+        continue;
+      const turns =
+        graph.turns?.next(current.turns, current.incoming, node, edge) ??
+        (graph.turns ? null : []);
+      if (turns === null) continue;
+      const incoming = edge.length > 0.01 ? edge : current.incoming;
+      // Turn restrictions require a state per incoming directed edge; pruning
+      // solely by node would discard a legal approach with a different turn.
+      const key = graph.turns?.enabled
+        ? JSON.stringify([
+            edge.to,
+            incoming?.segment.id,
+            incoming?.from,
+            incoming?.to,
+            turns,
+          ])
+        : edge.to;
       const seconds = edge.length / speed(edge, mode);
       const risk =
         s.points + (s.pending ? 5 : 0) + (s.emergencies.length ? 10 : 0);
@@ -206,21 +256,21 @@ function shortestPath(graph, profile, mode = "walking", penalties = new Map()) {
             ? edge.length
             : seconds * (profile === "equilibrada" ? 1 + risk / 5 : 1);
       const cost = current.cost + base * (penalties.get(s.id) || 1);
-      const time = times.get(current.node) + seconds;
+      const time = times.get(current.key) + seconds;
       if (
-        cost < (costs.get(edge.to) ?? Infinity) ||
-        (cost === costs.get(edge.to) && time < times.get(edge.to))
+        cost < (costs.get(key) ?? Infinity) ||
+        (cost === costs.get(key) && time < times.get(key))
       ) {
-        costs.set(edge.to, cost);
-        times.set(edge.to, time);
-        previous.set(edge.to, { from: current.node, edge });
-        heap.push({ node: edge.to, cost, time });
+        costs.set(key, cost);
+        times.set(key, time);
+        previous.set(key, { from: current.key, edge });
+        heap.push({ node: edge.to, key, cost, time, incoming, turns });
       }
     }
   }
-  if (!costs.has("@destination")) return null;
+  if (destinationKey === null) return null;
   const edges = [];
-  let node = "@destination";
+  let node = destinationKey;
   while (node !== "@origin") {
     const p = previous.get(node);
     if (!p) return null;
@@ -346,6 +396,7 @@ function routeCandidates(
   now = new Date(),
   roads = getRoads(),
   rules = {},
+  temporaryClosures = null,
 ) {
   if (!MODES.has(modo))
     throw error(400, "Elige caminar, bicicleta o vehículo.");
@@ -365,7 +416,14 @@ function routeCandidates(
     modo,
     rules,
   ).filter((s) => covered.has(s.id) && allows(s, modo) && !s.blocked);
-  const snaps = graphFor(segments, origen, destino, modo);
+  const snaps = graphFor(
+    segments,
+    origen,
+    destino,
+    modo,
+    roads,
+    temporaryClosures,
+  );
   const fast = shortestPath(snaps.graph, "rapida", modo);
   if (!fast)
     throw error(

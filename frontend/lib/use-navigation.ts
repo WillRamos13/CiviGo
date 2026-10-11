@@ -15,6 +15,13 @@ export function useNavigation(route: Ruta | null, following: boolean, onRoute: (
     const previousRevision = useRef(incidentRevision);
     const retry = useRef<ReturnType<typeof setTimeout> | null>(null);
     const pendingReason = useRef('');
+    const previousProgress = useRef<NavigationProgress | null>(null);
+    const updateProgress = useCallback((fix: LocationFix, selected: Ruta) => {
+        const next = navigationProgress(fix, selected, previousProgress.current);
+        if ((fix.accuracy ?? 0) <= 60) previousProgress.current = next;
+        setProgress(next);
+        return next;
+    }, []);
     useEffect(() => { state.current = {route, following, onRoute, onFollow, muted}; }, [route, following, onRoute, onFollow, muted]);
     const speak = useCallback((text: string, key: string) => {
         if (speechKeys.current.has(key) || state.current.muted || typeof window === 'undefined' || !window.speechSynthesis) return;
@@ -43,7 +50,7 @@ export function useNavigation(route: Ruta | null, following: boolean, onRoute: (
             const updated = {...selected, tipo: criterio, modo: original.modo ?? selected.modo ?? 'walking', destino: original.destino ?? selected.destino};
             state.current.route = updated;
             state.current.onRoute(updated); deviation.current = 0; speechKeys.current.clear();
-            setProgress(navigationProgress(fix, updated)); setNotice('Recorrido actualizado. Se conserva tu criterio de ruta.');
+            previousProgress.current = null; updateProgress(fix, updated); setNotice('Recorrido actualizado. Se conserva tu criterio de ruta.');
         } catch (error) {
             if (!controller.signal.aborted) {
                 setNotice(`Se conserva el recorrido anterior. ${errorMessage(error)} Reintentaremos automáticamente.`);
@@ -52,18 +59,19 @@ export function useNavigation(route: Ruta | null, following: boolean, onRoute: (
         } finally {
             if (request.current === controller) { request.current = null; setRecalculating(false); if (pendingReason.current) void replan(pendingReason.current); }
         }
-    }, [speak]);
+    }, [speak, updateProgress]);
     useEffect(() => {
         if (!following) return;
         let active = true;
         deviation.current = 0; arrivalSince.current = 0; lastRecalculation.current = 0; speechKeys.current.clear(); lastFix.current = null; pendingReason.current = state.current.route?.copiaGuardada ? 'Actualizando las condiciones de la copia guardada…' : '';
+        previousProgress.current = null;
         void Promise.resolve().then(() => { if (active) { setNotice('Esperando tu ubicación…'); setProgress(null); setPosition(null); setRecalculating(false); } });
         const stop = watchRoutePosition(navigator.geolocation, fix => {
             if (!active || !state.current.route) return;
             lastFix.current = fix; setPosition(fix);
-            const next = navigationProgress(fix, state.current.route); setProgress(next);
+            const next = updateProgress(fix, state.current.route);
             if ((fix.accuracy ?? 0) > 60) { setNotice('GPS poco preciso. Esperando una ubicación mejor.'); return; }
-            setNotice(current => current === 'Esperando tu ubicación…' || current.startsWith('GPS poco preciso') || current.startsWith('Esperando una ubicación más precisa') ? '' : current);
+            setNotice(current => current === 'Esperando tu ubicación…' || current.startsWith('GPS poco preciso') || current.startsWith('GPS temporalmente') || current.startsWith('Esperando una ubicación más precisa') ? '' : current);
             if (pendingReason.current) void recalculate(pendingReason.current);
             const now = fix.timestamp ?? Date.now();
             if (next.destinationMeters <= 30 && (fix.accuracy ?? 0) <= 40) {
@@ -81,14 +89,16 @@ export function useNavigation(route: Ruta | null, following: boolean, onRoute: (
                 const stage = next.distanceToTurn < threshold ? 'cerca' : 'previo';
                 speak(`${next.distanceToTurn > 20 ? `En ${Math.round(next.distanceToTurn / 10) * 10} metros, ` : ''}${next.instruction}`, `${state.current.route.id}-${next.stepId}-${stage}`);
             }
-        }, message => { if (active) { setNotice(message); state.current.onFollow(false); } });
+        }, message => { if (active) { setNotice(message); state.current.onFollow(false); } }, message => {
+            if (active) { lastFix.current = null; deviation.current = 0; arrivalSince.current = 0; setNotice(message); }
+        });
         return () => {
             active = false; stop(); request.current?.abort(); request.current = null;
             if (retry.current) clearTimeout(retry.current); retry.current = null;
             pendingReason.current = '';
             window.speechSynthesis?.cancel();
         };
-    }, [following, recalculate, speak]);
+    }, [following, recalculate, speak, updateProgress]);
     useEffect(() => { if (!following) return; const timer = setInterval(() => { if (state.current.route?.modo === 'driving') void recalculate('Actualizando las condiciones de tráfico…'); }, 120000); return () => clearInterval(timer); }, [following, recalculate]);
     useEffect(() => {
         if (previousRevision.current === incidentRevision) return;

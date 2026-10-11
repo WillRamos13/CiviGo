@@ -23,6 +23,9 @@ function fixture(current) {
   };
   const calls = [];
   const db = {
+    $queryRaw: async () => [],
+    attachment: { findMany: async () => [] },
+    usageCounter: { deleteMany: async () => ({ count: 0 }) },
     report: {
       findMany: async () => [initial],
       findUnique: async () => ({ ...initial, ...current }),
@@ -37,7 +40,7 @@ function fixture(current) {
       return work(db);
     },
   };
-  return { now, db, calls, incident };
+  return { now, db, calls, incident, storage: { cleanupTemporary: async () => 0 } };
 }
 
 test("El plazo no retira un incidente validado después de la lectura inicial", async () => {
@@ -51,30 +54,33 @@ test("El plazo no retira un incidente validado después de la lectura inicial", 
     },
     estado: "VALIDADO",
   });
-  assert.deepEqual(await processLifecycle(f.now, f.db), {
+  assert.deepEqual(await processLifecycle(f.now, f.db, f.storage), {
     reminders: 0,
     expired: 0,
     reduced: 0,
+    archivosEliminados: 0,
   });
   assert.equal(f.calls.length, 0);
 });
 
 test("Las pruebas presentadas conservan el reporte pendiente durante la revisión humana", async () => {
   const f = fixture({ adjuntos: [{ id: "private-proof", tipo: "EVIDENCIA" }] });
-  assert.deepEqual(await processLifecycle(f.now, f.db), {
+  assert.deepEqual(await processLifecycle(f.now, f.db, f.storage), {
     reminders: 0,
     expired: 0,
     reduced: 0,
+    archivosEliminados: 0,
   });
   assert.equal(f.calls.length, 0);
 });
 
 test("El retiro sin pruebas actualiza reporte e incidente en una transacción", async () => {
   const f = fixture({});
-  assert.deepEqual(await processLifecycle(f.now, f.db), {
+  assert.deepEqual(await processLifecycle(f.now, f.db, f.storage), {
     reminders: 0,
     expired: 1,
     reduced: 0,
+    archivosEliminados: 0,
   });
   assert.equal(f.calls.length, 2);
   assert.equal(f.calls[0][1].data.estado, "RETIRADO");
@@ -85,10 +91,11 @@ test("El retiro sin pruebas actualiza reporte e incidente en una transacción", 
 test("Una publicación reciente conserva los siete días aunque el reporte se haya enviado antes", async () => {
   const f = fixture({});
   f.incident.fechaPublicacion = new Date(+f.now - 86400000);
-  assert.deepEqual(await processLifecycle(f.now, f.db), {
+  assert.deepEqual(await processLifecycle(f.now, f.db, f.storage), {
     reminders: 0,
     expired: 0,
     reduced: 0,
+    archivosEliminados: 0,
   });
   assert.equal(f.calls.length, 0);
 });
@@ -123,9 +130,9 @@ test("Los recordatorios aceptados conservan la clave idempotente si falla el mar
     return { ok: true, json: async () => ({ id: "fixture-mail-id" }) };
   };
   try {
-    await assert.rejects(processLifecycle(f.now, f.db), /escritura local/);
+    await assert.rejects(processLifecycle(f.now, f.db, f.storage), /escritura local/);
     failed = false;
-    assert.equal((await processLifecycle(f.now, f.db)).reminders, 1);
+    assert.equal((await processLifecycle(f.now, f.db, f.storage)).reminders, 1);
     assert.equal(emails.length, 2);
     assert.equal(
       emails[0].headers["Idempotency-Key"],
@@ -138,7 +145,7 @@ test("Los recordatorios aceptados conservan la clave idempotente si falla el mar
     assert.equal(emails[1].body, emails[0].body);
     assert.equal(f.calls.length, 1);
     global.fetch = async () => ({ ok: true, json: async () => ({}) });
-    assert.equal((await processLifecycle(f.now, f.db)).reminders, 0);
+    assert.equal((await processLifecycle(f.now, f.db, f.storage)).reminders, 0);
     assert.equal(
       f.calls.length,
       1,
@@ -148,7 +155,7 @@ test("Los recordatorios aceptados conservan la clave idempotente si falla el mar
     f.db.report.update = async (args) => f.calls.push(["report", args]);
     global.fetch = () =>
       assert.fail("No debe recordar aportar pruebas cuando el plazo ya venció");
-    await processLifecycle(f.now, f.db);
+    await processLifecycle(f.now, f.db, f.storage);
   } finally {
     global.fetch = previousFetch;
     for (const key of keys) {
