@@ -239,7 +239,6 @@ export default function MapView({ incidentes = EMPTY_INCIDENTS, ruta = null, onS
                 <label><input type="checkbox" checked={events} onChange={e => setEvents(e.target.checked)}/>Incidentes</label>
                 <label><input type="checkbox" checked={zones} onChange={e => setZones(e.target.checked)} disabled={!events}/>Zonas de incidentes</label>
                 <small className="muted">Gris: evaluación pendiente.</small>
-                {posicion && <button type="button" className="btn btn-secondary btn-small" onClick={centerOnPosition}><LocateFixed size={15}/>Centrar mi ubicación</button>}
             </div>
             {typeFilter && <div className="map-type-filter field">
                 <label htmlFor={filterId}>Filtrar por tipo</label>
@@ -252,6 +251,7 @@ export default function MapView({ incidentes = EMPTY_INCIDENTS, ruta = null, onS
             </div>}
         </CollapsiblePanel>
         {traffic ? <div className="risk-legend traffic-legend" aria-label="Tráfico en tiempo real"><strong>Tráfico · © TomTom</strong><div className="traffic-scale" role="img" aria-label="Tráfico fluido, lento y congestionado"><span title="Fluido"/><span title="Lento"/><span title="Congestionado"/></div></div> : <RiskLegend />}
+        {posicion && <button type="button" className="map-recenter icon-btn" aria-label="Centrar mi ubicación" title="Mi ubicación" onClick={centerOnPosition}><LocateFixed size={20}/></button>}
         {traffic && trafficError && <div className="map-message notice notice-warning" role="status">{trafficError}</div>}
         {externalSelected && events && <div className="external-traffic-detail"><button className="icon-btn" aria-label="Cerrar aviso de tráfico" onClick={() => setExternalSelected(null)}>×</button><strong>{externalSelected.titulo}</strong><p>{externalSelected.descripcion}</p><small>TomTom · aviso temporal · no suma riesgo histórico</small></div>}
     </>}{(error || roadError && !editor) && <div className="map-message notice notice-warning">{error || `La capa vial no está disponible: ${roadError}`}</div>}</>;

@@ -812,7 +812,7 @@ button.announcement-content { cursor: pointer; }
 .map-experience .map-workspace { display: block; }
 .map-experience .map-column { position: relative; }
 .map-experience .map-frame { height: calc(100dvh - 116px); min-height: 560px; border: 1px solid var(--map-panel-border); border-radius: 19px; box-shadow: 0 0 0 1px rgb(48 149 212 / 15%); }
-.map-floating-panels { position: absolute; top: 18px; right: 18px; z-index: 3; width: 230px; max-height: calc(100% - 90px); display: flex; flex-direction: column; gap: 10px; pointer-events: none; }
+.map-floating-panels { position: absolute; top: 18px; right: 18px; z-index: 3; width: 230px; max-height: calc(100% - 155px); display: flex; flex-direction: column; gap: 10px; pointer-events: none; }
 .map-floating-panels > * { pointer-events: auto; }
 .map-experience .map-side-panel { margin: 0; flex-shrink: 0; }
 .map-experience .map-route-panel { flex-shrink: 1; min-height: 0; max-height: 320px; overflow: hidden; display: flex; flex-direction: column; }
@@ -855,6 +855,7 @@ button.announcement-content { cursor: pointer; }
 .map-experience .map-footer { position: absolute; bottom: 0; left: 0; right: 0; padding: 6px 12px; z-index: 2; background: var(--map-panel); color: var(--muted); font-size: 9px; }
 .map-footer > svg { color: var(--brand-cyan); }
 .map-experience .mapboxgl-ctrl-bottom-right { bottom: 30px; right: 18px; display: flex; }
+.map-recenter { position: absolute; right: 24px; bottom: 87px; z-index: 3; width: 44px; height: 44px; min-width: 44px; min-height: 44px; background: var(--map-panel); border: 1px solid var(--map-panel-border); border-radius: 12px; padding: 10px; }
 .external-traffic-marker { background: #0e7490 !important; color: white !important; border-color: #cffafe; }
 .traffic-scale { display: flex; gap: 4px; margin: 9px 0 6px; }
 .traffic-scale span { background: #22c55e; height: 7px; flex: 1; border-radius: 3px; }
@@ -957,6 +958,7 @@ button.announcement-content { cursor: pointer; }
   .map-experience .map-footer { font-size: 9px; gap: 6px; padding-inline: 11px; }
   .map-experience .map-message { left: 9px; right: 52%; bottom: 215px; font-size: 9px; padding: 6px; overflow-wrap: anywhere; }
   .map-experience .mapboxgl-ctrl-bottom-right { bottom: 25px; right: 9px; }
+  .map-recenter { right: 17px; bottom: 79px; }
   .navigation-guidance { font-size: 10px; }
   .next-maneuver { gap: 7px; }
   .next-maneuver strong { font-size: 19px; }

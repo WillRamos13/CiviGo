@@ -241,7 +241,7 @@ async function filterByName(window, name) {
 }
 async function assertViewport(window, expectedWidth) {
   const geometry = await window.webContents.executeJavaScript(`(() => {
-    const selectors = ['.map-frame', '.map-controls', '.risk-legend'];
+    const selectors = ['.map-frame', '.map-controls', '.risk-legend', '.map-recenter'];
     return { width: innerWidth, documentWidth: document.documentElement.scrollWidth,
       rectangles: selectors.map(selector => {
         const rect = document.querySelector(selector).getBoundingClientRect();
@@ -547,6 +547,7 @@ async function createClient(index, width, height, {route='/mapa',mapReady=true} 
     : `!!document.querySelector('.app-header a[href="/registro"]') && !document.querySelector('.sidebar-account')`);
   if (mapReady) {
     await waitUntil(window, `!!document.querySelector('.nearby-location-notice button')`);
+    assert.equal(await window.webContents.executeJavaScript(`document.querySelectorAll('.map-recenter').length`),0,'El botón de centrar no usa una ubicación inventada antes del GPS');
     await window.webContents.executeJavaScript(`
       window.__nearbyPosition = {coords:{latitude:-14.0678,longitude:-75.7286,accuracy:10},timestamp:Date.now()};
       window.__nearbyWatchers = new Map(); window.__nearbyWatchId = 0;
@@ -697,6 +698,22 @@ async function run() {
     assert.ok(geometry.reportsMaxHeight<=160,'Reportes recientes conservan una lista compacta desplazable');
     assert.ok(geometry.legendHeight<=65,'La leyenda ya no ocupa una tarjeta desplegable grande');
     assert.equal(geometry.nativeControls,0,'El mapa principal no muestra el control inferior de zoom/localización');
+    await window.webContents.executeJavaScript(`document.querySelector('.map-recenter').scrollIntoView({block:'center'})`);
+    const locationButton = await window.webContents.executeJavaScript(`(() => {
+      const button=document.querySelector('.map-recenter'), rect=button.getBoundingClientRect();
+      const x=Math.round(rect.left+rect.width/2), y=Math.round(rect.top+rect.height/2), hit=document.elementFromPoint(x,y);
+      const overlaps=Array.from(document.querySelectorAll('.risk-legend,.map-route-panel,.map-reports-panel')).some(element=>{const other=element.getBoundingClientRect();return rect.left<other.right && rect.right>other.left && rect.top<other.bottom && rect.bottom>other.top;});
+      return {x,y,label:button.getAttribute('aria-label'),count:document.querySelectorAll('.map-recenter').length,insideFilters:!!button.closest('.map-controls'),width:rect.width,height:rect.height,clickable:hit===button || button.contains(hit),overlaps};
+    })()`);
+    assert.equal(locationButton.label,'Centrar mi ubicación');
+    assert.equal(locationButton.count,1,'Mi ubicación conserva un único botón independiente');
+    assert.equal(locationButton.insideFilters,false);
+    assert.ok(locationButton.width>=44 && locationButton.height>=44);
+    assert.equal(locationButton.overlaps,false,'Mi ubicación no queda debajo de los paneles o de la leyenda');
+    assert.equal(locationButton.clickable,true,'Mi ubicación puede pulsarse con Capas y filtros cerrado');
+    window.webContents.sendInputEvent({type:'mouseDown',x:locationButton.x,y:locationButton.y,button:'left',clickCount:1});
+    window.webContents.sendInputEvent({type:'mouseUp',x:locationButton.x,y:locationButton.y,button:'left',clickCount:1});
+    await window.webContents.executeJavaScript('window.scrollTo(0,0)');
     if(index===1)assert.equal(geometry.mobileInputFont,16,'Los campos móviles mantienen texto legible');
 
     const routeSelector = '.map-route-panel > .panel-toggle';
@@ -796,6 +813,7 @@ async function run() {
   await waitUntil(mobileWindow,`document.body.innerText.includes('No hay incidentes publicados para este filtro a menos de 1 km de tu ubicación.')`);
   await mobileWindow.webContents.executeJavaScript(`for(const watcher of [...window.__nearbyWatchers.values()])watcher.fail({code:1});`);
   await waitUntil(mobileWindow,`document.querySelector('.nearby-location-notice')?.innerText.includes('Permite el acceso')`);
+  assert.equal(await mobileWindow.webContents.executeJavaScript(`document.querySelectorAll('.map-recenter').length`),0,'Al perder el permiso de GPS se retira el botón de centrar');
   assert.equal(await mobileWindow.webContents.executeJavaScript('window.__nearbyWatchers.size'),0);
   await mobileWindow.webContents.executeJavaScript(`window.__nearbyPosition={coords:{latitude:-14.0678,longitude:-75.7286,accuracy:10},timestamp:Date.now()};document.querySelector('.nearby-location-notice button').click();`);
   await waitUntil(mobileWindow,`document.querySelectorAll('.incident-row').length === 10`);
