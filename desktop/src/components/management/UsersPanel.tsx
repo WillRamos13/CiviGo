@@ -26,12 +26,7 @@ interface ManagedUser {
 interface DistrictCatalog {
   distritos: string[];
 }
-const permissions = [
-  { key: "revisar", label: "Revisar y evaluar incidentes" },
-  { key: "resolver", label: "Resolver incidentes" },
-  { key: "reabrir", label: "Reabrir incidentes" },
-  { key: "evidencia", label: "Consultar pruebas privadas" },
-];
+interface AgentPermission { key: string; label: string; description: string }
 
 function AdjustmentForm({
   user,
@@ -134,11 +129,13 @@ function AdjustmentForm({
 function UserForm({
   user,
   districts,
+  permissions,
   save,
   cancel,
 }: {
   user: ManagedUser | null;
   districts: string[];
+  permissions: AgentPermission[];
   save: (feedback?: string) => void;
   cancel: () => void;
 }) {
@@ -146,7 +143,7 @@ function UserForm({
   const [role, setRole] = useState(user?.rol ?? "USUARIO");
   const [agentType, setAgentType] = useState(user?.tipoAgente ?? "SERENAZGO");
   const [district, setDistrict] = useState(user?.distrito ?? "");
-  const [grants, setGrants] = useState((user?.permisos ?? []).filter(key => permissions.some(permission => permission.key === key)));
+  const [grants, setGrants] = useState(user?.permisos ?? []);
   const [premium, setPremium] = useState(user?.premium ?? false);
   const [blocked, setBlocked] = useState(user?.bloqueado ?? false);
   const [verified, setVerified] = useState(user?.correoVerificado ?? false);
@@ -162,6 +159,7 @@ function UserForm({
     setPending(true);
     setError("");
     try {
+      if (isAgent && !permissions.length) throw new Error('Espera a que se carguen los permisos del agente antes de guardar.');
       const fields = new FormData(event.currentTarget);
       const correo = String(fields.get('correo') ?? '').trim().toLowerCase();
       if (!user && role === 'USUARIO' && !correo.endsWith('@gmail.com')) throw new Error('Las cuentas ciudadanas requieren una dirección de Gmail.');
@@ -261,22 +259,25 @@ function UserForm({
         </div>
         {isAgent && (
           <fieldset className="mt-5">
-            <legend className="font-bold">Permisos de revisión</legend>
+            <legend className="font-bold">Funciones del agente</legend>
+            <p className="muted text-sm mt-2">Cada función se limita al distrito asignado; los colaboradores trabajan en toda la provincia. Las funciones operativas incluyen consultar incidentes. Las pruebas privadas requieren su permiso separado.</p>
             <div className="grid gap-3 sm:grid-cols-2 mt-3">
               {permissions.map((permission) => (
-                <label key={permission.key} className="flex items-center gap-2">
+                <label key={permission.key} className="flex items-start gap-2">
                   <input
                     type="checkbox"
+                    name={`permiso_${permission.key}`}
                     checked={grants.includes(permission.key)}
+                    disabled={permission.key === 'consultar' && grants.some(key => key !== 'consultar')}
                     onChange={(event) =>
                       setGrants((values) =>
                         event.target.checked
-                          ? [...values, permission.key]
+                          ? [...new Set([...values, 'consultar', permission.key])]
                           : values.filter((value) => value !== permission.key),
                       )
                     }
                   />
-                  {permission.label}
+                  <span>{permission.label}<small className="muted block">{permission.description}</small></span>
                 </label>
               ))}
             </div>
@@ -342,6 +343,7 @@ export default function UsersPanel() {
   const [query, setQuery] = useState("");
   const users = usePagedRemote<ManagedUser>("/admin/users", { q: query });
   const catalog = useRemote<DistrictCatalog>("/catalog");
+  const permissions = useRemote<AgentPermission[]>("/admin/permissions");
   const [selected, setSelected] = useState<ManagedUser | null>(null);
   const [creating, setCreating] = useState(false);
   const [editorOpening, setEditorOpening] = useState(0);
@@ -447,6 +449,7 @@ export default function UsersPanel() {
       )}
       {(selected || creating) && (
         <EditorPanel label={selected ? `Administrar usuario ${selected.nickname}` : "Crear usuario"} selectionKey={`${selected?.id ?? "new-user"}:${editorOpening}`}>
+          <RemoteStatus loading={permissions.loading} error={permissions.error} retry={permissions.reload} />
           {catalog.error && (
             <p className="notice notice-error mt-5">
               No se pudo cargar el catálogo de distritos.{" "}
@@ -459,6 +462,7 @@ export default function UsersPanel() {
             key={selected?.id ?? 'new-user'}
             user={selected}
             districts={catalog.data?.distritos ?? []}
+            permissions={permissions.data ?? []}
             cancel={() => { setSelected(null); setCreating(false); }}
             save={(feedback) => {
               setSelected(null);

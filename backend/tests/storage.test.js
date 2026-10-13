@@ -247,6 +247,28 @@ test("Supabase uploads persist opaque paths and public attachments retain backen
   assert.deepEqual(posted.options.body, photo);
 });
 
+test('ADMIN puede cargar publicidad sin verificación ciudadana; otras cuentas no pueden omitirla ni publicar pruebas', async (t) => {
+  const f = await fixture(t);
+  const admin = { ...f.owner, rol: 'ADMIN', correoVerificado: false };
+  const result = await f.upload({ type:'ANUNCIO', user:admin });
+  assert.equal(result.response.status, 201);
+  assert.equal(result.json.tipo, 'ANUNCIO'); assert.equal(result.json.privado, false);
+  const row = f.records.get(result.json.id);
+  assert.equal((await f.download(row.id)).status, 403, 'la ruta genérica no publica archivos publicitarios');
+  row.anuncio = { id:1 };
+  assert.equal((await f.download(row.id, {...admin,id:9})).status, 200, 'otro ADMIN puede revisar una imagen ligada a un anuncio');
+  for (const user of [{...f.owner,correoVerificado:false}, {...f.owner,rol:'AGENTE'}, {...admin,bloqueado:true}]) {
+    const rejected = await f.upload({type:'ANUNCIO',user});
+    assert.equal(rejected.response.status, 403);
+  }
+  assert.equal((await f.upload({type:'PUBLICO',user:admin})).response.status, 403, 'la excepción no permite enviar reportes sin verificar correo');
+  assert.equal((await f.upload({type:'ANUNCIO',user:admin,mime:'application/pdf',data:Buffer.from('%PDF-private')})).response.status, 400);
+  assert.equal((await f.upload({type:'ANUNCIO',user:admin,privateFile:true})).response.status, 400);
+  const tooLarge = Buffer.alloc(5*1024*1024+1); photo.copy(tooLarge);
+  assert.equal((await f.upload({type:'ANUNCIO',user:admin,data:tooLarge})).response.status, 413);
+  assert.deepEqual(await fs.readdir(f.directory), [], 'no quedan archivos temporales de cargas rechazadas');
+});
+
 test("Private evidence and identity preserve owner, district and administrator permissions", async (t) => {
   const f = await fixture(t);
   const evidence = await f.upload({ type: "EVIDENCIA" });

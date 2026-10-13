@@ -50,6 +50,10 @@ test('alertas y revisión de aportes tienen rutas IPC específicas y no habilita
   assert.equal(validateRequest({route: '/notifications/3/read', method: 'PUT', body: '{}'}).method, 'PUT');
   assert.equal(validateRequest({route: '/admin/reports/4/review', method: 'POST', body: '{}'}).method, 'POST');
   assert.equal(validateRequest({route: '/admin/incidents/5/flags/7/review', method: 'POST', body: '{}'}).method, 'POST');
+  assert.equal(validateRequest({route: '/admin/permissions'}).method, 'GET');
+  assert.equal(validateRequest({route: '/admin/incidents/5/messages'}).method, 'GET');
+  assert.equal(validateRequest({route: '/admin/incidents/5/messages/7/moderate', method: 'POST', body: '{}'}).method, 'POST');
+  assert.throws(() => validateRequest({route: '/admin/incidents/5/messages/7', method: 'DELETE'}));
   for (const route of ['/notifications/3', '/notifications/0/read', '/admin/reports/4', '/admin/incidents/5/flags/7']) assert.throws(() => validateRequest({route, method: 'PUT', body: '{}'}));
 });
 

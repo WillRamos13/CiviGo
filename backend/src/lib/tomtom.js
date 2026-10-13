@@ -18,6 +18,12 @@ const MESSAGES = {
     "Sin tráfico actualizado: no se pudo verificar la cuota del proveedor.",
   PROVIDER_UNAVAILABLE:
     "Sin tráfico actualizado: el proveedor no está disponible.",
+  PROVIDER_AUTHORIZATION:
+    "Sin tráfico actualizado: la clave de TomTom no autoriza este servicio. La administración debe revisar su configuración.",
+  PROVIDER_RATE_LIMIT:
+    "Sin tráfico actualizado: TomTom limitó temporalmente las solicitudes. Volveremos a intentarlo automáticamente.",
+  PROVIDER_REQUEST_REJECTED:
+    "Sin tráfico actualizado: TomTom rechazó la consulta. Comunícalo a la administración.",
   BUSY: "Sin tráfico actualizado: el servicio está ocupado. Intenta más tarde.",
 };
 function unavailable(code) {
@@ -37,8 +43,43 @@ function createTomTomClient({
 } = {}) {
   const cache = new Map(),
     pending = new Map();
-  let active = 0,
-    blockedUntil = 0;
+  let active = 0;
+  const waiting = [],
+    failures = new Map(),
+    lastUpdated = new Map();
+  // Loading one viewport legitimately requests many tiles. Queue that burst
+  // without lifting the upstream concurrency ceiling or spending extra quota.
+  async function acquire() {
+    if (active < 4) {
+      active++;
+      return;
+    }
+    if (waiting.length >= 48) throw unavailable("BUSY");
+    await new Promise((resolve, reject) => {
+      const entry = {
+        resolve: () => {
+          clearTimeout(timer);
+          resolve();
+        },
+      };
+      const timer = setTimeout(() => {
+        const index = waiting.indexOf(entry);
+        if (index >= 0) waiting.splice(index, 1);
+        reject(unavailable("BUSY"));
+      }, 8000);
+      waiting.push(entry);
+    });
+  }
+  function release() {
+    const next = waiting.shift();
+    if (next)
+      next.resolve(); // The slot transfers; active stays unchanged.
+    else active--;
+  }
+  function blocked(product) {
+    const failure = failures.get(product);
+    return failure && failure.until > now().getTime() ? failure : null;
+  }
   const requestedFreshness = Number(env.TOMTOM_INCIDENT_CACHE_SECONDS || 300);
   const incidentCacheSeconds = Number.isFinite(requestedFreshness)
     ? Math.max(60, Math.min(3600, Math.trunc(requestedFreshness)))
@@ -48,6 +89,7 @@ function createTomTomClient({
     habilitado: env.TOMTOM_ENABLED === "true",
     conexionesProbadas: false,
     frescuraIncidentesSegundos: incidentCacheSeconds,
+    frescuraTilesSegundos: 120,
     api: {
       routing: "Orbis v3 (auto)",
       incidents: "Orbis v2",
@@ -77,12 +119,16 @@ function createTomTomClient({
     const existing = cache.get(key);
     if (existing && existing.expires > now().getTime()) return existing.value;
     if (pending.has(key)) return pending.get(key);
-    if (now().getTime() < blockedUntil)
-      throw unavailable("PROVIDER_UNAVAILABLE");
-    if (active >= 4) throw unavailable("BUSY");
-    active++;
+    const recentFailure = blocked(product);
+    if (recentFailure) throw unavailable(recentFailure.code);
     const promise = (async () => {
+      let acquired = false;
       try {
+        await acquire();
+        acquired = true;
+        // Another tile can discover an outage while this request is queued.
+        const failure = blocked(product);
+        if (failure) throw unavailable(failure.code);
         let allowed;
         try {
           allowed = await quota?.reserve(product, now());
@@ -110,7 +156,27 @@ function createTomTomClient({
           redirect: "error",
         });
         // Never surface upstream error messages/URLs; they can echo credentials.
-        if (!response.ok) throw unavailable("PROVIDER_UNAVAILABLE");
+        if (!response.ok) {
+          const code =
+            response.status === 401 || response.status === 403
+              ? "PROVIDER_AUTHORIZATION"
+              : response.status === 429
+                ? "PROVIDER_RATE_LIMIT"
+                : response.status === 400 ||
+                    response.status === 404 ||
+                    response.status === 405 ||
+                    response.status === 596
+                  ? "PROVIDER_REQUEST_REJECTED"
+                  : "PROVIDER_UNAVAILABLE";
+          const error = unavailable(code);
+          const delay = Number(response.headers?.get("retry-after"));
+          if (Number.isFinite(delay) && delay > 0)
+            error.retryAfterMs = Math.max(
+              60000,
+              Math.min(300000, delay * 1000),
+            );
+          throw error;
+        }
         const maximum = binary ? 524288 : 2097152;
         const length = Number(response.headers?.get("content-length") || 0);
         if (length > maximum) throw unavailable("PROVIDER_UNAVAILABLE");
@@ -144,18 +210,31 @@ function createTomTomClient({
           actualizadoEn: now().toISOString(),
         };
         if (cache.size >= 512) cache.delete(cache.keys().next().value);
-        cache.set(key, { value, expires: now().getTime() + ttl });
+        // Raster URLs refresh on a two-minute boundary. Align server cache
+        // expiry so the new URL cannot retrieve the previous bucket's image.
+        const expires = binary
+          ? (Math.floor(now().getTime() / ttl) + 1) * ttl
+          : now().getTime() + ttl;
+        cache.set(key, { value, expires });
+        failures.delete(product);
+        lastUpdated.set(product, value.actualizadoEn);
         return value;
       } catch (error) {
         if (error instanceof TrafficUnavailable) {
-          if (error.code === "PROVIDER_UNAVAILABLE")
-            blockedUntil = now().getTime() + 60000;
+          if (error.code.startsWith("PROVIDER_") && !blocked(product))
+            failures.set(product, {
+              code: error.code,
+              until: now().getTime() + (error.retryAfterMs || 60000),
+            });
           throw error;
         }
-        blockedUntil = now().getTime() + 60000;
+        failures.set(product, {
+          code: "PROVIDER_UNAVAILABLE",
+          until: now().getTime() + 60000,
+        });
         throw unavailable("PROVIDER_UNAVAILABLE");
       } finally {
-        active--;
+        if (acquired) release();
         pending.delete(key);
       }
     })();
@@ -175,6 +254,19 @@ function createTomTomClient({
         ...configuration(),
         cuotas,
         controlCuotaDisponible: cuotas !== null,
+        fallos: Object.fromEntries(
+          [...failures]
+            .filter(([product]) => blocked(product))
+            .map(([product, failure]) => [
+              product,
+              {
+                codigo: failure.code,
+                motivo: unavailable(failure.code).message,
+                reintentarEn: new Date(failure.until).toISOString(),
+              },
+            ]),
+        ),
+        ultimaActualizacion: Object.fromEntries(lastUpdated),
       };
     },
     route(route) {

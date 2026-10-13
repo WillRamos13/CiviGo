@@ -1,6 +1,7 @@
 const crypto = require("node:crypto");
 const prisma = require("./db");
 const { HttpError, asyncRoute } = require("./http");
+const { effectivePermissions } = require("./agent-permissions");
 const COOKIE = "civigo_session";
 const hashToken = (t) => crypto.createHash("sha256").update(t).digest("hex");
 function cookies(req) {
@@ -67,14 +68,17 @@ function hasPermission(user, permission) {
   return (
     !user?.bloqueado &&
     (user?.rol === "ADMIN" ||
-      (user?.rol === "AGENTE" && user.permisos.includes(permission)))
+      (user?.rol === "AGENTE" &&
+        effectivePermissions(user.permisos).includes(
+          permission === "revisar" ? "consultar" : permission,
+        )))
   );
 }
 const requirePermission = (permission) => (req, res, next) =>
   hasPermission(req.user, permission)
     ? next()
     : next(new HttpError(403, "No tienes permiso para esta acción."));
-function canReview(user, incident, permission = "revisar") {
+function canReview(user, incident, permission = "consultar") {
   return (
     hasPermission(user, permission) &&
     (user.rol === "ADMIN" ||
@@ -91,13 +95,20 @@ async function createSession(user, res, { passwordHash } = {}) {
     // Password resets also update User and delete Session rows transactionally.
     // Recheck the credential in the same serializable transaction as the new
     // session: a login verified just before a reset cannot resurrect access.
-    current = await require('./upload-quota').serializable(prisma, async db => {
-      const stored = await db.user.findUnique({ where: { id: user.id } });
-      if (!stored || stored.password !== passwordHash || stored.correo !== user.correo)
-        throw new HttpError(401, 'Correo o contraseña incorrectos.');
-      await db.session.create({ data });
-      return stored;
-    });
+    current = await require("./upload-quota").serializable(
+      prisma,
+      async (db) => {
+        const stored = await db.user.findUnique({ where: { id: user.id } });
+        if (
+          !stored ||
+          stored.password !== passwordHash ||
+          stored.correo !== user.correo
+        )
+          throw new HttpError(401, "Correo o contraseña incorrectos.");
+        await db.session.create({ data });
+        return stored;
+      },
+    );
   } else await prisma.session.create({ data });
   res.cookie(COOKIE, token, {
     httpOnly: true,

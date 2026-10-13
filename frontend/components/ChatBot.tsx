@@ -58,7 +58,7 @@ function AccountChatBot() {
                 <button type="button" className="icon-btn" aria-label="Nueva conversación" onClick={reset} disabled={!messages.length && !busy && !input && !error}><RotateCcw size={16} /></button>
                 <button type="button" className="icon-btn" aria-label="Cerrar ayuda" onClick={() => setOpen(false)}><X size={17} /></button>
             </div></div>
-            <p className="muted" style={{ fontSize: 11 }}>Ayuda sobre reportes, rutas y reglas de CiviGo. Las consultas con IA y su historial reciente se procesan en OpenAI.</p>
+            <p className="muted" style={{ fontSize: 11 }}>Ayuda sobre reportes, rutas y reglas de CiviGo.</p>
             <div ref={list} className="chat-list" role="log" aria-live="polite" aria-busy={busy} aria-label="Conversación con la ayuda" style={{ maxHeight: 280 }}>
                 {messages.length === 0 ? preguntas.map(p => <button type="button" className="btn btn-secondary btn-small" key={p} disabled={busy} onClick={() => void ask(p)}>{p}</button>) : messages.map((m, i) => <div key={i}>
                     <p style={{ fontSize: 11, fontWeight: 700, margin: '12px 0 6px' }}>{m.pregunta}</p>

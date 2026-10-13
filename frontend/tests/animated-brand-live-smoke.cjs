@@ -120,7 +120,7 @@ async function run() {
     assert.ok(media.duration>5 && media.duration<6);
     assert.equal(media.muted,true);
     assert.equal(media.playsInline,true);
-    assert.equal(media.loop,false);
+    assert.equal(media.loop,true);
     assert.equal(media.controls,false);
     assert.equal(media.hidden,'true');
     assert.equal(media.tabIndex,-1);
@@ -134,17 +134,23 @@ async function run() {
     await window.webContents.executeJavaScript(`document.documentElement.dataset.theme='dark'`);
     await inspectLayout(window,width,`${name}-dark`);
     if (name==='desktop') {
-      await waitUntil(window, `document.querySelector('.brand-animation video')?.ended`,10000);
-      const endedTime = await window.webContents.executeJavaScript(`document.querySelector('.brand-animation video').currentTime`);
-      await delay(400);
-      assert.equal(await window.webContents.executeJavaScript(`document.querySelector('.brand-animation video').currentTime`),endedTime,'The logo holds its final frame instead of looping');
-      await fallbackVisible(window);
-      scenarios.push('MP4 real decodificado, reproducción avanza y al terminar mantiene el poster con identidad');
+      await waitUntil(window, `(() => {const video=document.querySelector('.brand-animation video');return video.currentTime>video.duration-0.4;})()`,10000);
+      await waitUntil(window, `(() => {const video=document.querySelector('.brand-animation video');return video.currentTime<1&&!video.paused&&!video.ended;})()`,4000);
+      scenarios.push('MP4 real decodificado: termina un ciclo y vuelve a reproducirse automáticamente');
+      await window.webContents.executeJavaScript(`document.querySelector('.chatbot-launcher').click()`);
+      await waitUntil(window, `!!document.querySelector('#civigo-assistant')`);
+      const help = await window.webContents.executeJavaScript(`(() => {const box=document.querySelector('#civigo-assistant');return {intro:box.querySelector('p').textContent,questions:[...box.querySelectorAll('.chat-list button')].map(button=>button.textContent)};})()`);
+      assert.equal(help.intro,'Ayuda sobre reportes, rutas y reglas de CiviGo.');
+      assert.ok(help.questions.includes('¿Cómo hago un reporte?'));
+      await window.webContents.executeJavaScript(`document.querySelector('#civigo-assistant button[aria-label="Cerrar ayuda"]').click()`);
+      scenarios.push('Ayuda visible conserva preguntas iniciales y una introducción sencilla');
     }
     if (name==='desktop' || name==='mobile' || name==='mobile-small') {
-      await window.webContents.executeJavaScript(`(() => {const video=document.querySelector('.brand-animation video');if(!video.ended)video.currentTime=video.duration-0.05;})()`);
-      await waitUntil(window,`document.querySelector('.brand-animation video')?.ended`);
+      await window.webContents.executeJavaScript(`(() => {const video=document.querySelector('.brand-animation video');video.currentTime=video.duration-0.6;})()`);
+      await waitUntil(window,`(() => {const video=document.querySelector('.brand-animation video');return video.currentTime>video.duration-0.7;})()`);
       await fs.writeFile(path.join(local,`${name}-final.png`),(await window.webContents.capturePage()).toPNG());
+      await waitUntil(window,`(() => {const video=document.querySelector('.brand-animation video');return video.currentTime<1&&!video.paused&&!video.ended;})()`,4000);
+      scenarios.push(`${name}: repite el video sin detenerse al finalizar`);
     }
     scenarios.push(`${width}px: logo legible sin solapamiento en claro y oscuro`);
     window.destroy();

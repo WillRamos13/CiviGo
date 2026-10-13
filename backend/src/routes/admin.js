@@ -6,6 +6,12 @@ const {
 } = require("../lib/publication");
 const { auth, requirePermission, canReview } = require("../lib/auth");
 const {
+  agentPermissions,
+  permissionKeys,
+  effectivePermissions,
+  permissionForReview,
+} = require("../lib/agent-permissions");
+const {
   asyncRoute,
   HttpError,
   id,
@@ -59,7 +65,8 @@ async function audit(db, user, accion, entidad, entidadId, datos = {}) {
     },
   });
 }
-const permissions = ["revisar", "resolver", "reabrir", "evidencia"];
+const permissions = [...permissionKeys, "revisar"];
+router.get("/permissions", adminOnly, (req, res) => res.json(agentPermissions));
 router.get(
   "/catalog",
   adminOnly,
@@ -77,7 +84,7 @@ router.get(
 );
 router.get(
   "/",
-  requirePermission("revisar"),
+  requirePermission("consultar"),
   asyncRoute(async (req, res) => {
     const scope = districtScope(req.user);
     const [pendientes, activos, flags, usuarios, apelaciones] =
@@ -104,14 +111,14 @@ router.get(
     res.json({
       estadisticas: { pendientes, activos, flags, usuarios, apelaciones },
       servicios: services(),
-      permisosDisponibles: permissions,
+      permisosDisponibles: permissionKeys,
       demo: true,
     });
   }),
 );
 router.get(
   "/incidents",
-  requirePermission("revisar"),
+  requirePermission("consultar"),
   asyncRoute(async (req, res) => {
     const paging = pagination(req.query, 250);
     const q = searchText(req.query);
@@ -200,6 +207,124 @@ router.post(
     res.json(require("../lib/projections").report(result, true));
   }),
 );
+router.get(
+  "/incidents/:id/messages",
+  requirePermission("consultar"),
+  asyncRoute(async (req, res) => {
+    const incidenteId = id(req.params.id);
+    const current = await prisma.incident.findUnique({
+      where: { id: incidenteId },
+    });
+    if (!current || !canReview(req.user, current))
+      throw new HttpError(404, "Incidente no disponible.");
+    const [messages, moderations] = await Promise.all([
+      prisma.chatMessage.findMany({
+        where: { incidenteId },
+        include: { usuario: true },
+        orderBy: [{ creadoEn: "desc" }, { id: "desc" }],
+        take: 200,
+      }),
+      prisma.review.findMany({
+        where: {
+          incidenteId,
+          accion: { in: ["RETIRAR_MENSAJE", "RESTAURAR_MENSAJE"] },
+        },
+        orderBy: [{ creadoEn: "desc" }, { id: "desc" }],
+      }),
+    ]);
+    const latest = new Map();
+    for (const row of moderations)
+      if (!latest.has(row.datos?.mensajeId))
+        latest.set(row.datos?.mensajeId, row.accion);
+    res.json(
+      messages.reverse().map((row) => ({
+        id: row.id,
+        mensaje: row.mensaje,
+        creadoEn: row.creadoEn,
+        usuario: require("../lib/projections").publicUser(row.usuario),
+        retirado: latest.get(row.id) === "RETIRAR_MENSAJE",
+      })),
+    );
+  }),
+);
+router.post(
+  "/incidents/:id/messages/:messageId/moderate",
+  requirePermission("moderar"),
+  asyncRoute(async (req, res) => {
+    const incidenteId = id(req.params.id),
+      mensajeId = id(req.params.messageId);
+    const motivo = text(req.body.motivo, "Motivo", 2000, 5);
+    const accion = req.body.accion;
+    if (!["RETIRAR", "RESTAURAR"].includes(accion))
+      throw new HttpError(400, "Acción de moderación inválida.");
+    const result = await transaction(async (db) => {
+      const actor = await db.user.findUnique({ where: { id: req.user.id } });
+      const current = await db.incident.findUnique({
+        where: { id: incidenteId },
+      });
+      if (!current || !canReview(actor, current, "moderar"))
+        throw new HttpError(
+          403,
+          "No tienes permiso para moderar este incidente.",
+        );
+      const row = await db.chatMessage.findUnique({ where: { id: mensajeId } });
+      if (!row || row.incidenteId !== incidenteId)
+        throw new HttpError(404, "Mensaje no encontrado.");
+      const previous = await db.auditLog.findFirst({
+        where: {
+          entidad: "MENSAJE",
+          entidadId: String(mensajeId),
+          accion: { in: ["RETIRAR_MENSAJE", "RESTAURAR_MENSAJE"] },
+        },
+        orderBy: [{ creadoEn: "desc" }, { id: "desc" }],
+      });
+      const retired = previous?.accion === "RETIRAR_MENSAJE";
+      if (
+        (accion === "RETIRAR" && retired) ||
+        (accion === "RESTAURAR" && !retired)
+      )
+        throw new HttpError(
+          409,
+          accion === "RETIRAR"
+            ? "El mensaje ya fue retirado."
+            : "El mensaje no está retirado.",
+        );
+      const content =
+        accion === "RETIRAR"
+          ? "[Mensaje retirado por moderación]"
+          : previous?.datos?.mensajeOriginal;
+      if (typeof content !== "string")
+        throw new HttpError(409, "No se encontró el contenido para restaurar.");
+      const action =
+        accion === "RETIRAR" ? "RETIRAR_MENSAJE" : "RESTAURAR_MENSAJE";
+      await audit(db, actor, action, "MENSAJE", mensajeId, {
+        incidenteId,
+        autorId: row.usuarioId,
+        motivo,
+        ...(accion === "RETIRAR" ? { mensajeOriginal: row.mensaje } : {}),
+      });
+      await db.review.create({
+        data: {
+          usuarioId: actor.id,
+          incidenteId,
+          accion: action,
+          motivo,
+          datos: { mensajeId },
+        },
+      });
+      await db.chatMessage.update({
+        where: { id: mensajeId },
+        data: { mensaje: content },
+      });
+      return {
+        id: mensajeId,
+        mensaje: content,
+        retirado: accion === "RETIRAR",
+      };
+    });
+    res.json(result);
+  }),
+);
 router.post(
   "/incidents/:id/flags/:flagId/review",
   asyncRoute(async (req, res) => {
@@ -212,7 +337,7 @@ router.post(
       const actor = await db.user.findUnique({ where: { id: req.user.id } });
       if (!flag || flag.incidenteId !== id(req.params.id))
         throw new HttpError(404, "Aviso no encontrado.");
-      if (!canReview(actor, flag.incidente))
+      if (!canReview(actor, flag.incidente, "avisos"))
         throw new HttpError(403, "No tienes permiso para revisar este aviso.");
       if (flag.estado !== "PENDIENTE")
         throw new HttpError(409, "El aviso ya fue revisado.");
@@ -241,12 +366,8 @@ router.post(
     });
     if (!row) throw new HttpError(404, "Incidente no encontrado.");
     const accion = req.body.accion;
-    const permission =
-      accion === "RESOLVER"
-        ? "resolver"
-        : accion === "REABRIR"
-          ? "reabrir"
-          : "revisar";
+    const permission = permissionForReview(accion);
+    if (!permission) throw new HttpError(400, "Acción de revisión inválida.");
     if (!canReview(req.user, row, permission))
       throw new HttpError(403, "Incidente fuera de tus permisos o distrito.");
     if (
@@ -270,7 +391,7 @@ router.post(
 );
 router.post(
   "/incidents/:id/classify",
-  requirePermission("revisar"),
+  requirePermission("clasificar"),
   asyncRoute(async (req, res) => {
     const incidenteId = id(req.params.id),
       tipoId = id(req.body.tipoId),
@@ -281,10 +402,26 @@ router.post(
         include: { reportes: true },
       });
       if (!current) throw new HttpError(404, "Incidente no encontrado.");
-      if (!canReview(req.user, current))
+      const actor = await db.user.findUnique({ where: { id: req.user.id } });
+      if (!canReview(actor, current, "clasificar"))
         throw new HttpError(403, "Incidente fuera de tu distrito.");
+      if (current.individual && !canReview(actor, current, "evidencia"))
+        throw new HttpError(
+          403,
+          "Necesitas permiso de pruebas privadas para reclasificar este delito.",
+        );
       const type = await db.incidentType.findUnique({ where: { id: tipoId } });
       if (!type || !type.activo) throw new HttpError(400, "Tipo inválido.");
+      if (type.individual && !canReview(actor, current, "evidencia"))
+        throw new HttpError(
+          403,
+          "Necesitas permiso de pruebas privadas para clasificar como delito individual.",
+        );
+      if (current.estado === "FALSO")
+        throw new HttpError(
+          409,
+          "Primero debe revisarse la apelación del incidente declarado falso.",
+        );
       if (type.individual && current.reportes.length > 1)
         throw new HttpError(
           409,
@@ -298,26 +435,46 @@ router.post(
         emergencia: type.emergencia,
         persistente: type.persistente,
       };
-      if (type.individual && !current.individual) {
+      if (
+        type.individual &&
+        (!current.individual ||
+          current.tipoId !== type.id ||
+          current.tipo !== type.nombre)
+      ) {
         await db.vote.deleteMany({ where: { incidenteId } });
         await db.attachment.updateMany({
           where: { reporte: { incidenteId } },
           data: { privado: true, tipo: "EVIDENCIA" },
         });
-        if (current.evaluacion !== "AGENTE") {
-          data.validacion = 0.5;
-          data.estado = "PENDIENTE";
-          data.publicado = false;
-        }
+        // Classification is not a new review of private evidence. A prior
+        // approval cannot validate evidence against a newly classified crime.
+        data.validacion = 0.5;
+        data.estado = "PENDIENTE";
+        data.evaluacion = "PENDIENTE";
+        data.nivelRiesgo = null;
+        data.publicado = false;
+        await db.report.updateMany({
+          where: { incidenteId, estado: { notIn: ["FALSO", "RETIRADO"] } },
+          data: { estado: "EN_REVISION", nivelRiesgo: null },
+        });
       }
       await db.report.updateMany({
         where: { incidenteId },
         data: { tipo: type.nombre, tipoId: type.id },
       });
-      await audit(db, req.user, "RECLASIFICAR", "INCIDENTE", incidenteId, {
+      await audit(db, actor, "RECLASIFICAR", "INCIDENTE", incidenteId, {
         tipoAnterior: current.tipo,
         tipoNuevo: type.nombre,
         motivo,
+      });
+      await db.review.create({
+        data: {
+          usuarioId: actor.id,
+          incidenteId,
+          accion: "RECLASIFICAR",
+          motivo,
+          datos: { tipoAnterior: current.tipo, tipoNuevo: type.nombre },
+        },
       });
       return db.incident.update({ where: { id: incidenteId }, data });
     });
@@ -406,7 +563,7 @@ router.post(
       rol,
       tipoAgente,
       distrito,
-      permisos: rol === "AGENTE" ? [...new Set(b.permisos ?? [])] : [],
+      permisos: rol === "AGENTE" ? effectivePermissions(b.permisos ?? []) : [],
       correoVerificado,
       telefonoVerificado: false,
       reputacion: null,
@@ -453,7 +610,7 @@ router.patch(
         b.permisos.some((v) => !permissions.includes(v))
       )
         throw new HttpError(400, "Permisos inválidos.");
-      data.permisos = [...new Set(b.permisos)];
+      data.permisos = effectivePermissions(b.permisos);
     }
     if (b.distrito !== undefined) {
       if (b.distrito !== null && !DISTRICTS.includes(b.distrito))
@@ -502,14 +659,22 @@ router.patch(
       const verificationReason = verificationChanged
         ? text(b.motivoVerificacion, "Motivo de validación", 1000, 10)
         : null;
-      if (
-        (data.rol || existing.rol) === "AGENTE" &&
-        (data.tipoAgente !== undefined
-          ? data.tipoAgente
-          : existing.tipoAgente) !== "COLABORADOR" &&
-        !(data.distrito !== undefined ? data.distrito : existing.distrito)
-      )
-        throw new HttpError(400, "Asigna un distrito al agente.");
+      const finalRole = data.rol || existing.rol;
+      const finalType =
+        data.tipoAgente !== undefined ? data.tipoAgente : existing.tipoAgente;
+      const finalDistrict =
+        data.distrito !== undefined ? data.distrito : existing.distrito;
+      if (finalRole === "AGENTE") {
+        if (!["POLICIA", "SERENAZGO", "COLABORADOR"].includes(finalType))
+          throw new HttpError(400, "Selecciona el tipo de agente.");
+        if (finalType !== "COLABORADOR" && !finalDistrict)
+          throw new HttpError(400, "Asigna un distrito al agente.");
+        if (finalType === "COLABORADOR") data.distrito = null;
+      } else {
+        data.permisos = [];
+        data.tipoAgente = null;
+        data.distrito = null;
+      }
       const u = await db.user.update({ where: { id: target }, data });
       if (verificationChanged) await refreshVerificationEffects(db, target);
       if (!u.premium && u.ocultarAnuncios)

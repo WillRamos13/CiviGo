@@ -55,6 +55,7 @@ async function reserveUpload(
           reporteId: null,
           estado: { not: "BORRANDO" },
           tipo: { not: "IDENTIDAD" },
+          anuncio: { is: null },
         },
       }),
       tx.$queryRaw`SELECT COUNT(*)::int AS count FROM "Attachment" a
@@ -80,10 +81,11 @@ async function reserveUpload(
 // serializable transaction too, so a concurrent association cannot be deleted.
 async function claimOrphan(db, id, before, userId) {
   return serializable(db, async (tx) => {
-    const row = await tx.attachment.findUnique({ where: { id } });
+    const row = await tx.attachment.findUnique({ where: { id }, include: { anuncio: { select: { id: true } } } });
     if (
       !row ||
       row.reporteId ||
+      row.anuncio ||
       (userId !== undefined && row.usuarioId !== userId) ||
       (before && row.creadoEn >= before)
     )
@@ -106,6 +108,7 @@ async function cleanupUploads(db, storage, now = new Date()) {
   const candidates = await db.$queryRaw`SELECT a.* FROM "Attachment" a
     WHERE a."reporteId" IS NULL AND (a."creadoEn" < ${before} OR a.estado = 'BORRANDO')
     AND NOT EXISTS (SELECT 1 FROM "Recovery" r WHERE r."adjuntoId" = a.id)
+    AND NOT EXISTS (SELECT 1 FROM "MapAnnouncement" m WHERE m."imagenId" = a.id)
     ORDER BY a."creadoEn" ASC LIMIT 100`;
   let removed = 0;
   for (const candidate of candidates) {

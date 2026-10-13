@@ -149,6 +149,7 @@ router.post(
         usuarioId: req.user.id,
         reporteId: null,
         tipo: "PUBLICO",
+        anuncio: { is: null },
         estado: "LISTO",
       },
     });
@@ -367,6 +368,7 @@ router.post(
             id: a.id,
             usuarioId: req.user.id,
             reporteId: null,
+            anuncio: { is: null },
             estado: "LISTO",
           },
           data: {

@@ -3,10 +3,11 @@
 import { useAuth } from "@/components/AuthProvider";
 import { ManagementGate } from "./common";
 import IncidentReviewPanel from "./IncidentReviewPanel";
+import { hasAgentPermission } from "@/lib/agent-permissions";
 
 function AgentReview() {
   const { usuario } = useAuth();
-  const canReview = usuario?.permisos?.includes("revisar");
+  const canReview = hasAgentPermission(usuario, "consultar");
   return (
     <div className="page max-w-7xl">
       <div className="page-heading">

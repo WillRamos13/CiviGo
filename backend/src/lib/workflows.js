@@ -2,6 +2,7 @@ const prisma = require("./db");
 const { config } = require("./catalog");
 const { HttpError } = require("./http");
 const { canReview } = require("./auth");
+const { permissionForReview } = require("./agent-permissions");
 const { canPublishIncident } = require("./publication");
 async function transaction(work) {
   for (let n = 0; n < 3; n++) {
@@ -199,12 +200,8 @@ async function reviewIncident(db, incident, user, input) {
   if (!incident) throw new HttpError(404, "Incidente no encontrado.");
   const { accion, motivo, nivelRiesgo } = input;
   const actor = await db.user.findUnique({ where: { id: user.id } });
-  const permission =
-    accion === "RESOLVER"
-      ? "resolver"
-      : accion === "REABRIR"
-        ? "reabrir"
-        : "revisar";
+  const permission = permissionForReview(accion);
+  if (!permission) throw new HttpError(400, "Acción de revisión inválida.");
   if (
     !canReview(actor, incident, permission) ||
     (incident.individual &&
@@ -319,6 +316,23 @@ async function reviewIncident(db, incident, user, input) {
       where: { incidenteId: incident.id },
     });
     if (
+      (await db.attachment.count({
+        where: {
+          reporteId: {
+            in: contributions
+              .filter((r) => !["FALSO", "RETIRADO"].includes(r.estado))
+              .map((r) => r.id),
+          },
+          privado: true,
+        },
+      })) &&
+      !canReview(actor, incident, "evidencia")
+    )
+      throw new HttpError(
+        403,
+        "Necesitas permiso para revisar las pruebas privadas de estos aportes.",
+      );
+    if (
       contributions.length > 1 &&
       !contributions.some(
         (r) => !["EN_REVISION", "FALSO", "RETIRADO"].includes(r.estado),
@@ -394,7 +408,7 @@ async function reviewIncident(db, incident, user, input) {
     });
   }
   const result = await db.incident.update({ where: { id: incident.id }, data });
-  if (["VALIDAR", "FALSO", "RESOLVER", "REABRIR", "GRAVEDAD"].includes(accion))
+  if (["VALIDAR", "FALSO", "RESOLVER", "REABRIR"].includes(accion))
     await db.flag.updateMany({
       where: { incidenteId: incident.id, estado: "PENDIENTE" },
       data: { estado: "REVISADO" },
@@ -442,8 +456,11 @@ async function reviewReport(db, reportId, user, input) {
   });
   if (!r?.incidente) throw new HttpError(404, "Reporte no encontrado.");
   const actor = await db.user.findUnique({ where: { id: user.id } });
+  const { accion, motivo, nivelRiesgo } = input;
+  if (!["VALIDAR", "FALSO", "RETIRAR_PUNTOS"].includes(accion))
+    throw new HttpError(400, "Decisión de aporte inválida.");
   if (
-    !canReview(actor, r.incidente) ||
+    !canReview(actor, r.incidente, permissionForReview(accion)) ||
     ((r.incidente.individual || r.adjuntos.some((a) => a.privado)) &&
       !canReview(actor, r.incidente, "evidencia"))
   )
@@ -451,9 +468,6 @@ async function reviewReport(db, reportId, user, input) {
       403,
       "No tienes permisos para revisar este aporte y sus pruebas.",
     );
-  const { accion, motivo, nivelRiesgo } = input;
-  if (!["VALIDAR", "FALSO", "RETIRAR_PUNTOS"].includes(accion))
-    throw new HttpError(400, "Decisión de aporte inválida.");
   if (r.estado === "FALSO" && accion !== "RETIRAR_PUNTOS")
     throw new HttpError(
       409,

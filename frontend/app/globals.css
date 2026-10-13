@@ -1753,3 +1753,15 @@ html[data-theme="dark"] .mapboxgl-ctrl-attrib-button {
     height: 43.2px;
   }
 }
+
+/* Advertising media keeps the header compact and preserves the whole creative. */
+.map-announcements-media { overflow: hidden; }
+.announcement-media-content { gap: 10px; padding: 0 5px; min-height: 44px; }
+.announcement-image { display: block; width: auto; max-width: 100%; height: 44px; object-fit: contain; flex: 1; min-width: 0; border-radius: 7px; }
+.announcement-media-content .announcement-text { flex: 0 1 42%; min-width: 0; }
+.announcement-media-content .announcement-description { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (max-width: 600px) {
+  .announcement-media-content { min-height: 34px; gap: 4px; }
+  .announcement-image { height: 34px; border-radius: 5px; }
+  .announcement-media-content .announcement-text { flex-basis: 38%; }
+}

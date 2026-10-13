@@ -22,6 +22,7 @@ test(
     const run = crypto.randomBytes(6).toString("hex");
     const users = [],
       ids = [];
+    const advertisingFiles = [];
     let server, business;
     const externalId = "fixture_" + run;
     try {
@@ -161,6 +162,29 @@ test(
         where: { id: business.id },
         data: { activo: false },
       });
+      const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jW9sAAAAASUVORK5CYII=', 'base64');
+      const uploadUrl = 'http://127.0.0.1:' + server.address().port + '/api/uploads';
+      const imageForm = new FormData();
+      imageForm.append('archivo', new Blob([png], {type:'image/png'}), 'publicidad-local.png');
+      imageForm.append('tipo','ANUNCIO'); imageForm.append('privado','false');
+      const uploadResponse = await fetch(uploadUrl, {method:'POST',headers:{Cookie:admin},body:imageForm});
+      const image = await uploadResponse.json(); assert.equal(uploadResponse.status,201,JSON.stringify(image));
+      advertisingFiles.push(await prisma.attachment.findUnique({where:{id:image.id}}));
+      const withImage = await request('/manage','POST',{tipo:'NOVEDAD',titulo:run+'-imagen',imagenId:image.id,imagenAlt:'Publicidad local accesible'},admin);
+      assert.equal(withImage.status,201,JSON.stringify(withImage.body)); ids.push(withImage.body.id);
+      const imageEntry = (await request('')).body.find(row=>row.id===withImage.body.id);
+      assert.equal(imageEntry.imagen.alt,'Publicidad local accesible'); assert.equal('path' in imageEntry.imagen,false);
+      const imageUrl = 'http://127.0.0.1:' + server.address().port + '/api/announcements/' + withImage.body.id + '/image';
+      const servedImage = await fetch(imageUrl);
+      assert.equal(servedImage.status,200); assert.deepEqual(Buffer.from(await servedImage.arrayBuffer()),png);
+      assert.equal((await fetch(uploadUrl+'/'+image.id,{method:'DELETE',headers:{Cookie:admin}})).status,409,'imagen asociada no se borra como carga pendiente');
+      const secondAdmin = await actor('secondadmin','ADMIN');
+      assert.equal((await fetch(uploadUrl+'/'+image.id,{headers:{Cookie:secondAdmin}})).status,200,'otro ADMIN puede revisar la imagen');
+      assert.equal((await request('/manage/'+withImage.body.id,'PATCH',{imagenAlt:'Nueva descripción'},secondAdmin)).status,200,'se edita anuncio creado por otro ADMIN sin reasociar una prueba');
+      await request('/manage/'+withImage.body.id,'PATCH',{activo:false},admin);
+      assert.equal((await fetch(imageUrl)).status,404);
+      await request('/manage/'+withImage.body.id,'PATCH',{imagenId:null},admin);
+      assert.equal((await fetch(uploadUrl+'/'+image.id,{method:'DELETE',headers:{Cookie:admin}})).status,200,'imagen retirada queda eliminable como carga huérfana');
       assert.equal(
         (await request("")).body.some((row) => row.id === ids[1]),
         false,
@@ -212,6 +236,10 @@ test(
       );
     } finally {
       await prisma.mapAnnouncement.deleteMany({ where: { id: { in: ids } } });
+      for (const image of advertisingFiles) {
+        await require('../src/lib/storage').createStorage().remove(image.path);
+        await prisma.attachment.deleteMany({where:{id:image.id}});
+      }
       await prisma.externalTrafficModeration.deleteMany({
         where: { externoId: externalId },
       });

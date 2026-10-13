@@ -13,7 +13,7 @@ function fakeMap(styleLayers = [
     return {
         sources, layers,
         getSource: id => sources.get(id),
-        addSource(id,spec) { assert.equal(sources.has(id),false); sources.set(id,spec); },
+        addSource(id,spec) { assert.equal(sources.has(id),false); sources.set(id,{...spec, updates:0, setTiles(tiles) {this.tiles=tiles;this.updates++;}}); },
         getLayer: id => layers.get(id),
         addLayer(spec,before) { assert.equal(layers.has(spec.id),false); layers.set(spec.id,{...spec,layout:{...spec.layout},before}); },
         getStyle: () => ({layers:styleLayers}),
@@ -53,4 +53,21 @@ test('a style without text labels still supports the traffic layer',()=>{
     const map=fakeMap([]);syncTrafficLayer(map,true,url);
     assert.equal(map.layers.get(TRAFFIC_LAYER_ID).before,undefined);
     assert.equal(map.layers.get(TRAFFIC_LAYER_ID).layout.visibility,'visible');
+});
+
+test('traffic source uses provincial bounds and refreshes tiles once per URL without replacing layers',()=>{
+    const map=fakeMap(), bounds=[-75.9,-14.3,-75.5,-13.9];
+    syncTrafficLayer(map,true,`${url}?v=1`,bounds);
+    const source=map.sources.get(TRAFFIC_SOURCE_ID), layer=map.layers.get(TRAFFIC_LAYER_ID);
+    assert.deepEqual(source.bounds,bounds);
+    syncTrafficLayer(map,true,`${url}?v=1`,bounds);
+    assert.equal(source.updates,0);
+    syncTrafficLayer(map,true,`${url}?v=2`,bounds);
+    assert.equal(source.updates,1);
+    assert.deepEqual(source.tiles,[`${url}?v=2`]);
+    assert.equal(map.layers.get(TRAFFIC_LAYER_ID),layer);
+    syncTrafficLayer(map,false,`${url}?v=3`,bounds);
+    assert.equal(source.updates,1);
+    syncTrafficLayer(map,true,`${url}?v=3`,bounds);
+    assert.equal(source.updates,2);
 });

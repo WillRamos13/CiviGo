@@ -227,7 +227,10 @@ function createTrafficService({
     });
   const network = () => roads || getRoads();
   const service = {
-    status: () => provider.status(),
+    status: async () => ({
+      ...(await provider.status()),
+      cobertura: provinceBounds(network()),
+    }),
     async plan(input, civic, options = {}) {
       // Do not deduplicate closures against civic reports: an unvalidated civic
       // duplicate must not make a known external road closure traversable.

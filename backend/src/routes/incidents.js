@@ -58,11 +58,21 @@ router.get(
     }
     const where = publicIncidentWhere(now);
     if (req.query.tipo) where.tipoCatalogo = { slug: String(req.query.tipo) };
-    const viewport = require('../lib/map-query').mapQuery(req.query);
+    const viewport = require("../lib/map-query").mapQuery(req.query);
     if (viewport) {
-      const page = await prisma.incident.findMany({ where: { ...where, ...viewport.where }, include, orderBy: { id: 'desc' }, take: viewport.take + 1 });
+      const page = await prisma.incident.findMany({
+        where: { ...where, ...viewport.where },
+        include,
+        orderBy: { id: "desc" },
+        take: viewport.take + 1,
+      });
       const rows = page.slice(0, viewport.take);
-      return res.json({ items: rows.filter(i => isVisiblePublicIncident(i, now)).map(i => incident(i)), nextCursor: page.length > viewport.take ? rows.at(-1).id : null });
+      return res.json({
+        items: rows
+          .filter((i) => isVisiblePublicIncident(i, now))
+          .map((i) => incident(i)),
+        nextCursor: page.length > viewport.take ? rows.at(-1).id : null,
+      });
     }
     const [active, historical] = await Promise.all([
       prisma.incident.findMany({
@@ -132,10 +142,13 @@ for (const action of ["confirmar", "resolver"]) {
             400,
             "Este delito se valida mediante pruebas privadas; no recibe votos comunitarios.",
           );
+        const actor = await db.user.findUnique({ where: { id: req.user.id } });
+        if (!actor || actor.bloqueado || !actor.correoVerificado)
+          throw new HttpError(403, "Tu cuenta ya no puede participar.");
         const staff = canReview(
-          req.user,
+          actor,
           row,
-          action === "confirmar" ? "revisar" : "resolver",
+          action === "confirmar" ? "validar" : "resolver",
         );
         if (!staff && distance(p, row) > rules.confirmacionMetros)
           throw new HttpError(

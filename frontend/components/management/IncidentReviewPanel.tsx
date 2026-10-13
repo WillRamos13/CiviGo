@@ -6,6 +6,8 @@ import { api, API_URL } from "@/lib/api";
 import { useAuth } from "@/components/AuthProvider";
 import IncidentIcon from "@/components/IncidentIcon";
 import { incidentEvaluationLabel } from "@/lib/incidents";
+import { hasAgentPermission } from "@/lib/agent-permissions";
+import ConversationModeration from "./ConversationModeration";
 import {
   dateTime,
   Feedback,
@@ -69,7 +71,7 @@ interface ReviewCatalog {
   categorias: {
     id: number;
     nombre: string;
-    tipos: { id: number; nombre: string }[];
+    tipos: { id: number; nombre: string; individual?: boolean }[];
   }[];
 }
 type Action =
@@ -81,14 +83,14 @@ type Action =
   | "CLASIFICAR"
   | "RETIRAR_PUNTOS";
 const actions: { value: Action; label: string; permission: string }[] = [
-  { value: "VALIDAR", label: "Validar incidente", permission: "revisar" },
-  { value: "GRAVEDAD", label: "Corregir gravedad", permission: "revisar" },
+  { value: "VALIDAR", label: "Validar incidente", permission: "validar" },
+  { value: "GRAVEDAD", label: "Corregir gravedad", permission: "gravedad" },
   {
     value: "CLASIFICAR",
     label: "Clasificar o cambiar tipo",
-    permission: "revisar",
+    permission: "clasificar",
   },
-  { value: "FALSO", label: "Declarar falso", permission: "revisar" },
+  { value: "FALSO", label: "Declarar falso", permission: "falsedad" },
   { value: "RESOLVER", label: "Marcar resuelto", permission: "resolver" },
   { value: "REABRIR", label: "Reabrir incidente", permission: "reabrir" },
   {
@@ -109,11 +111,13 @@ function ReportDecision({
 }) {
   const { usuario } = useAuth();
   const admin = usuario?.rol.toUpperCase() === "ADMIN";
-  const permitted = admin || usuario?.permisos?.includes("revisar");
-  const evidence = admin || usuario?.permisos?.includes("evidencia");
+  const canValidate = hasAgentPermission(usuario, "validar");
+  const canFalse = hasAgentPermission(usuario, "falsedad");
+  const permitted = canValidate || canFalse || admin;
+  const evidence = hasAgentPermission(usuario, "evidencia");
   const [open, setOpen] = useState(false);
   const [action, setAction] = useState(
-    report.estado === "FALSO" ? "RETIRAR_PUNTOS" : "VALIDAR",
+    report.estado === "FALSO" ? "RETIRAR_PUNTOS" : canValidate ? "VALIDAR" : "FALSO",
   );
   const [severity, setSeverity] = useState(incident.nivelRiesgo ?? 1);
   const [reason, setReason] = useState("");
@@ -185,8 +189,8 @@ function ReportDecision({
                   </option>
                 ) : (
                   <>
-                    <option value="VALIDAR">Validar aporte</option>
-                    <option value="FALSO">Declarar aporte falso</option>
+                    {canValidate && <option value="VALIDAR">Validar aporte</option>}
+                    {canFalse && <option value="FALSO">Declarar aporte falso</option>}
                   </>
                 )}
               </select>
@@ -252,11 +256,7 @@ function FlagDecision({
   const [reason, setReason] = useState("");
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
-  if (
-    usuario?.rol.toUpperCase() !== "ADMIN" &&
-    !usuario?.permisos?.includes("revisar")
-  )
-    return null;
+  if (!hasAgentPermission(usuario, "avisos")) return null;
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (pending) return;
@@ -308,16 +308,18 @@ function ReviewDetail({
 }) {
   const { usuario } = useAuth();
   const admin = usuario?.rol.toUpperCase() === "ADMIN";
-  const canEvidence = admin || usuario?.permisos?.includes("evidencia");
+  const canEvidence = hasAgentPermission(usuario, "evidencia");
+  const privateContributions = incident.reportes?.some(report => report.evidenciaPrivada || report.adjuntos?.some(attachment => attachment.privado));
   const allowedActions = actions.filter(
     (action) =>
-      (admin || usuario?.permisos?.includes(action.permission)) &&
+      hasAgentPermission(usuario, action.permission) &&
       (action.value !== "RETIRAR_PUNTOS" ||
         (admin && incident.estado === "FALSO")) &&
       (incident.estado !== "FALSO" || action.value === "RETIRAR_PUNTOS") &&
       (action.value !== "FALSO" || incident.totalReportes <= 1) &&
+      (!privateContributions || !["VALIDAR", "FALSO"].includes(action.value) || canEvidence) &&
       (!incident.individual ||
-        !["VALIDAR", "FALSO"].includes(action.value) ||
+        !["VALIDAR", "FALSO", "CLASIFICAR"].includes(action.value) ||
         canEvidence),
   );
   const [action, setAction] = useState<Action>(
@@ -516,6 +518,7 @@ function ReviewDetail({
           </div>
         </section>
       )}
+      {hasAgentPermission(usuario, "moderar") && <ConversationModeration incidentId={incident.id} done={done} />}
       <form onSubmit={submit} className="mt-6 border-t pt-5">
         <h3 className="font-bold text-lg mb-4">
           Registrar decisión del incidente
@@ -586,7 +589,7 @@ function ReviewDetail({
                     {catalog.data?.categorias.map((category) => (
                       <optgroup key={category.id} label={category.nombre}>
                         {category.tipos.map((type) => (
-                          <option key={type.id} value={type.id}>
+                          <option key={type.id} value={type.id} disabled={type.individual && !canEvidence}>
                             {type.nombre}
                           </option>
                         ))}
@@ -598,6 +601,7 @@ function ReviewDetail({
                   La clasificación queda registrada. Un incidente con varios
                   autores no puede convertirse en un delito individual.
                 </p>
+                <p className="notice mt-2">Los tipos de delito individual requieren permiso de pruebas privadas. Al convertir un incidente comunitario en delito individual, sus aportes vuelven a revisión y dejan de publicarse hasta una nueva validación.</p>
               </div>
             )}
             <label className="field mt-4">

@@ -31,3 +31,13 @@ test('snapshot de tráfico descarta claves del proveedor y otros datos', () => {
   assert.equal('apiKey' in result, false); assert.equal('usuario' in result, false);
   assert.equal(result.titulo, 'Cierre');
 });
+
+test('publicidad valida imágenes antes de subir y vista previa rechaza HTML/SVG/documentos', () => {
+  const validate = exportsObject.validateAnnouncementImage;
+  validate({type:'image/png',size:100});
+  for (const file of [{type:'image/svg+xml',size:100},{type:'application/pdf',size:100},{type:'image/png',size:0},{type:'image/png',size:5*1024*1024+1}]) assert.throws(() => validate(file));
+  const { imagePreview } = require('../electron/image-preview.cjs');
+  const png = Buffer.from([137,80,78,71,13,10,26,10]);
+  assert.equal(imagePreview({bytes:png,mimeType:'image/png'}), 'data:image/png;base64,'+png.toString('base64'));
+  for (const file of [{bytes:Buffer.from('<svg>'),mimeType:'image/svg+xml'},{bytes:Buffer.from('<html>'),mimeType:'image/png'},{bytes:png,mimeType:'application/pdf'},{bytes:Buffer.alloc(5*1024*1024+1),mimeType:'image/png'}]) assert.throws(() => imagePreview(file));
+});

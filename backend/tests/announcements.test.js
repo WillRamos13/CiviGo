@@ -6,6 +6,8 @@ const {
   safeLink,
   scheduledDate,
   trafficModerationData,
+  publicAnnouncement,
+  validateAnnouncementImage,
 } = require("../src/lib/announcements");
 const fixture = {
   titulo: "Nueva función del mapa",
@@ -103,6 +105,7 @@ function loadRouter(state) {
   const clone = (row) => ({
     ...row,
     negocio: businesses.find((b) => b.id === row.negocioId) ?? null,
+    imagen: state.images?.find(image => image.id === row.imagenId) ?? null,
   });
   const db = {
     mapAnnouncement: {
@@ -129,7 +132,7 @@ function loadRouter(state) {
           .map(clone);
       },
       findUnique: async ({ where }) =>
-        state.rows.find((row) => row.id === where.id) ?? null,
+        state.rows.find((row) => row.id === where.id) ? clone(state.rows.find((row) => row.id === where.id)) : null,
       create: async ({ data }) => {
         const row = { id: ++sequence, ...data };
         state.rows.push(row);
@@ -144,6 +147,10 @@ function loadRouter(state) {
         state.rows = state.rows.filter((row) => row.id !== where.id);
       },
     },
+    attachment: { findUnique: async ({where}) => {
+      const image = state.images?.find(row => row.id === where.id);
+      return image ? { ...image, anuncio: state.rows.find(row => row.imagenId === where.id) ?? null } : null;
+    } },
     business: {
       findUnique: async ({ where }) =>
         businesses.find((row) => row.id === where.id) ?? null,
@@ -188,6 +195,7 @@ function loadRouter(state) {
   const overrides = {
     "../src/lib/db": db,
     "../src/lib/auth": { auth, optionalAuth: setUser },
+    "../src/lib/storage": { createStorage: () => ({ send: async (row, req, res) => { state.imageReads = (state.imageReads || 0) + 1; res.send(Buffer.from('authorized-image')); } }) },
   };
   const saved = [];
   const routeId = require.resolve("../src/routes/announcements");
@@ -209,7 +217,7 @@ function loadRouter(state) {
 }
 
 test("API de anuncios publica solo vigentes, protege CRUD y audita moderación", async (t) => {
-  const state = { rows: [], audit: [], moderation: [] };
+  const state = { rows: [], audit: [], moderation: [], images: [] };
   const app = express();
   app.use(express.json());
   app.use("/api/announcements", loadRouter(state));
@@ -253,6 +261,38 @@ test("API de anuncios publica solo vigentes, protege CRUD y audita moderación",
         );
       },
     );
+    await t.test('imágenes de anuncios se publican solo vigentes y no admiten pruebas privadas ni ajenas', async () => {
+      const image = { id: '12345678-1234-1234-1234-123456789012', usuarioId: 1, estado: 'LISTO', tipo: 'ANUNCIO', privado: false, reporteId: null, mimeType: 'image/png', size: 100, nombre: 'promocion.png' };
+      state.images.push(image);
+      const created = await request('/manage', 'POST', { ...fixture, imagenId: image.id, imagenAlt: 'Promoción accesible' }, admin);
+      assert.equal(created.status, 201);
+      const row = await created.json();
+      const published = (await (await request('/')).json()).find(a => a.id === row.id);
+      assert.equal(published.imagen.alt, 'Promoción accesible');
+      assert.equal(published.imagen.url, `/api/announcements/${row.id}/image`);
+      assert.equal('path' in published.imagen, false);
+      const rendered = await request(`/${row.id}/image`);
+      assert.equal(rendered.status, 200); assert.equal(rendered.headers.get('content-type').startsWith('image/png'), true);
+      assert.equal(rendered.headers.get('cache-control'), 'no-store');
+      assert.equal(rendered.headers.get('x-content-type-options'), 'nosniff');
+      assert.equal((await request('/manage', 'POST', { ...fixture, imagenId: image.id }, admin)).status, 400, 'una imagen no se reutiliza en otro anuncio');
+      assert.equal((await request(`/manage/${row.id}`, 'PATCH', { activo: false }, admin)).status, 200);
+      const reads = state.imageReads;
+      assert.equal((await request(`/${row.id}/image`)).status, 404);
+      assert.equal(state.imageReads, reads, 'anuncio desactivado no consulta almacenamiento');
+      await request(`/manage/${row.id}`, 'PATCH', { activo: true, tipo: 'NEGOCIO', negocioId: 10 }, admin);
+      assert.equal((await request(`/${row.id}/image`, 'GET', null, { 'x-role': 'USUARIO', 'x-premium': 'yes', 'x-hide': 'yes' })).status, 404);
+      await request(`/manage/${row.id}`, 'PATCH', { negocioId: 11 }, admin);
+      assert.equal((await request(`/${row.id}/image`)).status, 404, 'negocio inactivo no publica imagen');
+      await request(`/manage/${row.id}`, 'PATCH', { tipo: 'NOVEDAD', inicio: '2099-10-08T13:00:00Z' }, admin);
+      assert.equal((await request(`/${row.id}/image`)).status, 404, 'programación aplica también a la imagen');
+      await request(`/manage/${row.id}`, 'PATCH', { inicio: null, imagenId: null }, admin);
+      assert.equal((await request(`/${row.id}/image`)).status, 404);
+      assert.equal((await request('/manage', 'POST', { ...fixture, imagenId: image.id }, {'x-role':'AGENTE'})).status, 403);
+      image.privado = true;
+      assert.equal((await request('/manage', 'POST', { ...fixture, imagenId: image.id }, admin)).status, 400);
+      await request(`/manage/${row.id}`, 'DELETE', null, admin);
+    });
     await t.test("crear, editar, ordenar y programación pública", async () => {
       const create = await request("/manage", "POST", fixture, admin);
       assert.equal(create.status, 201);
@@ -428,6 +468,21 @@ test("API de anuncios publica solo vigentes, protege CRUD y audita moderación",
   }
 });
 
+test('imagen publicitaria requiere identificador propio, formato seguro y nunca reutiliza pruebas de reportes', async () => {
+  const image = { id: '12345678-1234-1234-1234-123456789012', usuarioId: 1, estado: 'LISTO', tipo: 'ANUNCIO', privado: false, reporteId: null, mimeType: 'image/png', size: 100 };
+  const data = announcementData({ ...fixture, imagenId: image.id });
+  assert.equal(data.imagenAlt, '');
+  assert.throws(() => announcementData({...fixture, imagenId:'https://example.test/photo.png'}), {status:400});
+  assert.throws(() => announcementData({...fixture, imagenId:image.id, imagenAlt:'<script>bad</script>'}), {status:400});
+  const db = row => ({ attachment: { findUnique: async () => row } });
+  await validateAnnouncementImage(db(image), data, 1);
+  for (const patch of [{estado:'BORRANDO'}, {privado:true}, {tipo:'EVIDENCIA'}, {reporteId:5}, {mimeType:'image/svg+xml'}, {mimeType:'video/mp4'}, {size:0}, {size:5*1024*1024+1}, {usuarioId:2}, {anuncio:{id:10}}])
+    await assert.rejects(validateAnnouncementImage(db({...image,...patch}), data, 1), {status:400});
+  await validateAnnouncementImage(db({...image, usuarioId:2, anuncio:{id:10}}), data, 1, {id:10, imagenId:image.id});
+  const publicRow = publicAnnouncement({ ...fixture, id:10, imagen:{...image, path:'supabase://private/example'}, imagenAlt:'Publicidad' });
+  assert.equal('path' in publicRow.imagen, false); assert.equal('usuarioId' in publicRow.imagen, false);
+});
+
 test("migración local conserva relación de negocios y valida horarios y cuota", async () => {
   const { PGlite } = require("@electric-sql/pglite");
   const fs = require("node:fs");
@@ -474,6 +529,12 @@ test("migración local conserva relación de negocios y valida horarios y cuota"
       db.exec(`UPDATE "ExternalApiUsage" SET "usadas" = -1;`),
       /usadas_check/,
     );
+    await db.exec('CREATE TABLE "Attachment" ("id" TEXT PRIMARY KEY);');
+    await db.exec(fs.readFileSync(path.join(__dirname, '../prisma/migrations/20261013000200_announcement_images/migration.sql'), 'utf8'));
+    await db.exec(`INSERT INTO "Attachment" VALUES ('image-fixture'); UPDATE "MapAnnouncement" SET "imagenId" = 'image-fixture', "imagenAlt" = 'Promoción';`);
+    await assert.rejects(db.exec(`DELETE FROM "Attachment" WHERE "id" = 'image-fixture';`), /foreign key/);
+    await assert.rejects(db.exec(`INSERT INTO "MapAnnouncement" ("titulo", "imagenId", "actualizadoEn") VALUES ('Duplicado', 'image-fixture', NOW());`), /unique constraint/);
+    assert.equal((await db.query('SELECT "titulo" FROM "MapAnnouncement"')).rows[0].titulo, 'Publicidad', 'migración conserva anuncios existentes');
     await db.exec('DELETE FROM "Business" WHERE "id" = 1;');
     assert.equal(
       (await db.query('SELECT * FROM "MapAnnouncement"')).rows.length,
@@ -482,4 +543,11 @@ test("migración local conserva relación de negocios y valida horarios y cuota"
   } finally {
     await db.close();
   }
+});
+
+test('limpieza de cargas no reclama imágenes asociadas a anuncios', async () => {
+  const { claimOrphan } = require('../src/lib/upload-quota');
+  let writes = 0;
+  const db = { $transaction: async work => work(db), attachment: { findUnique: async () => ({id:'image-fixture', usuarioId:1, reporteId:null, anuncio:{id:1}, creadoEn:new Date(0)}), update: async () => { writes++; } } };
+  assert.equal(await claimOrphan(db, 'image-fixture', null, 1), null); assert.equal(writes, 0);
 });

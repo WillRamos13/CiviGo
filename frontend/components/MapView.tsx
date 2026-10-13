@@ -12,7 +12,7 @@ import type { IncidentFilterGroup } from '@/lib/incident-filters';
 import type { Incidente, Ruta, Posicion, LocationFix } from '@/lib/types';
 import { RISK_COLORS } from '@/lib/types';
 import type { TrafficResponse, TrafficStatus, ExternalTrafficIncident } from '@/lib/traffic';
-import { trafficAffectsRoute } from '@/lib/traffic';
+import { trafficAffectsRoute, trafficFlowMessage } from '@/lib/traffic';
 import { syncTrafficLayer } from '@/lib/map-traffic-layers';
 import RiskLegend from './RiskLegend';
 import OfflineRoute from './OfflineRoute';
@@ -46,7 +46,9 @@ export default function MapView({ incidentes = EMPTY_INCIDENTS, ruta = null, onS
     const [trafficError, setTrafficError] = useState('');
     const externalMarkers = useRef<mapboxgl.Marker[]>([]), trafficSnapshot = useRef(''), followCamera = useRef(true), cameraState = useRef({navigating, posicion, heading});
     const trafficCallback = useRef(onTrafficChange);
-    const trafficLayerState = useRef({enabled: false, url: ''});
+    const trafficLayerState = useRef<{enabled: boolean; url: string; bounds?: [number, number, number, number]}>({enabled: false, url: ''});
+    const [trafficRevision, setTrafficRevision] = useState(0);
+    const refreshTrafficRef = useRef<() => void>(() => {}), lastTrafficDiagnostic = useRef(0), lastTrafficUpdate = useRef('');
     const activeTrafficRoute = useRef(ruta);
     useEffect(() => { activeTrafficRoute.current = ruta; }, [ruta]);
     useEffect(() => { cameraState.current = {navigating, posicion, heading}; trafficCallback.current = onTrafficChange; }, [navigating, posicion, heading, onTrafficChange]);
@@ -84,11 +86,14 @@ export default function MapView({ incidentes = EMPTY_INCIDENTS, ruta = null, onS
         map.on('style.load', () => {
             styleReady.current = true;
             syncMapLayers(map, layerState.current);
-            if (!editor) syncTrafficLayer(map, trafficLayerState.current.enabled, trafficLayerState.current.url);
+            if (!editor) syncTrafficLayer(map, trafficLayerState.current.enabled, trafficLayerState.current.url, trafficLayerState.current.bounds);
             setLoaded(true);
             setError('');
         });
-        map.on('error', e => { if ('sourceId' in e && e.sourceId === 'tomtom-flow') setTrafficError('La capa de tráfico no se pudo actualizar. Puedes consultar el riesgo y los recorridos locales.'); else if (e.error?.message?.includes('token') || e.error?.message?.includes('401') || e.error?.message?.includes('403'))
+        map.on('error', e => { if ('sourceId' in e && e.sourceId === 'tomtom-flow') {
+            setTrafficError('No se pudo actualizar una parte del tráfico. Volveremos a intentarlo automáticamente.');
+            if (Date.now() - lastTrafficDiagnostic.current >= 10000) { lastTrafficDiagnostic.current = Date.now(); refreshTrafficRef.current(); }
+        } else if (e.error?.message?.includes('token') || e.error?.message?.includes('401') || e.error?.message?.includes('403'))
             setError('No se pudo cargar Mapbox. Revisa el token público y sus restricciones.'); });
         if (editor)
             map.on('click', e => callbacks.current.onPosition?.({ latitud: e.lngLat.lat, longitud: e.lngLat.lng }));
@@ -206,6 +211,11 @@ export default function MapView({ incidentes = EMPTY_INCIDENTS, ruta = null, onS
         try {
             const status = await api<TrafficStatus>('/navigation/traffic/status', {signal});
             if (signal.aborted) return; setTrafficStatus(status);
+            const flowMessage = trafficFlowMessage(status), updated = status.ultimaActualizacion?.tiles ?? '';
+            if (flowMessage) setTrafficError(flowMessage);
+            else if (updated && updated !== lastTrafficUpdate.current) setTrafficError('');
+            lastTrafficUpdate.current = updated;
+            setTrafficRevision(Math.floor(Date.now() / 120000));
             const data = await api<TrafficResponse>('/navigation/traffic/incidents', {signal});
             if (signal.aborted) return; setTrafficData(data); setExternalSelected(current => current ? data.incidentes.find(i => i.id === current.id) ?? null : null);
             const currentRoute = activeTrafficRoute.current;
@@ -214,14 +224,15 @@ export default function MapView({ incidentes = EMPTY_INCIDENTS, ruta = null, onS
             trafficSnapshot.current = snapshot;
         } catch { if (!signal.aborted) setTrafficData({incidentes: [], trafico: {disponible: false, fuente: null, actualizadoEn: null, motivo: 'No se pudo actualizar el tráfico. Se mantienen disponibles los recorridos de CiviGo.'}}); }
     }, [editor]);
-    useLiveRefresh(loadTraffic, 120000);
+    const refreshTraffic = useLiveRefresh(loadTraffic, 120000);
+    useEffect(() => { refreshTrafficRef.current = refreshTraffic; }, [refreshTraffic]);
     const tilesExhausted = trafficStatus?.cuotas?.tiles?.restantes === 0;
     const trafficReady = trafficStatus?.configurado && trafficStatus.habilitado && trafficStatus.controlCuotaDisponible && !tilesExhausted;
     useEffect(() => {
-        trafficLayerState.current = {enabled: Boolean(traffic && trafficReady && !editor), url: `${window.location.origin}/api/navigation/traffic/tiles/flow/{z}/{x}/{y}.png`};
+        trafficLayerState.current = {enabled: Boolean(traffic && trafficReady && !editor), url: `${window.location.origin}/api/navigation/traffic/tiles/flow/{z}/{x}/{y}.png?v=${trafficRevision}`, bounds: trafficStatus?.cobertura};
         const map = mapRef.current; if (!loaded || !map || editor) return;
-        syncTrafficLayer(map, trafficLayerState.current.enabled, trafficLayerState.current.url);
-    }, [loaded, traffic, trafficReady, editor]);
+        syncTrafficLayer(map, trafficLayerState.current.enabled, trafficLayerState.current.url, trafficLayerState.current.bounds);
+    }, [loaded, traffic, trafficReady, trafficRevision, trafficStatus?.cobertura, editor]);
     useEffect(() => {
         const map = mapRef.current; externalMarkers.current.forEach(m => m.remove()); externalMarkers.current = [];
         if (!loaded || !map || !events || editor) return;
@@ -235,7 +246,7 @@ export default function MapView({ incidentes = EMPTY_INCIDENTS, ruta = null, onS
             <div className="map-layer-options">
                 <label><input type="checkbox" checked={risk} onChange={e => { setRisk(e.target.checked); if (e.target.checked) setTraffic(false); }}/>Riesgo por tramo</label>
                 <label><input type="checkbox" checked={traffic} onChange={e => {setTraffic(e.target.checked); setTrafficError(''); if (e.target.checked) setRisk(false);}} disabled={!trafficReady}/>Tráfico · TomTom</label>
-                {!trafficReady && <small className="muted">{tilesExhausted ? 'Se alcanzó la cuota de la capa de tráfico. Los recorridos locales siguen disponibles.' : trafficData?.trafico.motivo || 'Tráfico en tiempo real no disponible.'}</small>}
+                {!trafficReady && <small className="muted">{trafficFlowMessage(trafficStatus)}</small>}
                 <label><input type="checkbox" checked={events} onChange={e => setEvents(e.target.checked)}/>Incidentes</label>
                 <label><input type="checkbox" checked={zones} onChange={e => setZones(e.target.checked)} disabled={!events}/>Zonas de incidentes</label>
                 <small className="muted">Gris: evaluación pendiente.</small>

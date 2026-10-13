@@ -4,12 +4,20 @@ export interface MapAnnouncement {
   titulo: string;
   mensaje: string;
   enlace: string | null;
+  imagenId: string | null;
+  imagenAlt: string;
+  imagen?: { id: string; nombre: string; mimeType: string; size: number } | null;
   negocioId: number | null;
   negocio?: { id: number; nombre: string; activo: boolean } | null;
   activo: boolean;
   orden: number;
   inicio: string | null;
   fin: string | null;
+}
+
+export function validateAnnouncementImage(file: { size: number; type: string }) {
+  if (!['image/jpeg', 'image/png', 'image/webp', 'image/gif'].includes(file.type)) throw new Error('Selecciona una imagen JPEG, PNG, WebP o GIF.');
+  if (!Number.isSafeInteger(file.size) || file.size < 1 || file.size > 5 * 1024 * 1024) throw new Error('La imagen debe pesar como máximo 5 MB.');
 }
 
 export function peruDateInput(value: string | null) {

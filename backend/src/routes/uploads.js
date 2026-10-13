@@ -10,6 +10,7 @@ const { attachment } = require("../lib/projections");
 const { createStorage, UPLOAD_DIR, MAX_FILE_SIZE } = require("../lib/storage");
 const { config } = require('../lib/catalog');
 const { reserveUpload, claimOrphan, removeClaimed } = require('../lib/upload-quota');
+const { IMAGE_MIMES, MAX_ANNOUNCEMENT_IMAGE } = require('../lib/announcements');
 const allowed = new Set([
   "image/jpeg",
   "image/png",
@@ -88,12 +89,17 @@ function createUploadRouter({
       let reservedId;
       let reservedPath;
       try {
-        const tipo = ["EVIDENCIA", "IDENTIDAD"].includes(req.body.tipo)
+        const tipo = ["EVIDENCIA", "IDENTIDAD", "ANUNCIO"].includes(req.body.tipo)
           ? req.body.tipo
           : "PUBLICO";
+        if (tipo === 'ANUNCIO') {
+          if (req.user.rol !== 'ADMIN' || req.user.bloqueado) throw new HttpError(403, 'Solo administradores pueden cargar imágenes publicitarias.');
+          if (!IMAGE_MIMES.has(file.mimetype) || req.body.privado === 'true') throw new HttpError(400, 'La publicidad admite imágenes JPEG, PNG, WebP o GIF.');
+          if (file.size > MAX_ANNOUNCEMENT_IMAGE) throw new HttpError(413, 'La imagen publicitaria debe pesar como máximo 5 MB.', 'FILE_TOO_LARGE');
+        }
         // La identidad privada permite pedir recuperación. La autorización
         // posterior a multipart debe quedar dentro de la limpieza del archivo.
-        if (tipo !== "IDENTIDAD" || !req.user || req.user.bloqueado)
+        if (tipo !== 'ANUNCIO' && (tipo !== "IDENTIDAD" || !req.user || req.user.bloqueado))
           await new Promise((resolve, reject) =>
             verifyEmail(req, res, (error) =>
               error ? reject(error) : resolve(),
@@ -122,7 +128,7 @@ function createUploadRouter({
             file.mimetype,
           );
         }
-        const privado = req.body.privado === "true" || tipo !== "PUBLICO";
+        const privado = req.body.privado === "true" || !['PUBLICO', 'ANUNCIO'].includes(tipo);
         if (file.mimetype === "application/pdf" && !privado)
           throw new HttpError(400, "Los documentos PDF deben ser privados.");
         const fileId = path.basename(file.path);
@@ -179,6 +185,7 @@ function createUploadRouter({
       const row = await db.attachment.findUnique({
         where: { id: req.params.id },
         include: {
+          anuncio: { select: { id: true } },
           reporte: {
             include: {
               incidente: true,
@@ -193,8 +200,8 @@ function createUploadRouter({
         req.user &&
         (row.tipo === "IDENTIDAD"
           ? req.user.rol === "ADMIN" && !req.user.bloqueado
-          : row.reporte?.incidente &&
-            canReview(req.user, row.reporte.incidente, "evidencia"));
+          : (row.anuncio && req.user.rol === 'ADMIN' && !req.user.bloqueado) || (row.reporte?.incidente &&
+            canReview(req.user, row.reporte.incidente, "evidencia")));
       const privateFile = row.privado || row.tipo !== "PUBLICO";
       const publicAccess =
         !privateFile &&

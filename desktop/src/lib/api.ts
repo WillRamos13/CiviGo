@@ -29,12 +29,15 @@ export async function api<T>(path: string, options: RequestInit = {}): Promise<T
   } finally { if (abortRead) options.signal?.removeEventListener('abort', abortRead); }
 }
 export const post = <T>(path: string, body: unknown = {}, options: RequestInit = {}) => api<T>(path, { ...options, method: 'POST', body: JSON.stringify(body) });
-export async function upload(file: File, privado = false, tipo: 'PUBLICO' | 'EVIDENCIA' | 'IDENTIDAD' = 'PUBLICO') {
+export async function upload(file: File, privado = false, tipo: 'PUBLICO' | 'EVIDENCIA' | 'IDENTIDAD' | 'ANUNCIO' = 'PUBLICO') {
   if (file.size > 15 * 1024 * 1024) throw new ApiError('Cada archivo debe pesar como máximo 15 MB.', 400);
   return unwrap(await window.civigoDesktop.upload({ name: file.name, mimeType: file.type, bytes: new Uint8Array(await file.arrayBuffer()), privado, tipo })) as import('./types').Adjunto;
 }
 export async function downloadAttachment(id: string) {
   return unwrap(await window.civigoDesktop.download(id));
+}
+export async function previewImage(id: string) {
+  return unwrap(await window.civigoDesktop.previewImage(id));
 }
 export function currentPosition(): Promise<import('./types').Posicion> { return Promise.reject(new Error('Introduce las coordenadas del negocio. El escritorio no solicita permisos de ubicación.')); }
 export const errorMessage = (error: unknown) => error instanceof Error ? error.message : 'Ocurrió un error inesperado.';

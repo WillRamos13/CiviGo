@@ -1,6 +1,7 @@
 
 import { useState } from "react";
 import { useAuth } from "@/components/AuthProvider";
+import { hasAgentPermission } from "@/lib/agent-permissions";
 import { ManagementGate, RemoteStatus, useRemote } from "./common";
 import IncidentReviewPanel from "./IncidentReviewPanel";
 import UsersPanel from "./UsersPanel";
@@ -39,7 +40,7 @@ const tabs: {
   adminOnly?: boolean;
   permission?: string;
 }[] = [
-  { id: "incidentes", label: "Incidentes", permission: "revisar" },
+  { id: "incidentes", label: "Incidentes", permission: "consultar" },
   { id: "apelaciones", label: "Apelaciones", adminOnly: true },
   { id: "usuarios", label: "Usuarios", adminOnly: true },
 
@@ -133,7 +134,7 @@ function DashboardContent() {
     (tab) =>
       admin ||
       (!tab.adminOnly &&
-        (!tab.permission || usuario?.permisos?.includes(tab.permission))),
+        (!tab.permission || hasAgentPermission(usuario, tab.permission))),
   );
   return (
     <div className="page max-w-7xl">

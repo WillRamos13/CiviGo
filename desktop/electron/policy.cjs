@@ -20,11 +20,14 @@ function backendUrl(value = DEFAULT_BACKEND, development = false) {
 function requestOrigin(value = DEFAULT_ORIGIN, development = false) { return backendUrl(value, development); }
 const numeric = '[1-9][0-9]{0,9}';
 const readRoutes = [
-  /^\/admin(?:\/(?:incidents|users|catalog|businesses|config|rewards|redemptions|appeals|recoveries|audit|integrations))?$/,
+  /^\/admin(?:\/(?:incidents|users|catalog|businesses|config|rewards|redemptions|appeals|recoveries|audit|integrations|permissions))?$/,
+  new RegExp(`^/admin/incidents/${numeric}/messages$`),
   /^\/catalog$/, /^\/users\/me$/, /^\/notifications$/,
   /^\/announcements\/(?:manage|traffic-moderation)$/, /^\/navigation\/traffic\/incidents$/,
 ];
 const writeRoutes = [
+  ['DELETE', /^\/uploads\/[a-zA-Z0-9_-]{1,100}$/],
+  ['POST', new RegExp(`^/admin/incidents/${numeric}/messages/${numeric}/moderate$`)],
   ['PUT', new RegExp(`^/notifications/${numeric}/read$`)],
   ['POST', new RegExp(`^/admin/reports/${numeric}/review$`)],
   ['POST', new RegExp(`^/admin/incidents/${numeric}/flags/${numeric}/review$`)],
@@ -63,7 +66,7 @@ function validateRequest(input) {
   return { route, method, body, requestId };
 }
 function validateUpload(input) {
-  if (!input || typeof input !== 'object' || typeof input.name !== 'string' || input.name.length > 150 || /[\\/\x00-\x1f]/.test(input.name) || !FILE_TYPES.has(input.mimeType) || !['PUBLICO', 'EVIDENCIA', 'IDENTIDAD'].includes(input.tipo) || typeof input.privado !== 'boolean') throw new DesktopError('Archivo inválido.');
+  if (!input || typeof input !== 'object' || typeof input.name !== 'string' || input.name.length > 150 || /[\\/\x00-\x1f]/.test(input.name) || !FILE_TYPES.has(input.mimeType) || !['PUBLICO', 'EVIDENCIA', 'IDENTIDAD', 'ANUNCIO'].includes(input.tipo) || typeof input.privado !== 'boolean') throw new DesktopError('Archivo inválido.');
   const bytes = input.bytes;
   if (!(bytes instanceof Uint8Array) || bytes.byteLength < 1 || bytes.byteLength > MAX_FILE_BYTES) throw new DesktopError('Cada archivo debe pesar como máximo 15 MB.');
   return { ...input, bytes: new Uint8Array(bytes) };

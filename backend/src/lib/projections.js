@@ -1,3 +1,4 @@
+const { effectivePermissions } = require("./agent-permissions");
 function publicUser(user) {
   return {
     id: user.id,
@@ -23,7 +24,7 @@ function ownUser(u) {
     faltas: u.faltas,
     bloqueado: u.bloqueado,
     distrito: u.distrito,
-    permisos: u.permisos,
+    permisos: effectivePermissions(u.permisos),
     fechaCreacion: u.fechaCreacion,
   };
 }

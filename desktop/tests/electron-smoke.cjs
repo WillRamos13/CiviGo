@@ -11,8 +11,10 @@ app.setPath('userData', local);
 app.setPath('sessionData', path.join(local, 'session'));
 app.disableHardwareAcceleration();
 const archive = process.argv.includes('--package');
-if (archive) assert.equal(require('../release/win-unpacked/resources/app.asar/package.json').version, require('../package.json').version);
-const { bootstrap } = require(archive ? path.join(__dirname, '../release/win-unpacked/resources/app.asar/electron/main.cjs') : '../electron/main.cjs');
+const packageRoot = path.resolve(__dirname, '..', process.env.CIVIGO_DESKTOP_PACKAGE_DIR || 'release/win-unpacked');
+const packageArchive = path.join(packageRoot, 'resources/app.asar');
+if (archive) assert.equal(require(path.join(packageArchive, 'package.json')).version, require('../package.json').version);
+const { bootstrap } = require(archive ? path.join(packageArchive, 'electron/main.cjs') : '../electron/main.cjs');
 const token = 'b'.repeat(64);
 const actor = { id: 1, nickname: 'admin-fixture', nombres: 'Administrador', apellidos: 'Local', correo: 'admin@example.test', telefono: '+51900000001', correoVerificado: true, rol: 'ADMIN', premium: false, credibilidad: 100, monedas: 0, permisos: [], bloqueado: false };
 const calls = [];
@@ -23,6 +25,9 @@ const recoveryFixtures = Array.from({ length: 24 }, (_, index) => ({ id: 9 + ind
 const appealFixtures = Array.from({ length: 24 }, (_, index) => ({ id: 7 + index, usuario: { nickname: `fixture-${index}` }, reporte: { id: 8 + index, tipo: 'Bache', estado: 'FALSO' }, motivo: 'Solicito revisión del caso de prueba local.', estado: 'PENDIENTE', creadoEn: '2026-01-01T12:00:00Z' }));
 const businessFixtures = Array.from({ length: 24 }, (_, index) => ({ id: 10 + index, nombre: `Negocio de prueba ${index}`, descripcion: 'Comercio ficticio local', direccion: 'Dirección de prueba', horario: '', sitioWeb: '', telefono: '', latitud: -14.0678, longitud: -75.7286, activo: true, visualizaciones: 0 }));
 const announcementFixtures = Array.from({ length: 24 }, (_, index) => ({ id: 50 + index, tipo: 'NOVEDAD', titulo: `Novedad de prueba ${index}`, mensaje: 'Texto público local', enlace: null, negocioId: null, activo: true, orden: index, inicio: null, fin: null }));
+const advertisingImage = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jW9sAAAAASUVORK5CYII=', 'base64');
+const advertisingFiles = new Map();
+let advertisingUploadSequence = 0;
 const trafficFixtures = [{ id: 'tomtom:tt_fixture', externoId: 'tt_fixture', fuente: 'TOMTOM', tipo: 'Cierre', titulo: 'Cierre de prueba', descripcion: 'Aviso vial ficticio', latitud: -14.06, longitud: -75.72, inicio: null, fin: null }];
 const moderationFixtures = [];
 const rewardFixtures = Array.from({ length: 24 }, (_, index) => ({ id: 20 + index, nombre: `Cupón de prueba ${index}`, descripcion: 'Recompensa de demostración local', costoMonedas: 50, stock: 1, activo: true }));
@@ -61,12 +66,27 @@ const server = http.createServer(async (request, response) => {
   }
   if (requestPath === '/api/admin/users') return response.end(list(managedUsers));
   if (requestPath === '/api/admin/incidents') return response.end(list(incidentFixtures));
+  if (/^\/api\/admin\/incidents\/\d+\/messages$/.test(requestPath)) return response.end('[]');
   if (requestPath === '/api/admin/recoveries') return response.end(JSON.stringify(recoveryFixtures));
   if (requestPath === '/api/admin/appeals') return response.end(list(appealFixtures));
   if (requestPath === '/api/admin/audit') return response.end(list(auditFixtures));
   if (requestPath === '/api/notifications') return response.end(JSON.stringify(notificationFixtures));
   if (requestPath === '/api/notifications/1/read' && request.method === 'PUT') { notificationFixtures[0].leida = true; return response.end('{"leida":true}'); }
   if (requestPath === '/api/admin/businesses') return response.end(JSON.stringify(businessFixtures));
+  if (requestPath === '/api/uploads' && request.method === 'POST') {
+    assert.match(body, /name="tipo"\r\n\r\nANUNCIO/);
+    const id = '12345678-1234-1234-1234-' + String(++advertisingUploadSequence).padStart(12, '0');
+    const image = {id, nombre:'publicidad.png', mimeType:'image/png', size:advertisingImage.length, privado:false, tipo:'ANUNCIO'};
+    advertisingFiles.set(id, image); response.statusCode = 201;
+    return response.end(JSON.stringify(image));
+  }
+  if (/^\/api\/uploads\/[a-f0-9-]{36}$/.test(requestPath)) {
+    const id = requestPath.split('/').pop();
+    if (request.method === 'DELETE') { advertisingFiles.delete(id); return response.end('{"eliminado":true}'); }
+    if (!advertisingFiles.has(id)) { response.statusCode = 404; return response.end('{"error":"No existe"}'); }
+    response.setHeader('Content-Type', 'image/png'); response.setHeader('Content-Disposition', 'inline; filename="publicidad.png"');
+    return response.end(advertisingImage);
+  }
   if (requestPath === '/api/announcements/manage' && request.method === 'POST') {
     const value = { ...JSON.parse(body), id: 90 }; announcementFixtures.unshift(value); response.statusCode = 201;
     return response.end(JSON.stringify(value));
@@ -77,7 +97,7 @@ const server = http.createServer(async (request, response) => {
   if (requestPath === '/api/announcements/manage/90' && request.method === 'DELETE') {
     announcementFixtures.shift(); return response.end('{"eliminado":true}');
   }
-  if (requestPath === '/api/announcements/manage') return response.end(JSON.stringify(announcementFixtures));
+  if (requestPath === '/api/announcements/manage') return response.end(JSON.stringify(announcementFixtures.map(row => ({...row, imagen:advertisingFiles.get(row.imagenId) ?? null}))));
   if (requestPath === '/api/navigation/traffic/incidents') return response.end(JSON.stringify({ incidentes: trafficFixtures.filter(row => !moderationFixtures.some(saved => saved.externoId === row.externoId && saved.oculto)), trafico: { disponible: true } }));
   if (requestPath === '/api/announcements/traffic-moderation' && request.method === 'POST') {
     const value = JSON.parse(body), previous = moderationFixtures.find(row => row.externoId === value.externoId);
@@ -89,6 +109,7 @@ const server = http.createServer(async (request, response) => {
   if (requestPath === '/api/admin') return response.end(JSON.stringify({ estadisticas: { usuarios: 2, incidentes: 0 }, servicios: { ia: { configurado: true }, correoGoogle: { configurado: true } } }));
   if (requestPath === '/api/catalog') return response.end(JSON.stringify({ categorias: categories, config: {}, distritos: ['Ica'] }));
   if (requestPath === '/api/admin/catalog') return response.end(JSON.stringify({ categorias: categories }));
+  if (requestPath === '/api/admin/permissions') return response.end(JSON.stringify(require('../../backend/src/lib/agent-permissions').agentPermissions));
   if (requestPath === '/api/admin/integrations') return response.end(JSON.stringify({ proveedores: [], frontend: { variables: [], plataforma: 'Vercel', indicacion: 'Fixture local' }, navegacion: 'Fixture local', pagos: 'Demostración' }));
   if (requestPath === '/api/admin/config') return response.end(JSON.stringify({ agrupacionMetros: groupingMeters, agrupacionHoras: 2, confirmacionMetros: 50, confirmaciones: 3, resoluciones: 5, influenciaVecina: 0.15, puntosReporte: 10, puntosConfirmacion: 5, puntosPrueba: 5, premiosRanking: [100, 75, 50, 30, 20, 10, 8, 6, 4, 2], anuncioMetros: 50, intervaloAnuncioMetros: 500, duracionAnuncioSegundos: 5, maxVideoBytes: 15 * 1024 * 1024 }));
   if (requestPath === '/api/uploads/private-fixture') {
@@ -221,6 +242,20 @@ async function run() {
   await window.webContents.executeJavaScript(`Array.from(document.querySelectorAll('nav[aria-label="Herramientas de administración"] button')).find(button=>button.textContent==='Anuncios y novedades').click()`);
   await waitUntil(window, `!document.body.innerText.includes('Cargando')`);
   await openEditor(window, 'Crear anuncio');
+  const pickAdvertisingImage = async () => {
+    await window.webContents.executeJavaScript(`(() => {
+      const bytes=Uint8Array.from(atob('${advertisingImage.toString('base64')}'), c=>c.charCodeAt(0));
+      const selection=new DataTransfer(); selection.items.add(new File([bytes], 'publicidad.png', {type:'image/png'}));
+      const input=document.querySelector('.editor-panel input[type="file"]'); input.files=selection.files; input.dispatchEvent(new Event('change',{bubbles:true}));
+    })()`);
+    await waitUntil(window, `(() => {const image=document.querySelector('.announcement-image-preview img'); return image?.complete && image.naturalWidth > 0 && !document.querySelector('.editor-panel input[type="file"]').disabled;})()`);
+    assert.match(await window.webContents.executeJavaScript(`document.querySelector('.announcement-image-preview img').src`), /^data:image\/png;base64,/);
+  };
+  const uploadsBeforeInvalid = advertisingUploadSequence;
+  await window.webContents.executeJavaScript(`(() => {const selection=new DataTransfer(); selection.items.add(new File(['<svg/>'], 'invalido.svg', {type:'image/svg+xml'})); const input=document.querySelector('.editor-panel input[type="file"]'); input.files=selection.files; input.dispatchEvent(new Event('change',{bubbles:true}));})()`);
+  await waitUntil(window, `document.body.innerText.includes('Selecciona una imagen JPEG')`);
+  assert.equal(advertisingUploadSequence, uploadsBeforeInvalid);
+  await pickAdvertisingImage();
   await window.webContents.executeJavaScript(`(() => {
     const fields = Array.from(document.querySelectorAll('.editor-panel input'));
     const set = (field, value) => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(field,value); field.dispatchEvent(new Event('input',{bubbles:true})); };
@@ -233,11 +268,27 @@ async function run() {
   const announcementCreation = calls.find(call => call.path === '/api/announcements/manage' && call.method === 'POST');
   assert.equal(announcementCreation.body.inicio, '2026-10-09T01:08:00.000Z');
   assert.equal(announcementCreation.body.fin, '2026-10-10T01:08:00.000Z');
+  assert.equal(announcementCreation.body.imagenId, '12345678-1234-1234-1234-000000000001');
   await openEditor(window, 'Editar');
+  await waitUntil(window, `document.querySelector('.announcement-image-preview img')?.naturalWidth > 0`);
+  await pickAdvertisingImage();
   await window.webContents.executeJavaScript(`(() => { const field=document.querySelector('.editor-panel input[type="number"]'); Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(field,'2'); field.dispatchEvent(new Event('input',{bubbles:true})); })()`);
   await window.webContents.executeJavaScript(`document.querySelector('.editor-panel form').requestSubmit()`);
   await waitUntil(window, `document.body.innerText.includes('Anuncio guardado. Se mostrará') && !document.querySelector('.editor-panel')`);
   assert.equal(calls.find(call => call.path === '/api/announcements/manage/90' && call.method === 'PATCH').body.orden, 2);
+  assert.equal(calls.find(call => call.path === '/api/announcements/manage/90' && call.method === 'PATCH').body.imagenId, '12345678-1234-1234-1234-000000000002');
+  await openEditor(window, 'Editar');
+  await waitUntil(window, `document.querySelector('.announcement-image-preview img')?.naturalWidth > 0`);
+  await window.webContents.executeJavaScript(`Array.from(document.querySelectorAll('.editor-panel button')).find(button=>button.textContent==='Quitar imagen').click()`);
+  await waitUntil(window, `!document.querySelector('.announcement-image-preview')`);
+  await window.webContents.executeJavaScript(`document.querySelector('.editor-panel form').requestSubmit()`);
+  await waitUntil(window, `!document.querySelector('.editor-panel')`);
+  assert.equal(calls.filter(call => call.path === '/api/announcements/manage/90' && call.method === 'PATCH').at(-1).body.imagenId, null);
+  await openEditor(window, 'Crear anuncio');
+  await pickAdvertisingImage();
+  await window.webContents.executeJavaScript(`Array.from(document.querySelectorAll('.editor-panel button')).find(button=>button.textContent==='Cancelar').click()`);
+  await waitUntil(window, `!document.querySelector('.editor-panel')`);
+  assert.equal(calls.some(call => call.path === '/api/uploads/12345678-1234-1234-1234-000000000003' && call.method === 'DELETE'), true, 'cancelar elimina la imagen cargada sin usar');
   await window.webContents.executeJavaScript(`Array.from(document.querySelectorAll('button')).find(button=>button.textContent==='Eliminar').click()`);
   await waitUntil(window, `document.body.innerText.includes('Confirmar eliminación')`);
   await window.webContents.executeJavaScript(`Array.from(document.querySelectorAll('button')).find(button=>button.textContent==='Confirmar eliminación').click()`);
@@ -305,6 +356,26 @@ async function run() {
   await window.webContents.executeJavaScript(`document.querySelector('input[name="correoVerificado"]').form.requestSubmit()`);
   await waitUntil(window, `document.body.innerText.includes('La cuenta y sus permisos se actualizaron.')`);
   assert.equal(calls.find(call => call.path === '/api/admin/users/2' && call.method === 'PATCH').body.correoVerificado, false);
+  await openEditor(window, 'Administrar');
+  await window.webContents.executeJavaScript(`(() => {
+    const role = Array.from(document.querySelectorAll('.editor-panel select')).find(field => Array.from(field.options).some(option => option.value === 'AGENTE'));
+    role.value = 'AGENTE'; role.dispatchEvent(new Event('change', {bubbles:true}));
+  })()`);
+  await waitUntil(window, `document.querySelectorAll('input[name^="permiso_"]').length === 10`);
+  await window.webContents.executeJavaScript(`(() => {
+    const district = Array.from(document.querySelectorAll('.editor-panel select')).find(field => Array.from(field.options).some(option => option.value === 'Ica'));
+    district.value = 'Ica'; district.dispatchEvent(new Event('change', {bubbles:true}));
+    document.querySelector('input[name="permiso_gravedad"]').click();
+    document.querySelector('input[name="permiso_moderar"]').click();
+  })()`);
+  assert.equal(await window.webContents.executeJavaScript(`document.querySelector('input[name="permiso_consultar"]').checked && document.querySelector('input[name="permiso_consultar"]').disabled`), true);
+  assert.equal(await window.webContents.executeJavaScript(`document.querySelector('input[name="permiso_evidencia"]').checked`), false);
+  await capture(window, 'funciones-agente.png');
+  await window.webContents.executeJavaScript(`document.querySelector('.editor-panel form').requestSubmit()`);
+  await waitUntil(window, `!document.querySelector('.editor-panel')`);
+  const assignedFunctions = calls.filter(call => call.path === '/api/admin/users/2' && call.method === 'PATCH').at(-1);
+  assert.deepEqual(assignedFunctions.body.permisos, ['consultar', 'gravedad', 'moderar']);
+  assert.equal(assignedFunctions.body.distrito, 'Ica');
   await openEditor(window, 'Administrar', 1);
   assert.equal(await window.webContents.executeJavaScript(`document.activeElement.getAttribute('aria-label')`), 'Administrar usuario vecino-fixture-0');
   await openEditor(window, 'Administrar', 2);

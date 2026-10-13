@@ -2,6 +2,7 @@ const { app, BrowserWindow, ipcMain, protocol, session, Menu, dialog, shell } = 
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const { ApiClient } = require('./client.cjs');
+const { imagePreview } = require('./image-preview.cjs');
 const { backendUrl, requestOrigin, RENDERER_URL, DesktopError, senderAllowed, bundlePath, publicUrl, imageReferenceUrl, uploadId } = require('./policy.cjs');
 protocol.registerSchemesAsPrivileged([{ scheme: 'civigo', privileges: { standard: true, secure: true } }]);
 app.enableSandbox();
@@ -51,7 +52,16 @@ async function bootstrap({ hidden = false } = {}) {
     if (!client.authenticated() || generation !== client.generation()) throw new DesktopError('Inicia sesión para consultar esta referencia.', 401);
     await shell.openExternal(url);
   }
-  for (const [channel, action] of Object.entries({ login: value => client.login(value), session: () => client.me(), logout: () => client.logout(), request: value => client.request(value), 'cancel-read': value => client.cancelRead(value), upload: value => client.upload(value), download, public: value => shell.openExternal(publicUrl(value)), 'image-reference': openImageReference })) {
+  async function previewImage(id) {
+    uploadId(id);
+    const generation = client.generation();
+    const file = await client.attachment(id);
+    try {
+      if (!client.authenticated() || generation !== client.generation()) throw new DesktopError('La sesión terminó. Vuelve a solicitar la imagen.', 401);
+      return { dataUrl: imagePreview(file) };
+    } finally { file.bytes.fill(0); }
+  }
+  for (const [channel, action] of Object.entries({ login: value => client.login(value), session: () => client.me(), logout: () => client.logout(), request: value => client.request(value), 'cancel-read': value => client.cancelRead(value), upload: value => client.upload(value), download, 'image-preview': previewImage, public: value => shell.openExternal(publicUrl(value)), 'image-reference': openImageReference })) {
     ipcMain.handle('civigo:' + channel, async (event, value) => {
       if (!senderAllowed(event, window)) return { ok: false, error: { message: 'Origen de solicitud no permitido.', status: 403 } };
       try { return { ok: true, data: await action(value) }; }
@@ -67,7 +77,7 @@ async function bootstrap({ hidden = false } = {}) {
     if (match) void download(match[1]).catch(() => { if (!window.isDestroyed()) void dialog.showMessageBox(window, { type: 'error', message: 'No se pudo descargar el archivo. Comprueba tu sesión y vuelve a intentarlo.' }); });
     return { action: 'deny' };
   });
-  window.on('closed', () => { client.clear(); for (const name of ['login', 'session', 'logout', 'request', 'cancel-read', 'upload', 'download', 'public', 'image-reference']) ipcMain.removeHandler('civigo:' + name); rendererSession.protocol.unhandle('civigo'); });
+  window.on('closed', () => { client.clear(); for (const name of ['login', 'session', 'logout', 'request', 'cancel-read', 'upload', 'download', 'image-preview', 'public', 'image-reference']) ipcMain.removeHandler('civigo:' + name); rendererSession.protocol.unhandle('civigo'); });
   await window.loadURL(RENDERER_URL);
   return { window, client };
 }

@@ -1,4 +1,25 @@
 const { HttpError, id, text, coordinates } = require("./http");
+const IMAGE_MIMES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif']);
+const MAX_ANNOUNCEMENT_IMAGE = 5 * 1024 * 1024;
+const IMAGE_SELECT = { id: true, nombre: true, mimeType: true, size: true };
+
+function announcementImageId(value) {
+  if (value === undefined || value === null || value === '') return null;
+  if (typeof value !== 'string' || !/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(value))
+    throw new HttpError(400, 'Imagen inválida. Carga un archivo desde el administrador.');
+  return value;
+}
+
+async function validateAnnouncementImage(db, data, userId, previous = {}) {
+  if (!data.imagenId) return;
+  const image = await db.attachment.findUnique({ where: { id: data.imagenId }, include: { anuncio: { select: { id: true } } } });
+  if (!image || image.estado !== 'LISTO' || image.privado || image.tipo !== 'ANUNCIO' || image.reporteId || !IMAGE_MIMES.has(image.mimeType) || image.size > MAX_ANNOUNCEMENT_IMAGE || image.size < 1 || (image.anuncio && image.anuncio.id !== previous.id) || (data.imagenId !== previous.imagenId && image.usuarioId !== userId))
+    throw new HttpError(400, 'Carga una imagen publicitaria propia, sin asociar a reportes, de hasta 5 MB.');
+}
+
+function announcementIsVisible(row, now = new Date()) {
+  return !!row?.activo && (!row.inicio || new Date(row.inicio) <= now) && (!row.fin || new Date(row.fin) > now) && (row.tipo === 'NOVEDAD' || (row.tipo === 'NEGOCIO' && row.negocio?.activo));
+}
 
 function plainText(value, name, max, required = true) {
   if (!required && (value === undefined || value === null || value === ""))
@@ -13,7 +34,7 @@ function safeLink(value) {
   if (value === undefined || value === null || value === "") return null;
   const candidate = text(value, "Enlace", 500);
   if (
-    /^\/(?:mapa|comunidad|recompensas|premium|reportar|mis-reportes|perfil|incidentes\/[1-9]\d*)$/.test(
+    /^\/(?:mapa|comunidad|ranking|alertas|recompensas|premium|reportar|mis-reportes|perfil|incidentes\/[1-9]\d*)$/.test(
       candidate,
     )
   )
@@ -94,6 +115,8 @@ function announcementData(input, current = {}) {
     mensaje: plainText(merged.mensaje, "Mensaje", 500, false),
     negocioId: merged.tipo === "NEGOCIO" ? id(merged.negocioId) : null,
     enlace: merged.tipo === "NEGOCIO" ? null : safeLink(merged.enlace),
+    imagenId: announcementImageId(merged.imagenId),
+    imagenAlt: merged.imagenId ? plainText(merged.imagenAlt, 'Descripción de la imagen', 250, false) : '',
     activo: merged.activo,
     orden: merged.orden,
     inicio,
@@ -108,6 +131,7 @@ function publicAnnouncement(row) {
     tipo: row.tipo,
     titulo: row.titulo,
     mensaje: row.mensaje,
+    imagen: row.imagen ? { id: row.imagen.id, mimeType: row.imagen.mimeType, size: row.imagen.size, url: '/api/announcements/' + row.id + '/image', alt: row.imagenAlt || row.titulo } : null,
     enlace: row.tipo === "NOVEDAD" ? safeLink(row.enlace) : null,
     negocioId: row.negocioId,
     orden: row.orden,
@@ -182,4 +206,9 @@ module.exports = {
   trafficModerationData,
   safeLink,
   scheduledDate,
+  IMAGE_SELECT,
+  IMAGE_MIMES,
+  MAX_ANNOUNCEMENT_IMAGE,
+  validateAnnouncementImage,
+  announcementIsVisible,
 };

@@ -114,6 +114,7 @@ export default function AnimatedBrand() {
         width={1280}
         height={720}
         muted
+        loop
         playsInline
         preload="none"
         poster={POSTER}

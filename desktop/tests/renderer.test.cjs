@@ -119,7 +119,7 @@ function componentFixture(file, imports = {}) {
 }
 function usersFixture(user = null) {
   const requests = [], saved = [];
-  const common = { useRemote: route => ({ data: route === '/catalog' ? { distritos: ['Ica'] } : user ? [user] : [], reload() {}, loading: false }), usePagedRemote: () => ({ data: user ? [user] : [], total: user ? 1 : 0, page: 1, pages: 1, setPage() {}, reload() {}, loading: false }), Pagination: 'pagination', Feedback: 'feedback', RemoteStatus: 'remote', number: String, message: error => error.message };
+  const common = { useRemote: route => ({ data: route === '/catalog' ? { distritos: ['Ica'] } : route === '/admin/permissions' ? require('../../backend/src/lib/agent-permissions').agentPermissions : user ? [user] : [], reload() {}, loading: false }), usePagedRemote: () => ({ data: user ? [user] : [], total: user ? 1 : 0, page: 1, pages: 1, setPage() {}, reload() {}, loading: false }), Pagination: 'pagination', Feedback: 'feedback', RemoteStatus: 'remote', number: String, message: error => error.message };
   const renderer = componentFixture('components/management/UsersPanel.tsx', {
     '@/lib/api': { api: async (route, options) => { requests.push({ route, method: options.method, body: JSON.parse(options.body) }); } },
     '@/components/AuthProvider': { useAuth: () => ({ usuario: { id: 1 }, refresh: async () => {} }) }, './common': common,
@@ -131,6 +131,16 @@ function usersFixture(user = null) {
   return { requests, saved, form: renderer.mount(form.type, { ...form.props, save: feedback => saved.push(feedback) }) };
 }
 const createFields = { nombres: 'Ana', apellidos: 'Ejemplo', nickname: 'ana_fixture', correo: 'ana@gmail.com', telefono: '+51912345678', fechaNacimiento: '1990-01-01', password: 'fixture-password' };
+
+test('las acciones del escritorio y el agente respetan permisos explícitos y compatibilidad anterior', () => {
+  const { hasAgentPermission } = loadSource('lib/agent-permissions.ts', {}, {});
+  assert.equal(hasAgentPermission({ rol: 'AGENTE', permisos: ['consultar'] }, 'validar'), false);
+  assert.equal(hasAgentPermission({ rol: 'AGENTE', permisos: ['moderar'] }, 'consultar'), true);
+  assert.equal(hasAgentPermission({ rol: 'AGENTE', permisos: ['revisar'] }, 'clasificar'), true);
+  assert.equal(hasAgentPermission({ rol: 'AGENTE', permisos: ['revisar'] }, 'moderar'), false);
+  assert.equal(hasAgentPermission({ rol: 'AGENTE', permisos: ['admin'] }, 'admin'), false);
+  assert.equal(hasAgentPermission({ rol: 'ADMIN', bloqueado: true }, 'validar'), false);
+});
 
 test('crear usuario envía identidad, rol y verificación justificada por la ruta administrativa', async () => {
   const fixture = usersFixture();
@@ -187,6 +197,26 @@ test('editar la verificación envía bandera y motivo sin inventar nuevos datos 
   assert.equal(fixture.requests[0].body.motivoVerificacion, 'Titular comprobado durante revisión administrativa.');
   assert.equal('correo' in fixture.requests[0].body, false);
   assert.equal('password' in fixture.requests[0].body, false);
+});
+
+test('crear y editar agentes muestra diez funciones y envía permisos granulares sin conceder evidencia', async () => {
+  const fixture = usersFixture();
+  findNode(fixture.form.render(), node => node.type === 'select' && node.props.value === 'USUARIO').props.onChange({ target: { value: 'AGENTE' } });
+  findNode(fixture.form.render(), node => node.type === 'select' && node.props.value === '').props.onChange({ target: { value: 'Ica' } });
+  for (const key of ['gravedad', 'falsedad', 'moderar']) findNode(fixture.form.render(), node => node.type === 'input' && node.props.name === 'permiso_' + key).props.onChange({ target: { checked: true } });
+  const catalog = require('../../backend/src/lib/agent-permissions').agentPermissions;
+  for (const permission of catalog) assert(findNode(fixture.form.render(), node => node.type === 'input' && node.props.name === 'permiso_' + permission.key), permission.key);
+  assert.equal(findNode(fixture.form.render(), node => node.type === 'input' && node.props.name === 'permiso_consultar').props.disabled, true);
+  assert.equal(findNode(fixture.form.render(), node => node.type === 'input' && node.props.name === 'permiso_evidencia').props.checked, false);
+  await findNode(fixture.form.render(), node => node.type === 'form').props.onSubmit({ preventDefault() {}, currentTarget: { ...createFields, correo: 'agente@example.test' } });
+  assert.deepEqual(Array.from(fixture.requests[0].body.permisos), ['consultar', 'gravedad', 'falsedad', 'moderar']);
+
+  const edited = usersFixture({ id: 2, nickname: 'agent_fixture', rol: 'AGENTE', tipoAgente: 'POLICIA', distrito: 'Ica', permisos: ['consultar', 'validar', 'evidencia'], correoVerificado: false });
+  findNode(edited.form.render(), node => node.type === 'input' && node.props.name === 'permiso_validar').props.onChange({ target: { checked: false } });
+  findNode(edited.form.render(), node => node.type === 'input' && node.props.name === 'permiso_moderar').props.onChange({ target: { checked: true } });
+  await findNode(edited.form.render(), node => node.type === 'form').props.onSubmit({ preventDefault() {}, currentTarget: {} });
+  assert.deepEqual(Array.from(edited.requests[0].body.permisos), ['consultar', 'evidencia', 'moderar']);
+  assert.equal(edited.requests[0].method, 'PATCH');
 });
 
 test('descargar adjunto usa el puente autenticado y entrega sus errores a la interfaz', async () => {

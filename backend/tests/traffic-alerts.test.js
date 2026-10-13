@@ -233,3 +233,18 @@ test("proxy de teselas admite Ica y rechaza coordenadas ajenas antes de proveedo
     );
   assert.equal(calls, 1);
 });
+
+test("status exposes actual traffic coverage without making provider requests", async () => {
+  const service = createTrafficService({
+    roads,
+    client: {
+      status: async () => ({
+        configurado: true,
+        habilitado: true,
+        controlCuotaDisponible: true,
+      }),
+      tile: () => assert.fail("Status must not fetch tiles"),
+    },
+  });
+  assert.deepEqual((await service.status()).cobertura, provinceBounds(roads));
+});

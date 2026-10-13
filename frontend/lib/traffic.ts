@@ -6,7 +6,21 @@ export interface ExternalTrafficIncident {
     actualizadoEn: string; sentido: string; demoraSegundos: number; temporal: true; afectaRiesgo: false;
 }
 export interface TrafficResponse {incidentes: ExternalTrafficIncident[]; trafico: {disponible: boolean; fuente: string | null; actualizadoEn: string | null; motivo: string}; atribucion?: string}
-export interface TrafficStatus {configurado: boolean; habilitado: boolean; controlCuotaDisponible: boolean; cuotas?: {tiles: {restantes: number}}}
+export interface TrafficStatus {
+    configurado: boolean; habilitado: boolean; controlCuotaDisponible: boolean;
+    cuotas?: {tiles: {restantes: number}};
+    cobertura?: [number, number, number, number]; frescuraTilesSegundos?: number;
+    fallos?: {tiles?: {codigo: string; motivo: string; reintentarEn: string}};
+    ultimaActualizacion?: {tiles?: string};
+}
+
+export function trafficFlowMessage(status: TrafficStatus | null) {
+    if (!status) return 'No se pudo comprobar la disponibilidad del tráfico. Volveremos a intentarlo automáticamente.';
+    if (!status.configurado || !status.habilitado) return 'La capa de tráfico todavía no está disponible. La administración debe habilitarla.';
+    if (!status.controlCuotaDisponible) return 'No se pudo comprobar el límite de consultas de tráfico. Volveremos a intentarlo automáticamente.';
+    if (status.cuotas?.tiles?.restantes === 0) return 'Se alcanzó la cuota de la capa de tráfico. Los recorridos locales siguen disponibles.';
+    return status.fallos?.tiles?.motivo || '';
+}
 
 type Point = readonly [number, number];
 const validCoordinate = (c: GeoJSON.Position) => Array.isArray(c) && Number.isFinite(c[0]) && Number.isFinite(c[1]) && Math.abs(c[0]) <= 180 && Math.abs(c[1]) <= 90;

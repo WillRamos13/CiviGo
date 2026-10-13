@@ -133,10 +133,10 @@ test("error del proveedor es genérico, no devuelve payload y respeta enfriamien
   await assert.rejects(
     client.route(route()),
     (error) =>
-      error.code === "PROVIDER_UNAVAILABLE" &&
+      error.code === "PROVIDER_RATE_LIMIT" &&
       !error.message.includes(env.TOMTOM_API_KEY),
   );
-  await assert.rejects(client.route(route()), /proveedor no está disponible/);
+  await assert.rejects(client.route(route()), /limitó temporalmente/);
   assert.equal(calls, 1);
 });
 test("incidentes Orbis v2 consultan presentes y Flow v2 valida bytes PNG", async () => {
@@ -305,4 +305,112 @@ test("search provider errors and exhausted quotas cannot leak a key or call the 
       error.code === "PROVIDER_UNAVAILABLE" &&
       !error.message.includes(env.TOMTOM_API_KEY),
   );
+});
+
+test("a viewport burst queues distinct tiles and coalesces duplicates without exceeding four upstream calls", async () => {
+  let active = 0,
+    maximum = 0,
+    requests = 0,
+    reservations = 0;
+  const releases = [];
+  const client = createTomTomClient({
+    env,
+    quota: {
+      reserve: async () => {
+        reservations++;
+        return true;
+      },
+    },
+    fetchImpl: async () => {
+      requests++;
+      active++;
+      maximum = Math.max(maximum, active);
+      await new Promise((resolve) => releases.push(resolve));
+      active--;
+      return new Response(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]));
+    },
+  });
+  const pending = [
+    ...Array.from({ length: 12 }, (_, x) => client.tile(14, x, 0)),
+    client.tile(14, 0, 0),
+  ];
+  for (let batch = 0; batch < 3; batch++) {
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(releases.length, 4);
+    releases.splice(0).forEach((resolve) => resolve());
+  }
+  const responses = await Promise.all(pending);
+  assert.equal(responses.length, 13);
+  assert.equal(maximum, 4);
+  assert.equal(requests, 12);
+  assert.equal(reservations, 12);
+});
+
+test("tile authorization and rate limits are diagnosed safely and do not block route/search products", async () => {
+  for (const [status, code] of [
+    [403, "PROVIDER_AUTHORIZATION"],
+    [429, "PROVIDER_RATE_LIMIT"],
+    [400, "PROVIDER_REQUEST_REJECTED"],
+    [503, "PROVIDER_UNAVAILABLE"],
+  ]) {
+    let clock = new Date("2026-10-13T12:00:00Z"),
+      calls = 0;
+    const client = createTomTomClient({
+      env,
+      quota: quota(),
+      now: () => clock,
+      fetchImpl: async (url) => {
+        calls++;
+        return url.includes("flow/raster")
+          ? new Response(env.TOMTOM_API_KEY, {
+              status,
+              headers: { "Retry-After": "90" },
+            })
+          : new Response('{"routes":[]}');
+      },
+    });
+    await assert.rejects(client.tile(14, 1, 1), (error) => error.code === code);
+    await assert.rejects(client.tile(14, 2, 1), (error) => error.code === code);
+    assert.equal(calls, 1);
+    const report = await client.status();
+    assert.equal(report.fallos.tiles.codigo, code);
+    assert.equal(report.fallos.tiles.reintentarEn, "2026-10-13T12:01:30.000Z");
+    assert.equal(JSON.stringify(report).includes(env.TOMTOM_API_KEY), false);
+    await client.route(route());
+    assert.equal(calls, 2);
+    clock = new Date(+clock + 90001);
+    assert.deepEqual((await client.status()).fallos, {});
+  }
+});
+
+test("flow cache expires at the next refresh bucket and successful recovery clears its diagnostic", async () => {
+  let clock = new Date("2026-10-13T12:01:59Z"),
+    calls = 0,
+    failed = true;
+  const client = createTomTomClient({
+    env,
+    quota: quota(),
+    now: () => clock,
+    fetchImpl: async () => {
+      calls++;
+      return failed
+        ? new Response("unavailable", { status: 503 })
+        : new Response(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]));
+    },
+  });
+  await assert.rejects(client.tile(14, 1, 1));
+  assert.ok((await client.status()).fallos.tiles);
+  failed = false;
+  clock = new Date("2026-10-13T12:03:59Z");
+  await client.tile(14, 1, 1);
+  assert.deepEqual((await client.status()).fallos, {});
+  assert.equal(
+    (await client.status()).ultimaActualizacion.tiles,
+    clock.toISOString(),
+  );
+  await client.tile(14, 1, 1);
+  assert.equal(calls, 2);
+  clock = new Date("2026-10-13T12:04:00Z");
+  await client.tile(14, 1, 1);
+  assert.equal(calls, 3);
 });

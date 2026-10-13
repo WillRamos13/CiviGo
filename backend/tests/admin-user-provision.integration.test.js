@@ -158,9 +158,18 @@ test(
           );
           assert.equal(result.status, 201, JSON.stringify(result.json));
           assert.deepEqual(result.json.usuario.permisos, [
-            "revisar",
+            "consultar",
+            "validar",
+            "gravedad",
+            "clasificar",
+            "falsedad",
+            "avisos",
             "evidencia",
           ]);
+          const storedAgent = await db.user.findUnique({
+            where: { id: result.json.usuario.id },
+          });
+          assert.deepEqual(storedAgent.permisos, result.json.usuario.permisos);
           agent = await session(result.json.usuario);
           const created = await request(
             "/admin/users",
