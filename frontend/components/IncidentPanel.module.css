@@ -1,0 +1,33 @@
+.card { display: flex; flex-direction: column; border: 1px solid var(--map-panel-border); border-radius: 18px; background: var(--map-panel); color: var(--ink); padding: 0; overflow: hidden; box-shadow: 0 8px 30px rgb(0 30 55 / 28%), 0 0 0 1px rgb(35 189 235 / 18%); }
+.mapCardPosition { position: absolute; top: 80px; left: 22px; z-index: 5; width: min(355px, calc(100% - 44px)); max-height: calc(100% - 150px); pointer-events: none; }
+.mapCard { display: flex; flex-direction: column; max-height: min(660px, calc(100dvh - 230px)); pointer-events: auto; border-color: color-mix(in srgb, var(--brand-cyan) 65%, var(--map-panel-border)); box-shadow: 0 0 0 1px rgb(35 189 235 / 16%), 0 8px 30px rgb(0 30 55 / 28%); }
+.heading { display: flex; align-items: center; gap: 11px; padding: 14px; background: linear-gradient(125deg, var(--map-panel-glow), var(--map-panel)); border-bottom: 1px solid var(--map-panel-border); flex-shrink: 0; }
+.heading > div { flex: 1; min-width: 0; }
+.heading h2 { font-size: 17px; line-height: 1.25; margin: 0 0 5px; overflow-wrap: anywhere; }
+.heading time { color: var(--muted); font-size: 10px; }
+.heading > button { align-self: start; flex-shrink: 0; min-height: 32px; }
+.body { flex: 1 1 auto; min-height: 0; padding: 14px; overflow: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: var(--map-panel-border) transparent; }
+.cover { border: 1px solid var(--map-panel-border); border-radius: 11px; overflow: hidden; aspect-ratio: 16 / 9; margin-bottom: 13px; background: var(--surface-muted); }
+.cover img, .cover video { width: 100%; height: 100%; object-fit: cover; display: block; }
+.cover a { display: block; height: 100%; }
+.information { margin: 0; }
+.information > div { padding: 12px 0; border-bottom: 1px solid var(--line); }
+.information dt { display: flex; gap: 10px; align-items: center; font-size: 12px; font-weight: 700; }
+.information dt svg { flex-shrink: 0; color: var(--muted); }
+.information dd { margin: 7px 0 0 30px; font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
+.information dd small { display: block; font-size: 10px; color: var(--muted); }
+.mapLink { color: var(--brand); background: none; border: 0; padding: 4px 0; display: inline-flex; align-items: center; gap: 6px; font-weight: 700; cursor: pointer; }
+.description { white-space: pre-wrap; }
+.state { display: inline-block; padding: 3px 10px; font-size: 11px; border-radius: 20px; background: var(--brand-soft); color: var(--brand); font-weight: 700; }
+.state[data-state="PENDIENTE"] { background: var(--warning-bg); color: var(--warning-ink); }
+.state[data-state="RESUELTO"], .state[data-state="VALIDADO"] { background: var(--success-bg); color: var(--success-ink); }
+.state[data-state="RETIRADO"], .state[data-state="FALSO"] { background: var(--error-bg); color: var(--error-ink); }
+.validation { margin: 14px 0; font-size: 11px; }
+.validation summary { cursor: pointer; color: var(--muted); font-weight: 600; padding: 8px 0; }
+.validation p { line-height: 1.6; }
+.participation, .conversation { margin-top: 18px; padding-top: 15px; border-top: 1px solid var(--line); }
+.participation h3, .conversation h3 { font-size: 13px; margin: 0 0 9px; }
+.participation p, .conversation > p { font-size: 11px; line-height: 1.5; }
+.conversation h3 { display: flex; align-items: center; gap: 6px; }
+@media (max-width: 900px) { .mapCardPosition { left: 15px; top: 78px; } }
+@media (max-width: 600px) { .mapCardPosition { top: 64px; left: 9px; width: calc(100% - 18px); max-height: none; } .mapCard { max-height: min(480px, calc(100dvh - 145px)); } .heading { padding: 11px; } .body { padding: 11px; } }

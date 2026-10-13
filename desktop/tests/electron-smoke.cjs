@@ -97,7 +97,7 @@ const server = http.createServer(async (request, response) => {
   if (requestPath === '/api/announcements/manage/90' && request.method === 'DELETE') {
     announcementFixtures.shift(); return response.end('{"eliminado":true}');
   }
-  if (requestPath === '/api/announcements/manage') return response.end(JSON.stringify(announcementFixtures.map(row => ({...row, imagen:advertisingFiles.get(row.imagenId) ?? null}))));
+  if (requestPath === '/api/announcements/manage') return response.end(JSON.stringify(announcementFixtures.filter(row => !url.searchParams.has('ubicacion') || (row.ubicacion ?? 'CABECERA') === url.searchParams.get('ubicacion')).map(row => ({...row, imagen:advertisingFiles.get(row.imagenId) ?? null}))));
   if (requestPath === '/api/navigation/traffic/incidents') return response.end(JSON.stringify({ incidentes: trafficFixtures.filter(row => !moderationFixtures.some(saved => saved.externoId === row.externoId && saved.oculto)), trafico: { disponible: true } }));
   if (requestPath === '/api/announcements/traffic-moderation' && request.method === 'POST') {
     const value = JSON.parse(body), previous = moderationFixtures.find(row => row.externoId === value.externoId);
@@ -242,6 +242,8 @@ async function run() {
   await window.webContents.executeJavaScript(`Array.from(document.querySelectorAll('nav[aria-label="Herramientas de administración"] button')).find(button=>button.textContent==='Anuncios y novedades').click()`);
   await waitUntil(window, `!document.body.innerText.includes('Cargando')`);
   await openEditor(window, 'Crear anuncio');
+  assert.equal(await window.webContents.executeJavaScript(`Array.from(document.querySelectorAll('.editor-panel label')).find(label=>label.textContent.startsWith('Ubicación del anuncio')).querySelector('select').value`), 'CABECERA');
+  await window.webContents.executeJavaScript(`(() => {const select=Array.from(document.querySelectorAll('.editor-panel label')).find(label=>label.textContent.startsWith('Ubicación del anuncio')).querySelector('select'); Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype,'value').set.call(select,'REPORTAR'); select.dispatchEvent(new Event('change',{bubbles:true}));})()`);
   const pickAdvertisingImage = async () => {
     await window.webContents.executeJavaScript(`(() => {
       const bytes=Uint8Array.from(atob('${advertisingImage.toString('base64')}'), c=>c.charCodeAt(0));
@@ -269,7 +271,9 @@ async function run() {
   assert.equal(announcementCreation.body.inicio, '2026-10-09T01:08:00.000Z');
   assert.equal(announcementCreation.body.fin, '2026-10-10T01:08:00.000Z');
   assert.equal(announcementCreation.body.imagenId, '12345678-1234-1234-1234-000000000001');
+  assert.equal(announcementCreation.body.ubicacion, 'REPORTAR');
   await openEditor(window, 'Editar');
+  assert.equal(await window.webContents.executeJavaScript(`Array.from(document.querySelectorAll('.editor-panel label')).find(label=>label.textContent.startsWith('Ubicación del anuncio')).querySelector('select').value`), 'REPORTAR');
   await waitUntil(window, `document.querySelector('.announcement-image-preview img')?.naturalWidth > 0`);
   await pickAdvertisingImage();
   await window.webContents.executeJavaScript(`(() => { const field=document.querySelector('.editor-panel input[type="number"]'); Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(field,'2'); field.dispatchEvent(new Event('input',{bubbles:true})); })()`);
@@ -277,6 +281,7 @@ async function run() {
   await waitUntil(window, `document.body.innerText.includes('Anuncio guardado. Se mostrará') && !document.querySelector('.editor-panel')`);
   assert.equal(calls.find(call => call.path === '/api/announcements/manage/90' && call.method === 'PATCH').body.orden, 2);
   assert.equal(calls.find(call => call.path === '/api/announcements/manage/90' && call.method === 'PATCH').body.imagenId, '12345678-1234-1234-1234-000000000002');
+  assert.equal(calls.find(call => call.path === '/api/announcements/manage/90' && call.method === 'PATCH').body.ubicacion, 'REPORTAR');
   await openEditor(window, 'Editar');
   await waitUntil(window, `document.querySelector('.announcement-image-preview img')?.naturalWidth > 0`);
   await window.webContents.executeJavaScript(`Array.from(document.querySelectorAll('.editor-panel button')).find(button=>button.textContent==='Quitar imagen').click()`);
@@ -284,6 +289,14 @@ async function run() {
   await window.webContents.executeJavaScript(`document.querySelector('.editor-panel form').requestSubmit()`);
   await waitUntil(window, `!document.querySelector('.editor-panel')`);
   assert.equal(calls.filter(call => call.path === '/api/announcements/manage/90' && call.method === 'PATCH').at(-1).body.imagenId, null);
+  const selectPlacementFilter = value => window.webContents.executeJavaScript(`(() => {const select=Array.from(document.querySelectorAll('label')).find(label=>label.textContent.startsWith('Filtrar por ubicación')).querySelector('select'); Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype,'value').set.call(select,'${value}'); select.dispatchEvent(new Event('change',{bubbles:true}));})()`);
+  await selectPlacementFilter('REPORTAR');
+  await waitUntil(window, `document.body.innerText.includes('Anuncio guardado desde la prueba') && !document.body.innerText.includes('Novedad de prueba 0') && !document.body.innerText.includes('Cargando')`);
+  assert.ok(calls.some(call=>call.path==='/api/announcements/manage' && call.query==='?ubicacion=REPORTAR'));
+  await selectPlacementFilter('CABECERA');
+  await waitUntil(window, `document.body.innerText.includes('Novedad de prueba 0') && !document.body.innerText.includes('Anuncio guardado desde la prueba') && !document.body.innerText.includes('Cargando')`);
+  await selectPlacementFilter('');
+  await waitUntil(window, `document.body.innerText.includes('Anuncio guardado desde la prueba') && document.body.innerText.includes('Novedad de prueba 0') && !document.body.innerText.includes('Cargando')`);
   await openEditor(window, 'Crear anuncio');
   await pickAdvertisingImage();
   await window.webContents.executeJavaScript(`Array.from(document.querySelectorAll('.editor-panel button')).find(button=>button.textContent==='Cancelar').click()`);

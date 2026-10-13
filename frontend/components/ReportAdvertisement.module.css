@@ -1,0 +1,14 @@
+.panel { border: 1px solid var(--line); border-radius: 18px; background: var(--surface); overflow: hidden; box-shadow: 0 12px 32px #04162818; }
+.heading { padding: 14px 18px; display: flex; align-items: center; justify-content: space-between; gap: 12px; border-bottom: 1px solid var(--line); color: var(--muted); font-size: .75rem; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
+.controls { display: flex; gap: 4px; }
+.controls button { display: grid; place-items: center; min-width: 28px; min-height: 28px; border: 1px solid var(--line); border-radius: 8px; background: transparent; color: var(--ink); cursor: pointer; }
+.content { display: flex; flex-direction: column; width: 100%; border: 0; background: transparent; color: var(--ink); text-align: left; text-decoration: none; padding: 0; }
+button.content { cursor: pointer; }
+.image { display: block; width: 100%; height: auto; max-height: min(65vh, 680px); object-fit: contain; background: var(--surface); }
+.copy { display: flex; flex-direction: column; gap: 10px; padding: 20px; overflow-wrap: anywhere; }
+.copy strong { font-size: 1.05rem; line-height: 1.45; }
+.copy > span { font-size: .88rem; line-height: 1.6; }
+.action { color: var(--brand); display: flex; align-items: center; gap: 7px; font-weight: 700; }
+.empty { min-height: 230px; padding: 32px 24px; display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 14px; color: var(--muted); text-align: center; }
+.content:focus-visible, .controls button:focus-visible { outline: 3px solid var(--brand); outline-offset: -3px; }
+@media (max-width: 760px) { .empty { min-height: 130px; } .image { max-height: 420px; } }

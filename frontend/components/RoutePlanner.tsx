@@ -1,7 +1,7 @@
 'use client';
 import Link from 'next/link';
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Footprints, Bike, Car, MapPin, Bookmark, Navigation, Square } from 'lucide-react';
+import { Footprints, Bike, Car, MapPin, Bookmark, Navigation, Square, ArrowDownUp, Search, ShieldCheck, Timer, Scale, ChevronRight, Check, AlertTriangle } from 'lucide-react';
 import { useAuth } from './AuthProvider';
 import { api, post, currentPosition, errorMessage, formatDate } from '@/lib/api';
 import type { Posicion, Ruta } from '@/lib/types';
@@ -9,6 +9,7 @@ import { RISK_COLORS, RISK_NAMES } from '@/lib/types';
 import { readRouteCache, isPosition, isRoute, routeMode, type CachedRoute } from '@/lib/route-cache';
 import PlaceInput from './PlaceInput';
 import NavigationGuidance, {type GuidanceProps} from './NavigationGuidance';
+import styles from './RoutePlanner.module.css';
 type Punto = Posicion & { nombre: string };
 type Saved = { id: number; nombre: string; modo: string; origen: Posicion; destino: Posicion; datos: Ruta; creadoEn: string };
 type Props = { onRoute: (r: Ruta | null) => void; active: Ruta | null; following: boolean; onFollow: (v: boolean) => void; recalculate?: number; guidance?: GuidanceProps; onLocate?: (position: Posicion) => void };
@@ -104,14 +105,142 @@ function AccountRoutePlanner({ onRoute, active, following, onFollow, recalculate
         } catch (e) { if (mounted.current && !controller.signal.aborted) setError(errorMessage(e)); }
         finally { requests.current.delete(controller); if (mounted.current) setBusy(false); }
     };
+    const locate = async () => {
+        try {
+            const epoch = planEpoch.current;
+            const point = await currentPosition();
+            if (!mounted.current || epoch !== planEpoch.current) return;
+            changeOrigin({ ...point, nombre: 'Mi ubicación actual' });
+            onLocate?.(point);
+            setError('');
+        } catch (e) {
+            if (mounted.current) setError(errorMessage(e));
+        }
+    };
+    const swapPoints = () => {
+        invalidate();
+        setOrigin(destination);
+        setDestination(origin);
+        setManualOrigin(manualDestination);
+        setManualDestination(manualOrigin);
+    };
     if (following && active && guidance) return <NavigationGuidance route={active} onFinish={() => onFollow(false)} {...guidance}/>;
-    if (!usuario)
-        return <div className="card"><div className="card-header"><h2>Tu próximo recorrido</h2><Navigation size={18} color="var(--brand)"/></div><p className="muted" style={{ fontSize: 12 }}>Crea una cuenta para comparar recorridos a pie, en bicicleta o en automóvil.</p><Link href="/ingresar" className="btn btn-primary" style={{ width: '100%' }}>Ingresar para calcular rutas</Link></div>;
-    return <div className="card"><div className="card-header"><h2>¿A dónde vamos?</h2><Navigation size={18} color="var(--brand)"/></div><p className="muted" style={{ fontSize: 11 }}>Más segura, más rápida o equilibrada. Elige entre los trazados disponibles.</p><div className="route-mode">{[{ id: 'walking', name: 'A pie', icon: Footprints }, { id: 'cycling', name: 'Bicicleta', icon: Bike }, { id: 'driving', name: 'Auto', icon: Car }].map(({ id, name, icon: Icon }) => <button type="button" aria-pressed={mode === id} className={mode === id ? 'selected' : ''} key={id} onClick={() => { invalidate(); setMode(id); }}><Icon size={16} style={{ margin: '0 auto 5px' }}/>{name}</button>)}</div><PlaceInput label="Origen" value={origin} onChange={changeOrigin}/><button className="btn btn-quiet btn-small" style={{ padding: '0 0 12px' }} onClick={async () => { try {
-        const epoch = planEpoch.current; const point = await currentPosition(); if (!mounted.current || epoch !== planEpoch.current) return; changeOrigin({ ...point, nombre: 'Mi ubicación actual' });
-        onLocate?.(point); setError('');
+    if (!usuario) {
+        return <div className={'card ' + styles.planner}>
+            <div className="card-header"><h2>Tu próximo recorrido</h2><Navigation size={18} aria-hidden="true"/></div>
+            <p className={'muted ' + styles.intro}>Crea una cuenta para comparar recorridos a pie, en bicicleta o en automóvil.</p>
+            <Link href="/ingresar" className={'btn btn-primary ' + styles.fullWidth}>Ingresar para calcular rutas</Link>
+        </div>;
     }
-    catch (e) {
-        setError(errorMessage(e));
-    } }}><MapPin size={13}/>Usar mi ubicación</button><PlaceInput label="Destino" value={destination} onChange={changeDestination}/><button className="btn btn-quiet btn-small" style={{ padding: '0 0 12px', fontSize: 10 }} onClick={() => setManual(!manual)}>{manual ? 'Ocultar' : 'Ingresar'} coordenadas manualmente</button>{manual && <>{[{ label: 'Origen', values: manualOrigin, origin: true }, { label: 'Destino', values: manualDestination, origin: false }].map(({ label, values, origin: isOrigin }) => <div key={label}><small>{label}</small><div className="grid-2" style={{ gap: 7 }}><div className="field"><input aria-label={`Latitud ${label}`} type="number" step=".000001" placeholder="Latitud" value={values[0]} onChange={e => changeManual(isOrigin, 0, e.target.value)}/></div><div className="field"><input aria-label={`Longitud ${label}`} type="number" step=".000001" placeholder="Longitud" value={values[1]} onChange={e => changeManual(isOrigin, 1, e.target.value)}/></div></div></div>)}</>}<div className="route-planner-search"><button className="btn btn-primary" style={{ width: '100%' }} disabled={busy || offline || !origin || !destination} onClick={plan}>{busy ? 'Calculando alternativas…' : 'Buscar recorridos'}</button></div>{error && <div className="notice notice-error" style={{ marginTop: 12, fontSize: 11 }} role="alert">{error}</div>}{message && <div className="notice" style={{ marginTop: 12, fontSize: 11 }}>{message}</div>}{routes.length > 0 && <div style={{ marginTop: 15 }}><small className="muted">{routes.length} alternativa{routes.length > 1 ? 's' : ''} disponible{routes.length > 1 ? 's' : ''}</small>{routes.map(r => <button key={r.id} aria-pressed={active?.id === r.id} className={`route-option ${active?.id === r.id ? 'selected' : ''}`} onClick={() => select(r)}><strong>{r.nombre}</strong>{r.criterios && r.criterios.length > 1 && <p className="muted">Coincide con {r.criterios.map(c => c === "rapida" ? "más rápida" : c === "segura" ? "más segura" : "equilibrada").join(" y ")}</p>}<p>{(r.distancia / 1000).toFixed(1)} km · {Math.max(1, Math.round(r.duracion / 60))} min</p><p><span className="legend-dot" style={{ display: 'inline-block', background: RISK_COLORS[r.nivelRiesgo], marginRight: 5 }}/>{r.riesgoConocido === false ? "Riesgo sin información" : `${RISK_NAMES[r.nivelRiesgo]} · ${Number(r.puntosRiesgo).toFixed(2)} puntos de exposición`}</p>{r.trafico && <p className="muted">{r.trafico.disponible ? "Tiempo con tráfico · TomTom" : r.trafico.motivo || "Sin tráfico en tiempo real"}</p>}{r.advertencias?.length > 0 && <p style={{ color: '#b45309' }}>{r.advertencias.length} aviso{r.advertencias.length > 1 ? 's' : ''} sobre el recorrido</p>}</button>)}</div>}{active && <>{loadedCopy && <div className="notice notice-warning" style={{ marginTop: 12, fontSize: 11 }}>Copia guardada. La geometría, las condiciones y los avisos pertenecen al momento de su carga; recalcula con conexión para actualizarlos.</div>}<div className="field" style={{ marginTop: 15 }}><label htmlFor="favorite-name">Nombre para guardar</label><input id="favorite-name" value={favoriteName} onChange={e => setFavoriteName(e.target.value)} maxLength={100} placeholder="Casa → universidad"/></div>{usuario.premium && <div className="field"><label htmlFor="favorite-tags">Etiquetas Premium</label><input id="favorite-tags" value={favoriteTags} onChange={e => setFavoriteTags(e.target.value)} placeholder="Trabajo, mañana"/><small>Separa las etiquetas con comas.</small></div>}<div className="actions" style={{ marginTop: 12 }}><button className="btn btn-primary btn-small" onClick={() => onFollow(!following)}>{following ? <Square size={12}/> : <Navigation size={12}/>} {following ? 'Finalizar' : 'Iniciar recorrido'}</button><button className="btn btn-secondary btn-small" disabled={busy || offline} onClick={favorite}><Bookmark size={12}/>Guardar</button></div>{active.advertencias?.map((w, i) => <div className="notice notice-warning" key={i} style={{ fontSize: 11, marginTop: 10 }}>{typeof w === 'string' ? w : w.mensaje}</div>)}<p className="muted" style={{ fontSize: 10, marginTop: 10 }}>Al iniciar, se usa tu ubicación mientras la página esté abierta. Las recomendaciones comerciales no modifican el recorrido.</p></>}{saved.length > 0 && <details style={{ marginTop: 18 }}><summary style={{ fontSize: 12, cursor: 'pointer' }}>Favoritos ({saved.length})</summary>{saved.map(s => <button key={s.id} className="route-option" onClick={() => { loadCopy(s.datos, s.origen, s.destino, s.modo, 'Favorito cargado. Busca recorridos para actualizar sus condiciones.'); }}><strong>{s.nombre}</strong><p>Datos guardados; recalcula para actualizar.</p></button>)}</details>}{cached.length > 0 && <details style={{ marginTop: 15 }}><summary style={{ fontSize: 12, cursor: 'pointer' }}>Recorridos cargados en este dispositivo</summary><p className="muted" style={{ fontSize: 10, marginTop: 8 }}>La geometría guardada se puede consultar sin conexión. El mapa base puede necesitar internet. Los incidentes no se consideran actualizados.</p>{cached.map((c, i) => <button className="route-option" key={`${c.ruta.id}-${i}`} onClick={() => {loadCopy(c.ruta, c.origen, c.destino, c.modo, 'Mostrando una copia guardada. No refleja necesariamente los incidentes actuales.'); }}><strong>{c.ruta.nombre}</strong><p>Guardado: {formatDate(c.fecha)}</p></button>)}</details>}</div>;
+    return <div className={'card ' + styles.planner}>
+        <div className="card-header"><h2>¿A dónde vamos?</h2><Navigation size={18} aria-hidden="true"/></div>
+        <p className={'muted ' + styles.intro}>Más segura, más rápida o equilibrada. Elige entre los trazados disponibles.</p>
+        <div className={'route-mode ' + styles.modes} role="group" aria-label="Modo de recorrido">
+            {[{ id: 'walking', name: 'A pie', icon: Footprints }, { id: 'cycling', name: 'Bicicleta', icon: Bike }, { id: 'driving', name: 'Auto', icon: Car }].map(({ id, name, icon: Icon }) =>
+                <button type="button" aria-pressed={mode === id} className={mode === id ? 'selected' : ''} key={id} onClick={() => { invalidate(); setMode(id); }}>
+                    <Icon size={20} aria-hidden="true"/><span>{name}</span>
+                </button>)}
+        </div>
+        <div className={styles.placeField}>
+            <Search className={styles.searchIcon} size={16} aria-hidden="true"/>
+            <PlaceInput label="Origen" value={origin} onChange={changeOrigin}/>
+        </div>
+        <div className={styles.pointActions}>
+            <button type="button" className={'btn btn-quiet btn-small ' + styles.location} onClick={locate}>
+                <MapPin size={15} aria-hidden="true"/>Usar mi ubicación
+            </button>
+            <button type="button" className={styles.swap} aria-label="Intercambiar origen y destino" title="Intercambiar origen y destino" disabled={!origin && !destination} onClick={swapPoints}>
+                <ArrowDownUp size={17} aria-hidden="true"/>
+            </button>
+        </div>
+        <div className={styles.placeField}>
+            <Search className={styles.searchIcon} size={16} aria-hidden="true"/>
+            <PlaceInput label="Destino" value={destination} onChange={changeDestination}/>
+        </div>
+        <button type="button" className={'btn btn-quiet btn-small ' + styles.manualToggle} aria-expanded={manual} onClick={() => setManual(!manual)}>
+            {manual ? 'Ocultar' : 'Ingresar'} coordenadas manualmente
+        </button>
+        {manual && <div className={styles.manualFields}>
+            {[{ label: 'Origen', values: manualOrigin, origin: true }, { label: 'Destino', values: manualDestination, origin: false }].map(({ label, values, origin: isOrigin }) =>
+                <div key={label}>
+                    <span className={styles.manualLabel}>{label}</span>
+                    <div className={'grid-2 ' + styles.coordinateGrid}>
+                        <div className="field"><input aria-label={'Latitud ' + label} type="number" step=".000001" placeholder="Latitud" value={values[0]} onChange={e => changeManual(isOrigin, 0, e.target.value)}/></div>
+                        <div className="field"><input aria-label={'Longitud ' + label} type="number" step=".000001" placeholder="Longitud" value={values[1]} onChange={e => changeManual(isOrigin, 1, e.target.value)}/></div>
+                    </div>
+                </div>)}
+        </div>}
+        <div className={'route-planner-search ' + styles.searchAction}>
+            <button type="button" className={'btn btn-primary ' + styles.fullWidth} disabled={busy || offline || !origin || !destination} onClick={plan}>
+                <Navigation size={16} aria-hidden="true"/>{busy ? 'Calculando alternativas…' : 'Buscar recorridos'}
+            </button>
+        </div>
+        {error && <div className={'notice notice-error ' + styles.notice} role="alert">{error}</div>}
+        {message && <div className={'notice ' + styles.notice} role="status">{message}</div>}
+        {routes.length > 0 && <section className={styles.alternatives} aria-label="Alternativas de recorrido">
+            <div className={styles.resultHeading}><span>Elige tu recorrido</span><span>{routes.length} alternativa{routes.length > 1 ? 's' : ''}</span></div>
+            {routes.map(r => {
+                const RouteIcon = r.tipo === 'segura' ? ShieldCheck : r.tipo === 'equilibrada' ? Scale : Timer;
+                const selected = active?.id === r.id;
+                const knownRisk = r.riesgoConocido !== false;
+                return <button type="button" key={r.id} aria-pressed={selected} className={['route-option', styles.option, selected ? 'selected ' + styles.selected : ''].join(' ')} onClick={() => select(r)}>
+                    <span className={styles.optionHeading}>
+                        <span className={styles.criterionIcon} data-criterion={r.tipo}><RouteIcon size={21} aria-hidden="true"/></span>
+                        <strong>{r.nombre}</strong>
+                        {selected ? <Check size={18} aria-label="Seleccionada"/> : <ChevronRight size={18} aria-hidden="true"/>}
+                    </span>
+                    <span className={styles.metrics}>
+                        <span><b>{Math.max(1, Math.round(r.duracion / 60))}</b><span>min</span></span>
+                        <span className={styles.metricSeparator} aria-hidden="true">·</span>
+                        <span><b>{(r.distancia / 1000).toFixed(1)}</b><span>km</span></span>
+                    </span>
+                    {r.criterios && r.criterios.length > 1 && <span className={styles.comparison}>Coincide con {r.criterios.map(c => c === 'rapida' ? 'más rápida' : c === 'segura' ? 'más segura' : 'equilibrada').join(' y ')}</span>}
+                    <span className={styles.riskRow}>
+                        <ShieldCheck size={14} aria-hidden="true"/>
+                        <span>{knownRisk ? RISK_NAMES[r.nivelRiesgo] : 'Riesgo sin información'}</span>
+                        {knownRisk && <span className={styles.riskLevel}>Nivel {r.nivelRiesgo}</span>}
+                    </span>
+                    {knownRisk && <span className={styles.riskDetail}>
+                        <span className={styles.riskSegments} aria-hidden="true">{RISK_COLORS.map((color, level) =>
+                            <span key={color} style={{ background: color, opacity: level === r.nivelRiesgo ? 1 : 0.25 }}/>)}</span>
+                        <span>{Number(r.puntosRiesgo).toFixed(2)} puntos de exposición</span>
+                    </span>}
+                    {r.trafico && <span className={styles.traffic}>
+                        <Timer size={13} aria-hidden="true"/>
+                        <span>{r.trafico.disponible
+                            ? 'Tiempo con tráfico' + (r.trafico.demoraSegundos > 0 ? ' · +' + Math.max(1, Math.round(r.trafico.demoraSegundos / 60)) + ' min de demora' : '')
+                            : r.trafico.motivo || 'Sin tráfico en tiempo real'}</span>
+                    </span>}
+                    {r.advertencias?.length > 0 && <span className={styles.warning}>
+                        <AlertTriangle size={13} aria-hidden="true"/>{r.advertencias.length} aviso{r.advertencias.length > 1 ? 's' : ''} sobre el recorrido
+                    </span>}
+                </button>;
+            })}
+            <p className={'muted ' + styles.comparisonNote}>La seguridad compara el riesgo registrado entre las alternativas disponibles. La falta de reportes no garantiza seguridad.</p>
+        </section>}
+        {active && <div className={styles.activeActions}>
+            {loadedCopy && <div className={'notice notice-warning ' + styles.notice}>Copia guardada. La geometría, las condiciones y los avisos pertenecen al momento de su carga; recalcula con conexión para actualizarlos.</div>}
+            <div className="field"><label htmlFor="favorite-name">Nombre para guardar</label><input id="favorite-name" value={favoriteName} onChange={e => setFavoriteName(e.target.value)} maxLength={100} placeholder="Casa → universidad"/></div>
+            {usuario.premium && <div className="field"><label htmlFor="favorite-tags">Etiquetas Premium</label><input id="favorite-tags" value={favoriteTags} onChange={e => setFavoriteTags(e.target.value)} placeholder="Trabajo, mañana"/><small>Separa las etiquetas con comas.</small></div>}
+            <div className={'actions ' + styles.navigationActions}>
+                <button type="button" className="btn btn-primary btn-small" onClick={() => onFollow(!following)}>{following ? <Square size={14} aria-hidden="true"/> : <Navigation size={14} aria-hidden="true"/>} {following ? 'Finalizar' : 'Iniciar recorrido'}</button>
+                <button type="button" className="btn btn-secondary btn-small" disabled={busy || offline} onClick={favorite}><Bookmark size={14} aria-hidden="true"/>Guardar</button>
+            </div>
+            {active.advertencias?.map((w, i) => <div className={'notice notice-warning ' + styles.notice} key={i}>{typeof w === 'string' ? w : w.mensaje}</div>)}
+            <p className={'muted ' + styles.comparisonNote}>Al iniciar, se usa tu ubicación mientras la página esté abierta. Las recomendaciones comerciales no modifican el recorrido.</p>
+        </div>}
+        {saved.length > 0 && <details className={styles.savedRoutes}>
+            <summary>Favoritos ({saved.length})</summary>
+            {saved.map(s => <button type="button" key={s.id} className="route-option" onClick={() => loadCopy(s.datos, s.origen, s.destino, s.modo, 'Favorito cargado. Busca recorridos para actualizar sus condiciones.')}>
+                <strong>{s.nombre}</strong><p>Datos guardados; recalcula para actualizar.</p>
+            </button>)}
+        </details>}
+        {cached.length > 0 && <details className={styles.savedRoutes}>
+            <summary>Recorridos cargados en este dispositivo</summary>
+            <p className={'muted ' + styles.comparisonNote}>La geometría guardada se puede consultar sin conexión. El mapa base puede necesitar internet. Los incidentes no se consideran actualizados.</p>
+            {cached.map((c, i) => <button type="button" className="route-option" key={c.ruta.id + '-' + i} onClick={() => loadCopy(c.ruta, c.origen, c.destino, c.modo, 'Mostrando una copia guardada. No refleja necesariamente los incidentes actuales.')}>
+                <strong>{c.ruta.nombre}</strong><p>Guardado: {formatDate(c.fecha)}</p>
+            </button>)}
+        </details>}
+    </div>;
 }

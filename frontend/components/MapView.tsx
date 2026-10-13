@@ -14,7 +14,7 @@ import { RISK_COLORS } from '@/lib/types';
 import type { TrafficResponse, TrafficStatus, ExternalTrafficIncident } from '@/lib/traffic';
 import { trafficAffectsRoute, trafficFlowMessage } from '@/lib/traffic';
 import { syncTrafficLayer } from '@/lib/map-traffic-layers';
-import RiskLegend from './RiskLegend';
+import RiskLegend, { TrafficLegend } from './RiskLegend';
 import OfflineRoute from './OfflineRoute';
 import CollapsiblePanel from './CollapsiblePanel';
 import 'mapbox-gl/dist/mapbox-gl.css';
@@ -29,13 +29,14 @@ type Props = {
     navigating?: boolean;
     heading?: number;
     centerVersion?: number;
+    focusPoint?: { posicion: Posicion; version: number } | null;
     onTrafficChange?: () => void;
     onBounds?: (bounds: [number, number, number, number]) => void;
     typeFilter?: { value: string; groups: IncidentFilterGroup[]; onChange: (value: string) => void };
 };
 const brandColor = (element: HTMLElement | null) => element ? getComputedStyle(element).getPropertyValue('--map-route-color').trim() || '#1554D8' : '#1554D8';
 const EMPTY_INCIDENTS: Incidente[] = [];
-export default function MapView({ incidentes = EMPTY_INCIDENTS, ruta = null, onSelect, onPosition, onLocate, posicion = null, editor = false, typeFilter, navigating = false, heading, centerVersion = 0, onTrafficChange, onBounds }: Props) {
+export default function MapView({ incidentes = EMPTY_INCIDENTS, ruta = null, onSelect, onPosition, onLocate, posicion = null, editor = false, typeFilter, navigating = false, heading, centerVersion = 0, focusPoint, onTrafficChange, onBounds }: Props) {
     const container = useRef<HTMLDivElement>(null), mapRef = useRef<mapboxgl.Map | null>(null), markers = useRef<mapboxgl.Marker[]>([]), positionMarker = useRef<mapboxgl.Marker | null>(null);
     const callbacks = useRef({ onSelect, onPosition, onLocate, onBounds });
     const [loaded, setLoaded] = useState(false), [risk, setRisk] = useState(true), [events, setEvents] = useState(true), [zones, setZones] = useState(true), [error, setError] = useState(''), [roads, setRoads] = useState<GeoJSON.FeatureCollection>(EMPTY_MAP_DATA), [roadError, setRoadError] = useState('');
@@ -53,6 +54,12 @@ export default function MapView({ incidentes = EMPTY_INCIDENTS, ruta = null, onS
     useEffect(() => { activeTrafficRoute.current = ruta; }, [ruta]);
     useEffect(() => { cameraState.current = {navigating, posicion, heading}; trafficCallback.current = onTrafficChange; }, [navigating, posicion, heading, onTrafficChange]);
     const filterId = useId();
+    useEffect(() => {
+        const map = mapRef.current, point = focusPoint?.posicion;
+        if (!loaded || !map || editor || !point || !Number.isFinite(point.latitud) || !Number.isFinite(point.longitud) || Math.abs(point.latitud) > 90 || Math.abs(point.longitud) > 180) return;
+        followCamera.current = false;
+        map.flyTo({ center: [point.longitud, point.latitud], zoom: Math.max(15, map.getZoom()) });
+    }, [loaded, editor, focusPoint]);
     const layerState = useRef<MapLayerState>({ roads, incidents: incidentes, route: ruta, risk, events, zones, editor, brand: '#1554D8', routeOutline: '#fff' });
     const token = process.env.NEXT_PUBLIC_MAPBOX_TOKEN
     const [online, setOnline] = useState(true);
@@ -261,7 +268,7 @@ export default function MapView({ incidentes = EMPTY_INCIDENTS, ruta = null, onS
                 <small>Filtra los marcadores, sus zonas y los reportes recientes. El riesgo de las calles considera todos los incidentes.</small>
             </div>}
         </CollapsiblePanel>
-        {traffic ? <div className="risk-legend traffic-legend" aria-label="Tráfico en tiempo real"><strong>Tráfico · © TomTom</strong><div className="traffic-scale" role="img" aria-label="Tráfico fluido, lento y congestionado"><span title="Fluido"/><span title="Lento"/><span title="Congestionado"/></div></div> : <RiskLegend />}
+        {traffic ? <TrafficLegend /> : <RiskLegend />}
         {posicion && <button type="button" className="map-recenter icon-btn" aria-label="Centrar mi ubicación" title="Mi ubicación" onClick={centerOnPosition}><LocateFixed size={20}/></button>}
         {traffic && trafficError && <div className="map-message notice notice-warning" role="status">{trafficError}</div>}
         {externalSelected && events && <div className="external-traffic-detail"><button className="icon-btn" aria-label="Cerrar aviso de tráfico" onClick={() => setExternalSelected(null)}>×</button><strong>{externalSelected.titulo}</strong><p>{externalSelected.descripcion}</p><small>TomTom · aviso temporal · no suma riesgo histórico</small></div>}

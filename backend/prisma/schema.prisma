@@ -338,6 +338,7 @@ model Business {
 model MapAnnouncement {
   id              Int       @id @default(autoincrement())
   tipo            String    @default("NOVEDAD")
+  ubicacion       String    @default("CABECERA")
   titulo          String
   mensaje         String    @default("")
   enlace          String?
@@ -354,6 +355,7 @@ model MapAnnouncement {
   actualizadoEn   DateTime  @updatedAt
 
   @@index([activo, orden])
+  @@index([ubicacion, activo, orden])
 }
 
 model ExternalTrafficModeration {

@@ -1,0 +1,71 @@
+.page {
+  max-width: 1450px;
+}
+
+.layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(220px, 32%);
+  align-items: start;
+  gap: 24px;
+}
+
+.formColumn,
+.form {
+  min-width: 0;
+}
+
+.sections {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 20px;
+}
+
+.sections > :global(.card) {
+  min-width: 0;
+  margin-bottom: 0;
+}
+
+.form textarea {
+  min-height: 140px;
+}
+
+.advertisement {
+  position: sticky;
+  top: calc(var(--shell-header-height, 76px) + 20px);
+  min-width: 0;
+  max-height: calc(100dvh - var(--shell-header-height, 76px) - 40px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+}
+
+@media (max-width: 1050px) {
+  .layout {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 20px;
+  }
+
+  .advertisement {
+    position: static;
+    max-height: none;
+    overflow: visible;
+  }
+}
+
+@media (max-width: 600px) {
+  .sections {
+    gap: 16px;
+  }
+
+  .sections > :global(.card) {
+    padding: 18px;
+  }
+
+  .sections :global(.card-header) {
+    flex-wrap: wrap;
+  }
+
+  .form textarea {
+    min-height: 120px;
+  }
+}

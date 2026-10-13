@@ -23,7 +23,14 @@ test('escritorio autoriza solo CRUD anuncios y moderación concretos', () => {
   assert.equal(validateRequest({ route: '/announcements/manage/1', method: 'PATCH', body: '{}' }).method, 'PATCH');
   assert.equal(validateRequest({ route: '/announcements/manage/1', method: 'DELETE' }).method, 'DELETE');
   assert.equal(validateRequest({ route: '/announcements/traffic-moderation', method: 'POST', body: '{}' }).method, 'POST');
+  for (const ubicacion of ['CABECERA', 'REPORTAR']) assert.equal(validateRequest({ route: '/announcements/manage?ubicacion=' + ubicacion }).method, 'GET');
+  for (const route of ['/announcements/manage?ubicacion=OTRA','/announcements/manage?ubicacion=REPORTAR&ubicacion=CABECERA','/announcements/manage?ubicacion=REPORTAR&q=texto','/announcements/manage?apiKey=secret']) assert.throws(() => validateRequest({route}));
   for (const route of ['/announcements/manage/0', '/announcements/manage/all', '/announcements/traffic-moderation/1', '/navigation/traffic/incidents?key=secret', '/navigation/traffic']) assert.throws(() => validateRequest({ route, method: 'DELETE' }));
+});
+test('etiquetas de ubicación distinguen lateral y anuncios anteriores', () => {
+  assert.equal(exportsObject.announcementPlacementLabel('REPORTAR'), 'Lateral de Reportar');
+  assert.equal(exportsObject.announcementPlacementLabel('CABECERA'), 'Barra superior');
+  assert.equal(exportsObject.announcementPlacementLabel(), 'Barra superior');
 });
 
 test('snapshot de tráfico descarta claves del proveedor y otros datos', () => {

@@ -3,6 +3,12 @@ const IMAGE_MIMES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif
 const MAX_ANNOUNCEMENT_IMAGE = 5 * 1024 * 1024;
 const IMAGE_SELECT = { id: true, nombre: true, mimeType: true, size: true };
 
+function announcementPlacement(value = 'CABECERA') {
+  if (!['CABECERA', 'REPORTAR'].includes(value))
+    throw new HttpError(400, 'Ubicación de anuncio inválida.');
+  return value;
+}
+
 function announcementImageId(value) {
   if (value === undefined || value === null || value === '') return null;
   if (typeof value !== 'string' || !/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(value))
@@ -84,6 +90,7 @@ function announcementData(input, current = {}) {
     throw new HttpError(400, "Anuncio inválido.");
   const merged = {
     tipo: "NOVEDAD",
+    ubicacion: 'CABECERA',
     activo: true,
     orden: 0,
     ...current,
@@ -111,6 +118,7 @@ function announcementData(input, current = {}) {
     throw new HttpError(400, "El fin debe ser posterior al inicio.");
   return {
     tipo: merged.tipo,
+    ubicacion: announcementPlacement(merged.ubicacion),
     titulo: plainText(merged.titulo, "Título", 120),
     mensaje: plainText(merged.mensaje, "Mensaje", 500, false),
     negocioId: merged.tipo === "NEGOCIO" ? id(merged.negocioId) : null,
@@ -129,6 +137,7 @@ function publicAnnouncement(row) {
   return {
     id: row.id,
     tipo: row.tipo,
+    ubicacion: row.ubicacion ?? 'CABECERA',
     titulo: row.titulo,
     mensaje: row.mensaje,
     imagen: row.imagen ? { id: row.imagen.id, mimeType: row.imagen.mimeType, size: row.imagen.size, url: '/api/announcements/' + row.id + '/image', alt: row.imagenAlt || row.titulo } : null,
@@ -201,6 +210,7 @@ function trafficModerationData(input) {
 }
 
 module.exports = {
+  announcementPlacement,
   announcementData,
   publicAnnouncement,
   trafficModerationData,

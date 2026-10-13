@@ -12,6 +12,7 @@ const fixturePort = Number(process.env.CIVIGO_MAP_SMOKE_FIXTURE_PORT || 55709);
 const frontendPort = Number(process.env.CIVIGO_MAP_SMOKE_FRONTEND_PORT || 55710);
 const origin = `http://127.0.0.1:${frontendPort}`;
 const shellOnly = process.argv.includes('--shell-only');
+const routesOnly = process.argv.includes('--routes-only');
 const local = path.resolve(__dirname, '../.local/map-live-smoke');
 require('node:fs').mkdirSync(path.join(local, 'session'), { recursive: true });
 app.setPath('userData', local);
@@ -21,6 +22,8 @@ const windows = [];
 const requests = [];
 const blockedHosts = new Set();
 const errors = [];
+const rendererConsoleErrors = [];
+const failedScripts = [];
 const stages = [];
 const headerLayouts = [];
 let incidents = [];
@@ -56,7 +59,8 @@ const catalog = {
   ], config: {}, distritos: ['Ica'],
 };
 const server = http.createServer((request, response) => {
-  requests.push({ url: request.url, method: request.method, revision });
+  const record = { url: request.url, method: request.method, revision };
+  requests.push(record);
   response.setHeader('Content-Type', 'application/json');
   response.setHeader('Cache-Control', 'no-store');
   const requestedUrl = new URL(request.url, 'http://127.0.0.1');
@@ -103,14 +107,14 @@ const server = http.createServer((request, response) => {
   }
   if (request.url === '/api/participation') return response.end(JSON.stringify({reportesValidados:0,totalReportes:0,puntosMensuales:0,mes:'2026-10',insignias:[],movimientos:[]}));
   if (request.url === '/api/ranking' || request.url.startsWith('/api/ranking?')) return response.end(JSON.stringify({mes:'2026-10',entries:[],finalized:false}));
-  if (request.url === '/api/navigation/traffic/status') return response.end(JSON.stringify({configurado:false,habilitado:false,controlCuotaDisponible:true}));
-  if (request.url === '/api/navigation/traffic/incidents') return response.end(JSON.stringify({incidentes:[],trafico:{disponible:false,fuente:null,actualizadoEn:null,motivo:'Sin tráfico actualizado: TomTom no está configurado.'}}));
+  if (request.url === '/api/navigation/traffic/status') return response.end(JSON.stringify({configurado:true,habilitado:true,controlCuotaDisponible:true,cuotas:{tiles:{restantes:100},incidents:{restantes:100}}}));
+  if (request.url === '/api/navigation/traffic/incidents') return response.end(JSON.stringify({incidentes:[],trafico:{disponible:true,fuente:'TomTom',actualizadoEn:'2026-10-13T15:00:00Z',motivo:''}}));
   if (request.url === '/api/navigation/plan') {
     let raw = ''; request.on('data',chunk => {raw += chunk;});
     request.on('end', () => {
-      const body = JSON.parse(raw); requests[requests.length-1].planBody = body;
+      const body = JSON.parse(raw); record.planBody = body;
       const coordinates = [[body.origen.longitud,body.origen.latitud], [body.destino.longitud,body.origen.latitud], [body.destino.longitud,body.destino.latitud]];
-      const rutas = ['segura','rapida','equilibrada'].map((tipo,index) => ({id:`fixture-${tipo}-${revision}`, nombre:tipo === 'segura' ? 'Más segura' : tipo === 'rapida' ? 'Más rápida' : 'Equilibrada',tipo,modo:body.modo,origen:body.origen,destino:body.destino, criterios:[tipo],distancia:2100,duracion:600+index*100,puntosRiesgo:index,nivelRiesgo:index,advertencias:[],geometria:{type:'LineString',coordinates},pasos:[{id:'salida',tipo:'salida',maniobra:'salida',instruccion:'Continúa',calle:'Calle uno',distancia:1000,duracion:300,distanciaAcumulada:0,duracionAcumulada:0,indiceInicio:0,indiceFin:1,coordenadas:coordinates[0],geometria:{type:'LineString',coordinates:coordinates.slice(0,2)}},{id:'giro',tipo:'izquierda',maniobra:'izquierda',instruccion:'Gira a la izquierda hacia calle dos',calle:'Calle dos',distancia:1100,duracion:300,distanciaAcumulada:1000,duracionAcumulada:300,indiceInicio:1,indiceFin:2,coordenadas:coordinates[1],geometria:{type:'LineString',coordinates:coordinates.slice(1)}},{id:'llegada',tipo:'llegada',maniobra:'llegada',instruccion:'Llegaste a tu destino',calle:'',distancia:0,duracion:0,distanciaAcumulada:2100,duracionAcumulada:600,indiceInicio:2,indiceFin:2,coordenadas:coordinates[2],geometria:{type:'LineString',coordinates:coordinates.slice(1)}}]}));
+      const rutas = ['segura','rapida','equilibrada'].map((tipo,index) => ({id:`fixture-${tipo}-${revision}`, nombre:tipo === 'segura' ? 'Más segura' : tipo === 'rapida' ? 'Más rápida' : 'Equilibrada',tipo,modo:body.modo,origen:body.origen,destino:body.destino, criterios:[tipo],distancia:2100,duracion:600+index*100,puntosRiesgo:index,nivelRiesgo:index,advertencias:[],trafico:{disponible:true,fuente:'TomTom',actualizadoEn:'2026-10-13T15:00:00Z',demoraSegundos:index*60,motivo:''},geometria:{type:'LineString',coordinates},pasos:[{id:'salida',tipo:'salida',maniobra:'salida',instruccion:'Continúa',calle:'Calle uno',distancia:1000,duracion:300,distanciaAcumulada:0,duracionAcumulada:0,indiceInicio:0,indiceFin:1,coordenadas:coordinates[0],geometria:{type:'LineString',coordinates:coordinates.slice(0,2)}},{id:'giro',tipo:'izquierda',maniobra:'izquierda',instruccion:'Gira a la izquierda hacia calle dos',calle:'Calle dos',distancia:1100,duracion:300,distanciaAcumulada:1000,duracionAcumulada:300,indiceInicio:1,indiceFin:2,coordenadas:coordinates[1],geometria:{type:'LineString',coordinates:coordinates.slice(1)}},{id:'llegada',tipo:'llegada',maniobra:'llegada',instruccion:'Llegaste a tu destino',calle:'',distancia:0,duracion:0,distanciaAcumulada:2100,duracionAcumulada:600,indiceInicio:2,indiceFin:2,coordenadas:coordinates[2],geometria:{type:'LineString',coordinates:coordinates.slice(1)}}]}));
       response.end(JSON.stringify({rutas,seleccionadaId:rutas.find(r=>r.tipo===body.criterio)?.id}));
     }); return;
   }
@@ -153,7 +157,7 @@ async function panelState(window, selector, expanded) {
 async function togglePanel(window, selector) {
   await window.webContents.executeJavaScript(`document.querySelector(${JSON.stringify(selector)}).click()`);
 }
-async function clickVisible(window, selector) {
+async function clickVisible(window, selector, boundary = '.map-route-panel .collapsible-panel-body') {
   await window.webContents.executeJavaScript(`(() => {
     const target = document.querySelector(${JSON.stringify(selector)});
     if (!target) throw new Error('No existe el control de la prueba de clic');
@@ -163,7 +167,7 @@ async function clickVisible(window, selector) {
   const point = await window.webContents.executeJavaScript(`(() => {
     const target = document.querySelector(${JSON.stringify(selector)}), rect = target.getBoundingClientRect();
     const x = Math.round(rect.left + rect.width / 2), y = Math.round(rect.top + rect.height / 2);
-    const hit = document.elementFromPoint(x,y), body = document.querySelector('.map-route-panel .collapsible-panel-body').getBoundingClientRect();
+    const hit = document.elementFromPoint(x,y), body = document.querySelector(${JSON.stringify(boundary)}).getBoundingClientRect();
     return {x,y,hit:target === hit || target.contains(hit),width:rect.width,height:rect.height,
       inside:rect.left >= body.left && rect.right <= body.right + 1 && rect.top >= body.top - 1 && rect.bottom <= body.bottom + 1};
   })()`);
@@ -173,6 +177,65 @@ async function clickVisible(window, selector) {
   window.webContents.sendInputEvent({type:'mouseUp',x:point.x,y:point.y,button:'left',clickCount:1});
   await delay(100);
   return point;
+}
+async function assertMapPanelLayout(window, width, {allowEmptyReports=false,allowNoGps=false}={}) {
+  const geometry = await window.webContents.executeJavaScript(`(() => {
+    const required = selector => {
+      const element=document.querySelector(selector);
+      if(!element)throw new Error('Falta un elemento obligatorio del mapa: '+selector);
+      return element;
+    };
+    const rect = (selector,optional=false) => {
+      const element=optional?document.querySelector(selector):required(selector);
+      if(!element)return null;
+      const box=element.getBoundingClientRect();
+      return {left:box.left,right:box.right,top:box.top,bottom:box.bottom,width:box.width,height:box.height};
+    };
+    const route=required('.map-route-panel'),reports=required('.map-reports-panel');
+    const body=required('.map-route-panel .collapsible-panel-body'),reportBody=required('.map-reports-panel .collapsible-panel-body');
+    const rows=reports.querySelector('.incident-list');
+    return {viewportWidth:innerWidth,viewportHeight:innerHeight,documentWidth:document.documentElement.scrollWidth,
+      frame:rect('.map-frame'),column:rect('.map-column'),route:rect('.map-route-panel'),reports:rect('.map-reports-panel'),
+      legend:rect('.risk-legend'),recenter:rect('.map-recenter',true),body:rect('.map-route-panel .collapsible-panel-body'),
+      expanded:route.querySelector('.panel-toggle').getAttribute('aria-expanded')==='true',
+      reportsFloating:!!reports.closest('.map-floating-panels'),reportsColumns:rows?getComputedStyle(rows).gridTemplateColumns.split(' ').length:null,
+      reportRows:reports.querySelectorAll('.incident-row').length,
+      reportState:reportBody.innerText,locationNotice:!!reports.querySelector('.nearby-location-notice'),
+      reportsMaxHeight:parseFloat(getComputedStyle(reportBody).maxHeight),
+      routeOverflow:getComputedStyle(body).overflowY,nativeControls:document.querySelectorAll('.map-frame .mapboxgl-ctrl-group').length,
+      mobileInputFont:parseFloat(getComputedStyle(required('.map-route-panel input')).fontSize)};
+  })()`);
+  assert.equal(geometry.viewportWidth,width);
+  assert.ok(geometry.documentWidth<=width,'La nueva distribución no desborda horizontalmente');
+  const expectedWidth=width>1150?300:width>900?270:width>600?280:width<=360?190:Math.min(270,Math.max(205,geometry.frame.width*0.65));
+  const maxHeight=width>900?Math.min(620,geometry.viewportHeight-275):width>600?Math.min(560,geometry.viewportHeight-275):Math.min(480,Math.min(720,Math.max(560,geometry.viewportHeight*0.72))-155);
+  assert.ok(Math.abs(geometry.route.width-expectedWidth)<2,`El panel usa el ancho previsto para ${width}px: ${JSON.stringify(geometry.route)}`);
+  assert.ok(geometry.route.height<=maxHeight+2,'El panel abierto conserva su límite según altura de pantalla');
+  assert.ok(geometry.route.left>=geometry.frame.left+4&&geometry.route.right<=geometry.frame.right-4,'El panel de rutas permanece dentro de los bordes del mapa');
+  assert.ok(geometry.route.top>=geometry.frame.top+4&&geometry.route.bottom<=geometry.frame.bottom-4,'El panel no se extiende fuera del mapa');
+  if(geometry.expanded){
+    assert.ok(geometry.body.height>150,'El panel abierto ofrece espacio útil para búsquedas y opciones');
+    assert.equal(geometry.routeOverflow,'auto','El contenido largo de rutas puede desplazarse sin salir del panel');
+  }
+  const overlaps=(a,b)=>a.left<b.right&&a.right>b.left&&a.top<b.bottom&&a.bottom>b.top;
+  if(!allowNoGps)assert.ok(geometry.recenter,'La prueba con posición GPS debe conservar el botón Mi ubicación');
+  if(geometry.recenter)assert.equal(overlaps(geometry.route,geometry.recenter),false,'Rutas no oculta el botón Mi ubicación, incluso con alternativas');
+  else assert.equal(geometry.locationNotice,true,'Sin GPS se muestra la opción de activar la ubicación, sin inventar un botón');
+  assert.equal(overlaps(geometry.route,geometry.legend),false,'Rutas no cubre la escala de riesgo o tráfico');
+  assert.ok(geometry.reports.top>=geometry.column.bottom+10,'Reportes recientes queda debajo de toda la columna del mapa');
+  assert.ok(Math.abs(geometry.reports.width-geometry.frame.width)<2,'Reportes recientes utiliza el ancho completo del mapa');
+  assert.equal(geometry.reportsFloating,false,'Reportes recientes ya no pertenece a los paneles flotantes');
+  if(!allowEmptyReports)assert.ok(geometry.reportRows>0,'Esta prueba debe conservar reportes cercanos para comprobar sus columnas');
+  if(geometry.reportRows>0)assert.equal(geometry.reportsColumns,width>900?2:1,'Las filas recientes se distribuyen en dos columnas en PC y una en móvil');
+  else {
+    assert.equal(geometry.reportsColumns,null,'Sin reportes se muestra el estado vacío, sin una lista de filas ficticias');
+    assert.ok(geometry.locationNotice||geometry.reportState.includes('No hay incidentes publicados para este filtro a menos de 1 km de tu ubicación.')||geometry.reportState.includes('Cargando reportes cercanos…'),'La lista vacía explica si falta GPS, está cargando o no tiene reportes cercanos');
+  }
+  assert.ok(geometry.reportsMaxHeight>250&&geometry.reportsMaxHeight<=420,'La lista debajo del mapa ofrece espacio útil y conserva desplazamiento');
+  assert.ok(geometry.legend.height<=90,'La leyenda numerada sigue siendo una escala compacta');
+  assert.equal(geometry.nativeControls,0,'El mapa conserva únicamente el botón independiente de ubicación');
+  if(width<=600)assert.equal(geometry.mobileInputFont,16,'Los campos móviles mantienen texto legible');
+  return geometry;
 }
 async function routePlaceSearchScenarios() {
   for (const [index,window] of windows.slice(0,2).entries()) {
@@ -192,12 +255,11 @@ async function routePlaceSearchScenarios() {
     await waitUntil(window,`document.querySelector('.route-planner-search button')?.disabled`);
     const footer = await window.webContents.executeJavaScript(`(() => {
       const footer = document.querySelector('.route-planner-search'), button = footer.querySelector('button');
-      return {background:getComputedStyle(footer).backgroundColor,opacity:getComputedStyle(button).opacity,
-        panelHeight:document.querySelector('.map-route-panel').getBoundingClientRect().height};
+      return {background:getComputedStyle(footer).backgroundColor,opacity:getComputedStyle(button).opacity};
     })()`);
     assert.match(footer.background,/^rgb\(/,'El pie del CTA debe tener un fondo opaco');
     assert.equal(footer.opacity,'1','El CTA deshabilitado conserva un fondo opaco');
-    assert.ok(footer.panelHeight <= (index === 0 ? 321 : 286),'El pie no agranda el panel compacto');
+    await assertMapPanelLayout(window,index===0?1400:390,{allowEmptyReports:true});
     await clickVisible(window,'.route-planner-search button');
     for (const [label,query,selected] of [
       ['Origen','universidad de ica','Universidad Tecnológica del Perú · Ica'],
@@ -225,8 +287,44 @@ async function routePlaceSearchScenarios() {
     assert.equal(body.destino.nombre,'Plaza de Armas de Ica');
     assert.equal(body.destino.latitud,-14.06778);
     assert.equal(body.destino.longitud,-75.72869);
+    const cardsSelector='section[aria-label="Alternativas de recorrido"] > .route-option';
+    const cards = await window.webContents.executeJavaScript(`Array.from(document.querySelectorAll(${JSON.stringify(cardsSelector)})).map(card=>({
+      name:card.querySelector('strong').textContent,pressed:card.getAttribute('aria-pressed'),
+      metrics:Array.from(card.querySelectorAll('b')).map(value=>value.textContent),metricFont:parseFloat(getComputedStyle(card.querySelector('b')).fontSize),
+      radius:parseFloat(getComputedStyle(card).borderRadius),text:card.innerText,
+    }))`);
+    assert.deepEqual(cards.map(card=>card.name),['Más segura','Más rápida','Equilibrada']);
+    assert.deepEqual(cards.map(card=>card.metrics),[['10','2.1'],['12','2.1'],['13','2.1']],'Las tarjetas usan tiempo/distancia de la respuesta del servicio');
+    assert.deepEqual(cards.map(card=>card.pressed),['false','false','false']);
+    for(const [cardIndex,card] of cards.entries()){
+      assert.ok(card.metricFont>=20,'Tiempo y distancia son la información visual prominente');
+      assert.ok(card.radius>=12,'Cada alternativa conserva la tarjeta redondeada de la referencia');
+      assert.ok(card.text.includes(cardIndex.toFixed(2)+' puntos de exposición'),'La comparativa muestra el riesgo real');
+      if(cardIndex>0)assert.ok(card.text.includes('+'+cardIndex+' min de demora'),'La tarjeta muestra la demora de tráfico real');
+      const cardSelector=cardsSelector+':nth-of-type('+(cardIndex+1)+')';
+      await clickVisible(window,cardSelector);
+      await waitUntil(window,`document.querySelector(${JSON.stringify(cardSelector)})?.getAttribute('aria-pressed')==='true'`);
+      assert.deepEqual(await window.webContents.executeJavaScript(`Array.from(document.querySelectorAll(${JSON.stringify(cardsSelector)})).map(card=>card.getAttribute('aria-pressed'))`),[0,1,2].map(value=>String(value===cardIndex)),'Al seleccionar una alternativa queda una sola marcada');
+    }
+    await assertMapPanelLayout(window,index===0?1400:390,{allowEmptyReports:true});
     await capture(window,`mapa-busqueda-rutas-${index === 0 ? 'escritorio' : 'movil'}.png`);
-    stages.push({test:`Buscador y CTA compactos (${viewport}): selección de Destino y cálculo por clic real, sin controles tapados ni transparencia`,passed:true});
+    const beforeSwap=requests.filter(request=>request.planBody).length;
+    await clickVisible(window,'button[aria-label="Intercambiar origen y destino"]');
+    await waitUntil(window,`document.querySelector('input[aria-label="Origen"]').value==='Plaza de Armas de Ica'&&document.querySelector('input[aria-label="Destino"]').value==='Universidad Tecnológica del Perú · Ica'&&!document.querySelector('section[aria-label="Alternativas de recorrido"]')`);
+    assert.equal(requests.filter(request=>request.planBody).length,beforeSwap,'Intercambiar puntos invalida el cálculo anterior y espera una búsqueda explícita');
+    await clickVisible(window,'.map-route-panel .card > button[aria-expanded="false"]');
+    await waitUntil(window,`!!document.querySelector('input[aria-label="Latitud Origen"]')`);
+    assert.deepEqual(await window.webContents.executeJavaScript(`['Latitud Origen','Longitud Origen','Latitud Destino','Longitud Destino'].map(label=>Number(document.querySelector('input[aria-label="'+label+'"]').value))`),[-14.06778,-75.72869,-14.0887,-75.73545],'Intercambiar actualiza también los cuatro campos manuales');
+    await clickVisible(window,'.route-planner-search button');
+    await waitUntil(window,`document.querySelectorAll(${JSON.stringify(cardsSelector)}).length===3&&!document.querySelector('.route-planner-search button').disabled`);
+    assert.equal(requests.filter(request=>request.planBody).length,beforeSwap+1,'El siguiente clic vuelve a calcular una única vez');
+    const swapped=requests.filter(request=>request.planBody).at(-1).planBody;
+    assert.deepEqual(swapped.origen,body.destino,'El servicio recibe las coordenadas anteriores de destino como nuevo origen');
+    assert.deepEqual(swapped.destino,body.origen,'El servicio recibe las coordenadas anteriores de origen como nuevo destino');
+    assert.equal(swapped.modo,body.modo);
+    await assertMapPanelLayout(window,index===0?1400:390,{allowEmptyReports:true});
+    stages.push({test:`Buscador y panel ampliado (${viewport}): selección por clic real, tres tarjetas con datos del servicio y una sola alternativa marcada`,passed:true});
+    stages.push({test:`Intercambiar origen/destino (${viewport}): invalida la ruta, sincroniza coordenadas manuales y envía el cálculo inverso una sola vez`,passed:true});
   }
 }
 async function filterByName(window, name) {
@@ -507,6 +605,18 @@ async function createClient(index, width, height, {route='/mapa',mapReady=true} 
       backgroundThrottling: false, partition: `map-live-fixture-${index}` },
   });
   windows.push(window);
+  const executeJavaScript = window.webContents.executeJavaScript.bind(window.webContents);
+  window.webContents.executeJavaScript = async (script, ...options) => {
+    try {
+      return await executeJavaScript(script, ...options);
+    } catch (error) {
+      failedScripts.push({client:index,script,error:String(error)});
+      throw new Error(`Falló el script de prueba del cliente ${index}: ${script}\n${String(error)}`,{cause:error});
+    }
+  };
+  window.webContents.on('console-message', event => {
+    if(event.level==='error')rendererConsoleErrors.push({client:index,message:event.message,source:event.sourceId,line:event.lineNumber});
+  });
   window.webContents.session.setPermissionRequestHandler((_webContents, _permission, callback) => callback(false));
   window.webContents.session.webRequest.onBeforeRequest((details, callback) => {
     let allowed = false;
@@ -580,6 +690,20 @@ async function finishShellValidation() {
   await fs.writeFile(path.join(local, shellOnly ? 'resultado-shell.json' : 'resultado.json'), JSON.stringify(result,null,2));
   console.log(JSON.stringify(result));
 }
+async function finishRouteValidation() {
+  for(const [index,window] of windows.entries()){
+    assert.equal(window.isVisible(),false,'Las ventanas de rutas permanecen ocultas');
+    assert.deepEqual(await window.webContents.executeJavaScript('window.__smokeErrors'),[],`Errores de React al buscar/intercambiar rutas en cliente ${index+1}`);
+  }
+  assert.deepEqual(errors,[]);
+  assert.deepEqual([...blockedHosts],[]);
+  assert.equal(requests.filter(request=>request.navigation&&!request.inPlace).length,2,'Los dos clientes calculan rutas sin recargar documentos');
+  const result={passed:true,mode:'routes-only',stages,clients:windows.length,
+    calculations:requests.filter(request=>request.planBody).length,blockedHosts:[...blockedHosts],
+    limitation:'API y GPS simulados en loopback, con el token Mapbox vacío; no se consultan servicios externos.'};
+  await fs.writeFile(path.join(local,'resultado-rutas.json'),JSON.stringify(result,null,2));
+  console.log(JSON.stringify(result));
+}
 async function run() {
   await fs.mkdir(local, { recursive: true });
   server.listen(fixturePort, '127.0.0.1');
@@ -598,6 +722,11 @@ async function run() {
   // Header/navigation checks do not depend on obtaining a synthetic GPS fix.
   // Keep real permission responses out of that unrelated fixture setup.
   await Promise.all([createClient(1, 1400, 768, {mapReady:!shellOnly}), createClient(2, 390, 844, {mapReady:!shellOnly})]);
+  if(routesOnly){
+    await routePlaceSearchScenarios();
+    await finishRouteValidation();
+    return;
+  }
   if (shellOnly) {
     await commonShellScenarios();
     await finishShellValidation();
@@ -644,8 +773,13 @@ async function run() {
   await both(`document.querySelectorAll('.incident-row').length === 3`);
   const controls = '.map-frame .map-controls > .panel-toggle';
   const fixedLegend = async window => {
-    const legend = await window.webContents.executeJavaScript(`(() => {const element=document.querySelector('.map-frame .risk-legend');return {title:element.querySelector('strong').textContent,bars:element.querySelectorAll('.risk-scale span').length,buttons:element.querySelectorAll('button').length,extras:element.querySelectorAll('p,small,details').length,visible:element.getBoundingClientRect().height>0};})()`);
-    assert.deepEqual(legend,{title:'Riesgo registrado por zona',bars:6,buttons:0,extras:0,visible:true},'La leyenda fija contiene sólo título y escala');
+    const legend = await window.webContents.executeJavaScript(`(() => {const element=document.querySelector('.map-frame .risk-legend');return {
+      title:element.querySelector('strong').textContent,bars:element.querySelectorAll('.risk-scale span').length,
+      levels:Array.from(element.querySelectorAll(':scope > div:nth-of-type(2) > span')).map(span=>span.textContent),
+      endpoints:Array.from(element.querySelectorAll(':scope > div:nth-of-type(3) > span')).map(span=>span.textContent),
+      rounded:Array.from(element.querySelectorAll('.risk-scale span')).every(span=>parseFloat(getComputedStyle(span).borderRadius)>=8),
+      buttons:element.querySelectorAll('button').length,extras:element.querySelectorAll('p,small,details').length,visible:element.getBoundingClientRect().height>0};})()`);
+    assert.deepEqual(legend,{title:'Riesgo por zona',bars:6,levels:['0','1','2','3','4','5'],endpoints:['Seguro','Crítico'],rounded:true,buttons:0,extras:0,visible:true},'La leyenda fija tiene seis segmentos redondeados con números y extremos legibles');
   };
   for (const [index, window] of windows.entries()) {
     const viewport = index === 0 ? 'escritorio' : 'movil';
@@ -664,6 +798,19 @@ async function run() {
 
     await togglePanel(window, controls);
     await panelState(window, controls, true);
+    await clickVisible(window,'.map-layer-options > label:nth-of-type(2) input','.map-controls .collapsible-panel-body');
+    await waitUntil(window,`!!document.querySelector('.traffic-legend .traffic-scale')`);
+    const trafficLegend=await window.webContents.executeJavaScript(`(() => {const element=document.querySelector('.traffic-legend');return {
+      title:element.querySelector('strong').textContent,bars:element.querySelectorAll('.traffic-scale span').length,
+      labels:Array.from(element.querySelectorAll(':scope > div:nth-of-type(2) > span')).map(span=>span.textContent),
+      buttons:element.querySelectorAll('button').length,height:element.getBoundingClientRect().height};})()`);
+    assert.equal(trafficLegend.title,'Tráfico · © TomTom');
+    assert.equal(trafficLegend.bars,3);
+    assert.deepEqual(trafficLegend.labels,['Fluido','Lento','Congestionado']);
+    assert.equal(trafficLegend.buttons,0);
+    assert.ok(trafficLegend.height<=80,'Tráfico utiliza la misma leyenda fija compacta');
+    await clickVisible(window,'.map-layer-options > label:nth-of-type(1) input','.map-controls .collapsible-panel-body');
+    await fixedLegend(window);
     const filter = await window.webContents.executeJavaScript(`(() => {
       const select = document.querySelector('.map-frame .map-controls select');
       return { options: Array.from(select.options).map(option => option.textContent),
@@ -690,14 +837,7 @@ async function run() {
     await capture(window, `mapa-leyenda-${viewport}.png`);
     await fixedLegend(window);
 
-    const geometry = await window.webContents.executeJavaScript(`(() => {
-      const route=document.querySelector('.map-route-panel').getBoundingClientRect(),reports=document.querySelector('.map-reports-panel .collapsible-panel-body'),legend=document.querySelector('.risk-legend').getBoundingClientRect();
-      return {routeWidth:route.width,routeHeight:route.height,reportsMaxHeight:parseFloat(getComputedStyle(reports).maxHeight),legendHeight:legend.height,nativeControls:document.querySelectorAll('.map-frame .mapboxgl-ctrl-group').length,mobileInputFont:parseFloat(getComputedStyle(document.querySelector('.map-route-panel input')).fontSize)};
-    })()`);
-    assert.ok(geometry.routeWidth<=231&&geometry.routeHeight<=321,'Panel de rutas compacto');
-    assert.ok(geometry.reportsMaxHeight<=160,'Reportes recientes conservan una lista compacta desplazable');
-    assert.ok(geometry.legendHeight<=65,'La leyenda ya no ocupa una tarjeta desplegable grande');
-    assert.equal(geometry.nativeControls,0,'El mapa principal no muestra el control inferior de zoom/localización');
+    const geometry = await assertMapPanelLayout(window,index===0?1400:390);
     await window.webContents.executeJavaScript(`document.querySelector('.map-recenter').scrollIntoView({block:'center'})`);
     const locationButton = await window.webContents.executeJavaScript(`(() => {
       const button=document.querySelector('.map-recenter'), rect=button.getBoundingClientRect();
@@ -720,8 +860,13 @@ async function run() {
     await panelState(window, routeSelector, true);
     await togglePanel(window, routeSelector);
     await panelState(window, routeSelector, false);
+    const collapsedHeight=await window.webContents.executeJavaScript(`document.querySelector('.map-route-panel').getBoundingClientRect().height`);
+    assert.ok(collapsedHeight>=40&&collapsedHeight<=65,'La cabecera plegada conserva un tamaño pulsable sin ocupar el mapa');
+    assert.ok(geometry.route.height>=collapsedHeight+150,'Abrir el panel aporta altura útil para origen, destino y tarjetas');
     await togglePanel(window, routeSelector);
     await panelState(window, routeSelector, true);
+    const reopened=await assertMapPanelLayout(window,index===0?1400:390);
+    assert.ok(Math.abs(reopened.route.height-geometry.route.height)<2,'Al reabrir se recupera la altura ampliada del panel');
     await togglePanel(window, routeSelector);
     await panelState(window, routeSelector, false);
     const reportsSelector = '.map-reports-panel > .panel-toggle';
@@ -731,7 +876,7 @@ async function run() {
     await togglePanel(window, reportsSelector);
     await panelState(window, reportsSelector, true);
   }
-  stages.push({ test: 'Capas y rutas se pliegan; leyenda fija compacta y controles principales retirados en escritorio y móvil', passed: true });
+  stages.push({ test: 'Capas y rutas se pliegan; rutas crece al abrir, leyendas de riesgo/tráfico numeradas y GPS sin solapamientos en escritorio y móvil', passed: true });
   stages.push({ test: 'Filtro agrupado con Robo, Hurto e Incendio dentro del mapa; cabecera grande y textos de piloto retirados', passed: true });
 
   const selectedValues = [];
@@ -805,6 +950,19 @@ async function run() {
   }
   stages.push({test:'Últimos diez dentro de 1 km por fecha de publicación, límite por cada tipo y exclusión de un reporte nuevo distante',passed:true});
   const mobileWindow = windows[1];
+  await mobileWindow.webContents.executeJavaScript(`(() => {const route=document.querySelector('.map-route-panel > .panel-toggle');if(route.getAttribute('aria-expanded')!=='true')route.click();const layers=document.querySelector('.map-controls > .panel-toggle');if(layers.getAttribute('aria-expanded')==='true')layers.click();window.scrollTo(0,0);})()`);
+  for(const [width,height] of [[320,640],[850,700]]){
+    mobileWindow.webContents.enableDeviceEmulation({screenPosition:'mobile',screenSize:{width,height},viewPosition:{x:0,y:0},viewSize:{width,height},deviceScaleFactor:1,scale:1});
+    await waitUntil(mobileWindow,`innerWidth===${width}&&innerHeight===${height}`);
+    await assertMapPanelLayout(mobileWindow,width);
+    await fixedLegend(mobileWindow);
+    await assertViewport(mobileWindow,width);
+    await capture(mobileWindow,`mapa-panel-ampliado-${width}x${height}.png`);
+  }
+  mobileWindow.webContents.enableDeviceEmulation({screenPosition:'mobile',screenSize:{width:390,height:844},viewPosition:{x:0,y:0},viewSize:{width:390,height:844},deviceScaleFactor:1,scale:1});
+  await waitUntil(mobileWindow,'innerWidth===390&&innerHeight===844');
+  await assertMapPanelLayout(mobileWindow,390);
+  stages.push({test:'Mapa de 320 px y tableta de 850 px: panel abierto dentro del marco, GPS y leyenda visibles, reportes a todo el ancho debajo',passed:true});
   await mobileWindow.webContents.executeJavaScript(`
     window.__nearbyPosition={coords:{latitude:-14.1,longitude:-75.7286,accuracy:10},timestamp:Date.now()};
     for(const watcher of window.__nearbyWatchers.values())watcher.ok(window.__nearbyPosition);
@@ -818,10 +976,8 @@ async function run() {
   await mobileWindow.webContents.executeJavaScript(`window.__nearbyPosition={coords:{latitude:-14.0678,longitude:-75.7286,accuracy:10},timestamp:Date.now()};document.querySelector('.nearby-location-notice button').click();`);
   await waitUntil(mobileWindow,`document.querySelectorAll('.incident-row').length === 10`);
   stages.push({test:'Moverse cambia el radio; denegar ubicación vacía la lista y libera GPS; una acción explícita permite reintentar',passed:true});
-  const mobileLayout = await mobileWindow.webContents.executeJavaScript(`(() => {const map=document.querySelector('.map-frame').getBoundingClientRect(), reports=document.querySelector('.map-reports-panel').getBoundingClientRect();return {mapBottom:map.bottom,reportsTop:reports.top,reportsWidth:reports.width,mapWidth:map.width};})()`);
-  assert.ok(mobileLayout.reportsTop >= mobileLayout.mapBottom+10,'Reportes recientes deben quedar debajo del mapa');
-  assert.ok(Math.abs(mobileLayout.reportsWidth-mobileLayout.mapWidth)<2,'Reportes recientes usan todo el ancho del mapa móvil');
-  await mobileWindow.webContents.executeJavaScript(`document.querySelector('button[aria-label="Cambiar a modo oscuro"]')?.click();const route=document.querySelector('.map-route-panel > .panel-toggle');if(route.getAttribute('aria-expanded')!=='true')route.click();const layers=document.querySelector('.map-controls > .panel-toggle');if(layers.getAttribute('aria-expanded')==='true')layers.click();window.scrollTo(0,0);`);
+  for(const [index,window] of windows.entries())await assertMapPanelLayout(window,index===0?1400:390);
+  await mobileWindow.webContents.executeJavaScript(`(() => {document.querySelector('button[aria-label="Cambiar a modo oscuro"]')?.click();const route=document.querySelector('.map-route-panel > .panel-toggle');if(route.getAttribute('aria-expanded')!=='true')route.click();const layers=document.querySelector('.map-controls > .panel-toggle');if(layers.getAttribute('aria-expanded')==='true')layers.click();window.scrollTo(0,0);})()`);
   await capture(mobileWindow,'mapa-movil-diseno-oscuro.png');
   await openMobileMenu(mobileWindow);
   await capture(mobileWindow,'mapa-movil-menu-cuadricula.png');
@@ -894,7 +1050,7 @@ async function run() {
 run().then(() => app.exit(0)).catch(async error => {
   console.error(error.stack || String(error));
   for (const [index,window] of windows.entries()) if (!window.isDestroyed()) await capture(window,`fallo-cliente-${index+1}.png`).catch(()=>{});
-  await fs.writeFile(path.join(local, 'fallo.json'), JSON.stringify({ error: String(error), stages, headerLayouts, navigations: requests.filter(request => request.navigation) }, null, 2));
+  await fs.writeFile(path.join(local, 'fallo.json'), JSON.stringify({ error: String(error), failedScripts,rendererConsoleErrors,stages, headerLayouts, navigations: requests.filter(request => request.navigation) }, null, 2));
   app.exit(1);
 }).finally(() => {
   for (const window of windows) if (!window.isDestroyed()) window.destroy();

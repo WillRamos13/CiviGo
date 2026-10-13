@@ -1,0 +1,413 @@
+.planner {
+    min-width: 0;
+}
+
+.planner .intro {
+    font-size: 12px;
+    line-height: 1.5;
+    margin: 2px 0 13px;
+}
+
+.planner.planner .modes {
+    gap: 7px;
+    margin: 12px 0 15px;
+}
+
+.planner.planner .modes > button {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    min-height: 66px;
+    border-radius: 11px;
+    padding: 9px 3px;
+    font-size: 12px;
+    background: var(--field-bg, var(--surface));
+    border-color: var(--map-panel-border, var(--line));
+    color: var(--ink);
+}
+
+.planner.planner .modes > button[aria-pressed="true"] {
+    background: linear-gradient(130deg, #0c94fb, #0753ec);
+    color: #fff;
+    border-color: #39b7ff;
+    box-shadow: inset 0 0 0 1px rgb(89 200 255 / 18%);
+}
+
+.placeField {
+    position: relative;
+}
+
+.planner.planner .placeField :global(.field) {
+    gap: 6px;
+    margin-bottom: 7px;
+}
+
+.planner.planner .placeField label,
+.planner.planner .activeActions label {
+    color: var(--ink);
+    font-size: 12px;
+    line-height: 14px;
+    margin: 0;
+    font-weight: 600;
+}
+
+.planner.planner .placeField input {
+    min-height: 43px;
+    padding: 10px 10px 10px 36px;
+    font-size: 12px;
+    border-radius: 10px;
+}
+
+.searchIcon {
+    position: absolute;
+    z-index: 1;
+    left: 12px;
+    top: 33px;
+    color: var(--muted);
+    pointer-events: none;
+}
+
+.pointActions {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin: 1px 0 11px;
+}
+
+.planner .location {
+    padding: 5px 0;
+    min-height: 36px;
+    color: var(--brand);
+    text-align: left;
+    font-size: 12px;
+}
+
+.swap {
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 36px;
+    min-height: 36px;
+    border: 1px solid var(--map-panel-border, var(--line));
+    border-radius: 9px;
+    color: var(--ink);
+    background: var(--field-bg, var(--surface));
+}
+
+.swap:disabled {
+    color: var(--muted);
+    opacity: 0.6;
+}
+
+.planner .manualToggle {
+    font-size: 11px;
+    min-height: 36px;
+    padding: 4px 0 8px;
+    text-align: left;
+}
+
+.manualFields {
+    margin: 4px 0 8px;
+    padding: 9px;
+    background: var(--field-bg, var(--surface));
+    border: 1px solid var(--map-panel-border, var(--line));
+    border-radius: 10px;
+}
+
+.manualLabel {
+    display: block;
+    font-size: 11px;
+    margin: 2px 0 5px;
+}
+
+.coordinateGrid {
+    gap: 7px;
+}
+
+.planner .coordinateGrid input {
+    min-width: 0;
+    width: 100%;
+}
+
+.planner .searchAction {
+    padding: 7px 0;
+    margin-top: 6px;
+}
+
+.fullWidth {
+    width: 100%;
+}
+
+.planner.planner .searchAction button {
+    min-height: 44px;
+    border-radius: 11px;
+    font-size: 12px;
+    gap: 7px;
+}
+
+.notice {
+    margin-top: 10px;
+    font-size: 11px;
+    line-height: 1.5;
+    overflow-wrap: anywhere;
+}
+
+.alternatives {
+    margin-top: 16px;
+}
+
+.resultHeading {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin-bottom: 8px;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.resultHeading > span:last-child {
+    color: var(--muted);
+    font-size: 10px;
+    font-weight: 400;
+}
+
+.planner .option {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin: 0 0 10px;
+    padding: 13px 12px;
+    border: 1px solid var(--map-panel-border, var(--line));
+    border-radius: 14px;
+    color: var(--ink);
+    background: linear-gradient(145deg, var(--map-panel-glow, var(--surface-muted)), var(--map-panel, var(--surface)) 72%);
+    box-shadow: inset 0 0 0 1px rgb(8 149 222 / 5%);
+    transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.planner .option:hover {
+    border-color: #1597d7;
+}
+
+.planner .option.selected {
+    border-color: #0abafa;
+    background: linear-gradient(145deg, var(--map-panel-glow, var(--surface-muted)), var(--map-panel, var(--surface)) 72%);
+    box-shadow: inset 0 0 0 1px rgb(0 190 255 / 20%), 0 0 12px rgb(0 156 230 / 13%);
+}
+
+.optionHeading {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+}
+
+.planner .optionHeading strong {
+    flex: 1;
+    min-width: 0;
+    font-size: 13px;
+    font-weight: 650;
+}
+
+.optionHeading > svg {
+    color: var(--brand);
+    flex-shrink: 0;
+}
+
+.criterionIcon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 31px;
+    height: 31px;
+    border-radius: 10px;
+    color: var(--brand);
+    background: rgb(8 153 244 / 12%);
+    flex-shrink: 0;
+}
+
+.criterionIcon[data-criterion="segura"] {
+    color: #159447;
+    background: rgb(34 197 94 / 13%);
+}
+
+:global(html[data-theme="dark"]) .criterionIcon[data-criterion="segura"] {
+    color: #52e68a;
+}
+
+.metrics {
+    display: flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: 8px;
+    color: var(--ink);
+}
+
+.metrics > span:not(.metricSeparator) {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 4px;
+}
+
+.metrics b {
+    font-size: 23px;
+    font-weight: 700;
+    line-height: 1.2;
+    letter-spacing: -0.4px;
+}
+
+.metrics > span > span {
+    font-size: 12px;
+}
+
+.metricSeparator {
+    color: var(--muted);
+}
+
+.comparison {
+    font-size: 10px;
+    line-height: 1.4;
+    color: var(--muted);
+}
+
+.riskRow {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 5px;
+    font-size: 11px;
+}
+
+.riskRow > svg {
+    flex-shrink: 0;
+}
+
+.riskLevel {
+    margin-left: auto;
+    color: var(--muted);
+    font-size: 10px;
+}
+
+.riskDetail {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    font-size: 10px;
+    line-height: 1.3;
+    color: var(--muted);
+}
+
+.riskSegments {
+    display: flex;
+    gap: 4px;
+}
+
+.riskSegments > span {
+    flex: 1;
+    height: 5px;
+    border-radius: 999px;
+}
+
+.traffic,
+.warning {
+    display: flex;
+    align-items: flex-start;
+    gap: 5px;
+    font-size: 10px;
+    line-height: 1.45;
+    color: var(--muted);
+    overflow-wrap: anywhere;
+}
+
+.traffic > svg,
+.warning > svg {
+    flex-shrink: 0;
+    margin-top: 1px;
+}
+
+.warning {
+    color: #b45309;
+}
+
+:global(html[data-theme="dark"]) .warning {
+    color: #fcd34d;
+}
+
+.planner .comparisonNote {
+    margin: 10px 0 0;
+    font-size: 10px;
+    line-height: 1.5;
+}
+
+.activeActions {
+    margin-top: 16px;
+    padding-top: 14px;
+    border-top: 1px solid var(--map-panel-border, var(--line));
+}
+
+.navigationActions {
+    margin-top: 11px;
+    gap: 7px;
+}
+
+.navigationActions button {
+    min-height: 40px;
+}
+
+.savedRoutes {
+    margin-top: 16px;
+}
+
+.savedRoutes summary {
+    font-size: 12px;
+    line-height: 1.4;
+    cursor: pointer;
+    padding: 5px 0;
+}
+
+.planner button:focus-visible,
+.planner summary:focus-visible {
+    outline: 2px solid #08aaf2;
+    outline-offset: 3px;
+}
+
+@media (max-width: 700px) {
+    .planner.planner .placeField input {
+        font-size: 16px;
+        padding-right: 7px;
+    }
+
+    .planner.planner .modes > button {
+        min-height: 57px;
+        font-size: 11px;
+        gap: 5px;
+    }
+
+    .planner .coordinateGrid input {
+        font-size: 16px;
+    }
+
+    .planner .option {
+        padding: 12px 10px;
+    }
+
+    .metrics b {
+        font-size: 21px;
+    }
+
+    .planner .optionHeading strong {
+        font-size: 12px;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .planner .option {
+        transition: none;
+    }
+}

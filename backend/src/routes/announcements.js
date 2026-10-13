@@ -4,6 +4,7 @@ const { auth, optionalAuth } = require("../lib/auth");
 const { asyncRoute, HttpError, id } = require("../lib/http");
 const {
   announcementData,
+  announcementPlacement,
   publicAnnouncement,
   trafficModerationData,
   IMAGE_SELECT, IMAGE_MIMES, MAX_ANNOUNCEMENT_IMAGE,
@@ -49,10 +50,12 @@ router.get(
   optionalAuth,
   asyncRoute(async (req, res) => {
     const now = new Date();
+    const ubicacion = announcementPlacement(req.query.ubicacion);
     const hideAds = req.user?.premium && req.user?.ocultarAnuncios;
     const rows = await prisma.mapAnnouncement.findMany({
       where: {
         activo: true,
+        ubicacion,
         AND: [
           { OR: [{ inicio: null }, { inicio: { lte: now } }] },
           { OR: [{ fin: null }, { fin: { gt: now } }] },
@@ -95,6 +98,7 @@ router.get(
   asyncRoute(async (req, res) => {
     res.json(
       await prisma.mapAnnouncement.findMany({
+        ...(req.query.ubicacion !== undefined ? { where: { ubicacion: announcementPlacement(req.query.ubicacion) } } : {}),
         include: { negocio: true, imagen: { select: IMAGE_SELECT } },
         orderBy: [{ orden: "asc" }, { id: "asc" }],
         take: 500,
@@ -116,6 +120,7 @@ router.post(
       });
       await audit(db, req.user, "CREAR", "ANUNCIO_MAPA", created.id, {
         tipo: data.tipo,
+        ubicacion: data.ubicacion,
         titulo: data.titulo,
         activo: data.activo,
         orden: data.orden,
@@ -147,6 +152,7 @@ router.patch(
       });
       await audit(db, req.user, "ACTUALIZAR", "ANUNCIO_MAPA", updated.id, {
         tipo: data.tipo,
+        ubicacion: data.ubicacion,
         titulo: data.titulo,
         activo: data.activo,
         orden: data.orden,
@@ -172,6 +178,7 @@ router.delete(
       await audit(db, req.user, "ELIMINAR", "ANUNCIO_MAPA", previous.id, {
         titulo: previous.titulo,
         tipo: previous.tipo,
+        ubicacion: previous.ubicacion,
       });
     });
     res.json({ eliminado: true });

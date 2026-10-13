@@ -53,7 +53,9 @@ async function waitUntil(window, expression, timeout = 20000) {
 }
 async function createWindow(width, height, name, options = {}) {
   const window = new BrowserWindow({show:false,width,height,useContentSize:true,
-    webPreferences:{sandbox:true,contextIsolation:true,nodeIntegration:false,backgroundThrottling:false,partition:`animated-brand-${name}-${Date.now()}`}});
+    // Hidden native windows stop compositor frames; offscreen keeps rAF active
+    // for the compatibility case without displaying a window on the laptop.
+    webPreferences:{sandbox:true,contextIsolation:true,nodeIntegration:false,backgroundThrottling:false,offscreen:!!options.noFrameCallback,partition:`animated-brand-${name}-${Date.now()}`}});
   windows.push(window);
   const requests = [];
   window.webContents.session.setPermissionRequestHandler((_contents,_permission,callback) => callback(false));
@@ -70,8 +72,9 @@ async function createWindow(width, height, name, options = {}) {
   await window.webContents.debugger.sendCommand('Page.enable');
   await window.webContents.debugger.sendCommand('Emulation.setEmulatedMedia', {features:[{name:'prefers-reduced-motion',value:options.reducedMotion?'reduce':'no-preference'}]});
   const setup = `window.__brandFixtureApplied=true;
+    ${options.noFrameCallback ? `HTMLVideoElement.prototype.requestVideoFrameCallback=undefined;HTMLVideoElement.prototype.cancelVideoFrameCallback=undefined;const originalBrandRaf=window.requestAnimationFrame.bind(window);window.requestAnimationFrame=function(callback){return originalBrandRaf(time=>{window.__brandRaf=(window.__brandRaf||0)+1;callback(time);});};const originalBrandPaint=CanvasRenderingContext2D.prototype.putImageData;CanvasRenderingContext2D.prototype.putImageData=function(...args){if(this.canvas.dataset.brandFrame==='video')window.__brandPaints=(window.__brandPaints||0)+1;return originalBrandPaint.apply(this,args);};` : ''}
     ${options.rejectAutoplay ? `HTMLMediaElement.prototype.play = function(){window.__rejectedBrandPlays = (window.__rejectedBrandPlays || 0) + 1;return Promise.reject(new DOMException('Autoplay rejected by local fixture','NotAllowedError'));};` : ''}
-    ${options.blackFrames ? `CanvasRenderingContext2D.prototype.getImageData=function(_x,_y,width,height){return new ImageData(width,height);};` : ''}`;
+    ${options.blackFrames ? `const originalBrandPixels=CanvasRenderingContext2D.prototype.getImageData;CanvasRenderingContext2D.prototype.getImageData=function(x,y,width,height){return this.canvas.dataset.brandFrame==='probe'?new ImageData(width,height):originalBrandPixels.call(this,x,y,width,height);};` : ''}`;
   await window.webContents.debugger.sendCommand('Page.addScriptToEvaluateOnNewDocument',{source:setup});
   window.webContents.enableDeviceEmulation({screenPosition:width<=900?'mobile':'desktop',screenSize:{width,height},viewPosition:{x:0,y:0},viewSize:{width,height},deviceScaleFactor:1,scale:1});
   await window.loadURL(`${origin}/mapa`);
@@ -103,6 +106,9 @@ async function inspectLayout(window, width, name) {
   layouts.push({name,...layout});
   await fs.writeFile(path.join(local,`${name}.png`),(await window.webContents.capturePage()).toPNG());
 }
+async function inspectTransparency(window, dark, fallback = false) {
+  await waitUntil(window, `(() => { const canvas=document.querySelector(${JSON.stringify(fallback ? '.brand-animation-fallback' : '.brand-animation-renderer')}); if(!canvas) return false; const pixels=canvas.getContext('2d').getImageData(0,0,canvas.width,canvas.height).data; let blue=0,letters=0; for(let i=0;i<pixels.length;i+=4){if(pixels[i+3]>100&&pixels[i+2]-pixels[i]>60)blue++;if(pixels[i+3]>100&&${dark ? 'pixels[i]>180&&pixels[i+1]>180&&pixels[i+2]>180' : 'pixels[i]===7&&pixels[i+1]===30&&pixels[i+2]===50'})letters++;} return pixels[3]===0&&blue>10&&letters>5&&getComputedStyle(document.querySelector('.brand-animation')).backgroundColor==='rgba(0, 0, 0, 0)';})()`);
+}
 async function fallbackVisible(window) {
   await waitUntil(window, `(() => { const element=document.querySelector('.brand-animation-fallback');if(!element)return false;const style=getComputedStyle(element);return style.display!=='none'&&style.visibility!=='hidden'&&Number(style.opacity)>0; })()`);
 }
@@ -129,9 +135,12 @@ async function run() {
     assert.ok(requests.includes('/civigo-logo-animado.mp4'));
     await delay(250);
     assert.ok(await window.webContents.executeJavaScript(`document.querySelector('.brand-animation video').currentTime>${media.currentTime}`),`${name}: decoded playback advances`);
+    await waitUntil(window, `document.querySelector('.brand-animation video').currentTime>2.9`);
     await window.webContents.executeJavaScript(`document.documentElement.dataset.theme='light'`);
+    await inspectTransparency(window, false);
     await inspectLayout(window,width,`${name}-light`);
     await window.webContents.executeJavaScript(`document.documentElement.dataset.theme='dark'`);
+    await inspectTransparency(window, true);
     await inspectLayout(window,width,`${name}-dark`);
     if (name==='desktop') {
       await waitUntil(window, `(() => {const video=document.querySelector('.brand-animation video');return video.currentTime>video.duration-0.4;})()`,10000);
@@ -153,10 +162,13 @@ async function run() {
       scenarios.push(`${name}: repite el video sin detenerse al finalizar`);
     }
     scenarios.push(`${width}px: logo legible sin solapamiento en claro y oscuro`);
+    scenarios.push(`${width}px: fondo transparente, azul original y letras legibles en ambos temas`);
     window.destroy();
   }
   const reduced = await createWindow(390,844,'reduced-motion',{reducedMotion:true});
   await fallbackVisible(reduced.window);
+  await reduced.window.webContents.executeJavaScript(`document.documentElement.dataset.theme='light'`);
+  await inspectTransparency(reduced.window, false, true);
   await delay(800);
   assert.equal(reduced.requests.includes('/civigo-logo-animado.mp4'),false,'Reduced motion must not download the animation');
   assert.equal(await reduced.window.webContents.executeJavaScript(`(() => {const video=document.querySelector('.brand-animation video');return !video || (video.paused&&video.currentTime===0);})()`),true);
@@ -182,6 +194,14 @@ async function run() {
   await fallbackVisible(failed.window);
   scenarios.push('Error de video: mantiene identidad estática');
   failed.window.destroy();
+  const fallbackFrames = await createWindow(390,844,'animation-frame-fallback',{noFrameCallback:true});
+  await waitUntil(fallbackFrames.window,`(() => {const video=document.querySelector('.brand-animation video');return window.__brandPaints>5&&video.currentTime>2.9&&video.currentTime<4.1&&!video.paused;})()`);
+  const beforePaints=await fallbackFrames.window.webContents.executeJavaScript(`({paints:window.__brandPaints,raf:window.__brandRaf,time:document.querySelector('.brand-animation video').currentTime})`);
+  await delay(500);
+  const afterPaints=await fallbackFrames.window.webContents.executeJavaScript(`({paints:window.__brandPaints,raf:window.__brandRaf,time:document.querySelector('.brand-animation video').currentTime,paused:document.querySelector('.brand-animation video').paused,visibility:document.visibilityState})`);
+  assert.ok(afterPaints.paints-beforePaints.paints>6,'El video conserva cuadros fluidos sin requestVideoFrameCallback: '+JSON.stringify({beforePaints,afterPaints}));
+  scenarios.push('Navegador sin callback de video: mantiene la animación transparente con cuadros continuos');
+  fallbackFrames.window.destroy();
   const black = await createWindow(390,844,'black-frames',{blackFrames:true});
   await waitUntil(black.window,`document.querySelector('.brand-animation video')?.currentTime>0.3`);
   await fallbackVisible(black.window);

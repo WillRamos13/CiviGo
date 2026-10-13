@@ -158,6 +158,26 @@ test(
         ).length,
         2,
       );
+      for (const tipo of ['NOVEDAD', 'NEGOCIO']) {
+        const lateral = await request('/manage', 'POST', { tipo, titulo: run + '-lateral-' + tipo, ubicacion: 'REPORTAR', ...(tipo === 'NEGOCIO' ? { negocioId: business.id } : {}) }, admin);
+        assert.equal(lateral.status, 201, JSON.stringify(lateral.body));
+        assert.equal(lateral.body.ubicacion, 'REPORTAR');
+        ids.push(lateral.body.id);
+      }
+      const lateralIds = ids.slice(4, 6);
+      assert.equal((await request('')).body.some(row => lateralIds.includes(row.id)), false, 'cliente legado solo carga cabecera');
+      assert.deepEqual((await request('?ubicacion=REPORTAR')).body.filter(row => lateralIds.includes(row.id)).map(row => row.id), lateralIds);
+      assert.deepEqual((await request('?ubicacion=REPORTAR', 'GET', undefined, premium)).body.filter(row => lateralIds.includes(row.id)).map(row => row.id), [lateralIds[0]], 'Premium oculta negocio lateral');
+      assert.deepEqual((await request('/manage?ubicacion=REPORTAR', 'GET', undefined, admin)).body.filter(row => lateralIds.includes(row.id)).map(row => row.id), lateralIds);
+      assert.equal((await request('?ubicacion=OTRA')).status, 400);
+      assert.equal((await request('?ubicacion=REPORTAR&ubicacion=CABECERA')).status, 400);
+      const editLateral = await request('/manage/' + lateralIds[0], 'PATCH', { mensaje: 'Actualización de lateral' }, admin);
+      assert.equal(editLateral.body.ubicacion, 'REPORTAR');
+      const moved = await request('/manage/' + lateralIds[0], 'PATCH', { ubicacion: 'CABECERA' }, admin);
+      assert.equal(moved.body.ubicacion, 'CABECERA');
+      assert.equal((await request('?ubicacion=REPORTAR')).body.some(row => row.id === lateralIds[0]), false);
+      assert.equal((await request('')).body.some(row => row.id === lateralIds[0]), true);
+      assert.equal((await prisma.mapAnnouncement.findUnique({where:{id:ids[0]}})).ubicacion, 'CABECERA', 'anuncio legado toma default de base de datos');
       await prisma.business.update({
         where: { id: business.id },
         data: { activo: false },
@@ -170,9 +190,9 @@ test(
       const uploadResponse = await fetch(uploadUrl, {method:'POST',headers:{Cookie:admin},body:imageForm});
       const image = await uploadResponse.json(); assert.equal(uploadResponse.status,201,JSON.stringify(image));
       advertisingFiles.push(await prisma.attachment.findUnique({where:{id:image.id}}));
-      const withImage = await request('/manage','POST',{tipo:'NOVEDAD',titulo:run+'-imagen',imagenId:image.id,imagenAlt:'Publicidad local accesible'},admin);
+      const withImage = await request('/manage','POST',{tipo:'NOVEDAD',ubicacion:'REPORTAR',titulo:run+'-imagen',imagenId:image.id,imagenAlt:'Publicidad local accesible'},admin);
       assert.equal(withImage.status,201,JSON.stringify(withImage.body)); ids.push(withImage.body.id);
-      const imageEntry = (await request('')).body.find(row=>row.id===withImage.body.id);
+      const imageEntry = (await request('?ubicacion=REPORTAR')).body.find(row=>row.id===withImage.body.id);
       assert.equal(imageEntry.imagen.alt,'Publicidad local accesible'); assert.equal('path' in imageEntry.imagen,false);
       const imageUrl = 'http://127.0.0.1:' + server.address().port + '/api/announcements/' + withImage.body.id + '/image';
       const servedImage = await fetch(imageUrl);

@@ -46,8 +46,12 @@ function validateRequest(input) {
   const [pathname, query, extra] = route.split('?');
   if (/[%]/.test(pathname) || pathname.includes('..') || pathname.includes('//') || extra !== undefined) throw new DesktopError('Ruta no permitida.');
   if (query !== undefined) {
-    if (method !== 'GET' || !/^\/admin\/(incidents|users|appeals|audit)$/.test(pathname)) throw new DesktopError('Consulta no permitida.');
+    if (method !== 'GET') throw new DesktopError('Consulta no permitida.');
     const params = new URLSearchParams(query), seen = new Set();
+    if (pathname === '/announcements/manage') {
+      if (Array.from(params).length !== 1 || !['CABECERA', 'REPORTAR'].includes(params.get('ubicacion'))) throw new DesktopError('Ubicación no permitida.');
+    } else {
+    if (!/^\/admin\/(incidents|users|appeals|audit)$/.test(pathname)) throw new DesktopError('Consulta no permitida.');
     if (!params.has('page')) throw new DesktopError('Página requerida.');
     for (const [key, value] of params) {
       if (seen.has(key) || !['page', 'limit', 'q', 'estado'].includes(key)) throw new DesktopError('Filtro no permitido.');
@@ -56,6 +60,7 @@ function validateRequest(input) {
       if (key === 'limit' && (!/^[1-9]\d{0,2}$/.test(value) || Number(value) > 100)) throw new DesktopError('Límite inválido.');
       if (key === 'q' && (value.length > 160 || /[\x00-\x1f\x7f]/.test(value))) throw new DesktopError('Búsqueda inválida.');
       if (key === 'estado' && !['REVISION', 'PUBLICADOS', 'SIN_PUBLICAR', 'ACTIVO', 'FALSO', 'RETIRADO', 'RESUELTO', 'VALIDADO', 'PENDIENTE', 'ACEPTADA', 'RECHAZADA'].includes(value)) throw new DesktopError('Estado inválido.');
+    }
     }
   }
   if (!(method === 'GET' && readRoutes.some(r => r.test(pathname))) && !writeRoutes.some(([m, r]) => method === m && r.test(pathname))) throw new DesktopError('Operación no permitida.');

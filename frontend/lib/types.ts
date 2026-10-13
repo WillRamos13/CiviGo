@@ -52,6 +52,7 @@ export interface Adjunto {
 }
 export interface Incidente {
     id: number;
+    distrito?: string | null;
     tipo: string;
     tipoNombre?: string;
     tipoSlug?: string;

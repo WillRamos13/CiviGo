@@ -3,6 +3,7 @@ const assert = require("node:assert/strict");
 const express = require("express");
 const {
   announcementData,
+  announcementPlacement,
   safeLink,
   scheduledDate,
   trafficModerationData,
@@ -25,12 +26,19 @@ test("anuncios validan texto, enlaces, orden y programación inequívoca", () =>
   assert.equal(result.inicio.toISOString(), "2026-10-08T13:00:00.000Z");
   assert.equal(result.enlace, "/mapa");
   assert.equal(result.negocioId, null);
+  assert.equal(result.ubicacion, 'CABECERA');
+  assert.equal(announcementData({ ...fixture, ubicacion: 'REPORTAR' }).ubicacion, 'REPORTAR');
+  assert.equal(announcementData({ mensaje: 'Editado' }, { ...result, ubicacion: 'REPORTAR' }).ubicacion, 'REPORTAR');
+  assert.equal(announcementPlacement(), 'CABECERA');
   for (const patch of [
     { titulo: "<script>alert(1)</script>" },
     { activo: "true" },
     { orden: -1 },
     { orden: 1.5 },
     { tipo: "OTRO" },
+    { ubicacion: 'OTRA' },
+    { ubicacion: null },
+    { ubicacion: ['REPORTAR'] },
     { tipo: "NEGOCIO", negocioId: null },
     { enlace: "javascript:alert(1)" },
     { inicio: "2026-10-08T13:00" },
@@ -111,7 +119,8 @@ function loadRouter(state) {
     mapAnnouncement: {
       findMany: async ({ where }) => {
         let rows = state.rows;
-        if (where) {
+        if (where?.ubicacion) rows = rows.filter(row => (row.ubicacion ?? 'CABECERA') === where.ubicacion);
+        if (where?.activo) {
           const now = where.AND[0].OR[1].inicio.lte;
           assert.equal(where.activo, true);
           assert.ok(where.AND[1].OR[1].fin.gt instanceof Date);
@@ -421,6 +430,28 @@ test("API de anuncios publica solo vigentes, protege CRUD y audita moderación",
         ),
       );
     });
+    await t.test(
+      'ubicaciones son persistentes y separadas del cliente legado de cabecera',
+      async () => {
+        const created = await request('/manage', 'POST', { ...fixture, titulo: 'Banner lateral', ubicacion: 'REPORTAR' }, admin);
+        assert.equal(created.status, 201);
+        const row = await created.json();
+        assert.equal(row.ubicacion, 'REPORTAR');
+        assert.equal((await (await request('/')).json()).some(item => item.id === row.id), false);
+        assert.deepEqual((await (await request('/?ubicacion=REPORTAR')).json()).map(item => item.id), [row.id]);
+        assert.deepEqual((await (await request('/manage?ubicacion=REPORTAR', 'GET', null, admin)).json()).map(item => item.id), [row.id]);
+        assert.equal((await request('/?ubicacion=OTRA')).status, 400);
+        assert.equal((await request('/?ubicacion=REPORTAR&ubicacion=CABECERA')).status, 400);
+        assert.equal((await request('/manage?ubicacion=OTRA', 'GET', null, admin)).status, 400);
+        assert.equal((await request('/manage/' + row.id, 'PATCH', { titulo: 'Lateral editado' }, admin)).status, 200);
+        assert.equal(state.rows.find(item => item.id === row.id).ubicacion, 'REPORTAR');
+        assert.equal((await request('/manage/' + row.id, 'PATCH', { ubicacion: 'CABECERA' }, admin)).status, 200);
+        assert.equal((await (await request('/?ubicacion=REPORTAR')).json()).length, 0);
+        assert.equal((await (await request('/')).json()).some(item => item.id === row.id), true);
+        assert.ok(state.audit.some(item => item.entidadId === String(row.id) && item.datos.ubicacion === 'REPORTAR'));
+        await request('/manage/' + row.id, 'DELETE', null, admin);
+      },
+    );
     await t.test(
       "ocultar y restaurar conserva motivo y fuente sin crear incidentes ciudadanos",
       async () => {

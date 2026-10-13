@@ -1,6 +1,11 @@
+export type AnnouncementPlacement = 'CABECERA' | 'REPORTAR';
+export function announcementPlacementLabel(value?: AnnouncementPlacement) {
+  return value === 'REPORTAR' ? 'Lateral de Reportar' : 'Barra superior';
+}
 export interface MapAnnouncement {
   id: number;
   tipo: 'NOVEDAD' | 'NEGOCIO';
+  ubicacion: AnnouncementPlacement;
   titulo: string;
   mensaje: string;
   enlace: string | null;
