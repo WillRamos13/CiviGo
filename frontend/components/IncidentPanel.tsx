@@ -10,6 +10,7 @@ import { useAuth } from './AuthProvider';
 import { canParticipate } from '@/lib/session';
 import type { Incidente, Mensaje } from '@/lib/types';
 import { isHistoricalAntecedent, incidentSource, incidentEvaluationLabel } from '@/lib/incidents';
+import { referencePhotoCredit } from '@/lib/reference-photo';
 export default function IncidentPanel({ incidente, onClose, onRefresh, variant = 'dialog', onShowOnMap }: {
     incidente: Incidente;
     onClose: () => void;
@@ -97,6 +98,7 @@ export default function IncidentPanel({ incidente, onClose, onRefresh, variant =
     const antecedent = isHistoricalAntecedent(detail), source = incidentSource(detail);
     const media = (detail.adjuntos ?? []).filter(a => !a.privado && a.url && (a.mimeType.startsWith('image/') || a.mimeType.startsWith('video/')));
     const cover = media[0];
+    const coverReference = detail.fuente === 'CARGA_INICIAL' ? referencePhotoCredit(cover?.nombre) : null;
     const timestamp = detail.fechaEvento || detail.fechaCreacion || detail.creadoEn || detail.fecha;
     const stateLabel: Record<string, string> = { ACTIVO: 'Activo', VALIDADO: 'Validado', PENDIENTE: 'En verificación', RESUELTO: 'Resuelto', RETIRADO: 'Retirado', FALSO: 'Declarado falso' };
     return <div className={compact ? styles.mapCardPosition : 'modal-backdrop'} onClick={compact ? undefined : onClose}>
@@ -107,7 +109,8 @@ export default function IncidentPanel({ incidente, onClose, onRefresh, variant =
                 <button className="icon-btn" onClick={onClose} aria-label="Cerrar detalle"><X size={20}/></button>
             </header>
             <div className={styles.body}>
-                {cover && <div className={styles.cover}>{cover.mimeType.startsWith('video/') ? <video src={cover.url!} controls preload="metadata"/> : <a href={cover.url!} target="_blank" rel="noopener noreferrer"><Image src={cover.url!} alt={'Fotografía pública: ' + (detail.tipoNombre || detail.tipo)} width={640} height={360} unoptimized/></a>}</div>}
+                {cover && <div className={styles.cover}>{cover.mimeType.startsWith('video/') ? <video src={cover.url!} controls preload="metadata"/> : <a href={cover.url!} target="_blank" rel="noopener noreferrer"><Image src={cover.url!} alt={coverReference ? 'Fotografía de referencia: ' + coverReference.caption : 'Fotografía pública: ' + (detail.tipoNombre || detail.tipo)} width={640} height={360} unoptimized/></a>}</div>}
+                {coverReference && <p className={styles.referenceCaption}>Fotografía de referencia: {coverReference.caption}. <a href={coverReference.source} target="_blank" rel="noopener noreferrer">{coverReference.author} · {coverReference.license}</a></p>}
                 <dl className={styles.information}>
                     <div><dt><MapPin size={20}/>Ubicación</dt><dd>{detail.distrito || 'Provincia de Ica'}<small>{detail.latitud.toFixed(5)}, {detail.longitud.toFixed(5)}</small>{onShowOnMap && <button type="button" className={styles.mapLink} onClick={onShowOnMap}>Ver en el mapa <ExternalLink size={13}/></button>}</dd></div>
                     <div><dt><FileText size={20}/>Tipo de incidente</dt><dd>{detail.tipoNombre || detail.tipo}</dd></div>

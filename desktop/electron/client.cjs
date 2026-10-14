@@ -53,8 +53,12 @@ class ApiClient {
       if (epoch !== this.#epoch) throw new DesktopError('La sesión cambió. Inicia sesión nuevamente.', 401);
       if (binary && response.ok) return { response, bytes };
       let data;
-      try { data = JSON.parse(bytes.toString('utf8')); } catch { throw new DesktopError('El servidor respondió de forma inesperada.', 502); }
+      try { data = JSON.parse(bytes.toString('utf8')); } catch {
+        if (response.status === 404 && /^\/admin\/(statistics|exports)(?:\?|$)/.test(route)) throw new DesktopError('El servidor todavía no incluye estadísticas y exportaciones. Publica la nueva versión del backend para habilitarlas.', 404, 'DESKTOP_DEPLOY_PENDING');
+        throw new DesktopError('El servidor respondió de forma inesperada.', 502);
+      }
       if (!response.ok) {
+        if (response.status === 404 && /^\/admin\/(statistics|exports)(?:\?|$)/.test(route)) throw new DesktopError('El servidor todavía no incluye estadísticas y exportaciones. Publica la nueva versión del backend para habilitarlas.', 404, 'DESKTOP_DEPLOY_PENDING');
         if (response.status === 401 || response.status === 403) this.clear();
         const message = response.status >= 500 ? 'El servicio de CiviGo no está disponible. Inténtalo nuevamente.' : typeof data?.error === 'string' ? data.error.slice(0, 500) : 'No se pudo completar la solicitud.';
         throw new DesktopError(message, response.status, typeof data?.code === 'string' && /^[A-Z0-9_]{1,80}$/.test(data.code) ? data.code : 'DESKTOP_API_ERROR');

@@ -5,9 +5,11 @@ const assert = require('node:assert/strict');
 const http = require('node:http');
 const fs = require('node:fs/promises');
 const path = require('node:path');
+const zlib = require('node:zlib');
 const { once } = require('node:events');
 const fixturePort = Number(process.env.CIVIGO_MAP_SMOKE_FIXTURE_PORT || 55709);
 const frontendPort = Number(process.env.CIVIGO_MAP_SMOKE_FRONTEND_PORT || 55710);
+const mobileHeaderFormatsOnly = process.env.CIVIGO_AD_SMOKE_MOBILE_HEADER_ONLY === '1';
 const local = path.resolve(__dirname, '../.local/announcements-live-smoke');
 require('node:fs').mkdirSync(path.join(local, 'session'), {recursive:true});
 app.setPath('userData',local); app.setPath('sessionData',path.join(local,'session'));
@@ -27,6 +29,28 @@ const reportItems = [
   {id:103,tipo:'NOVEDAD',ubicacion:'REPORTAR',titulo:'Banner sin imagen disponible',mensaje:'El contenido permanece legible.',enlace:null,negocio:null,imagen:{id:imageId,alt:'Imagen lateral ausente'}},
   {id:104,tipo:'NOVEDAD',ubicacion:'REPORTAR',titulo:'Banner con enlace inseguro',mensaje:'El enlace debe quedar deshabilitado.',enlace:'javascript:alert(1)',negocio:null},
 ];
+// Real pixel dimensions exercise portrait, landscape and panoramic creatives.
+function coloredPng(width,height) {
+  const pixels=Buffer.alloc((width*3+1)*height);
+  for(let y=0;y<height;y++)for(let x=0;x<width;x++){
+    const p=y*(width*3+1)+1+x*3;
+    pixels[p]=x<width/3?240:20;pixels[p+1]=y<height/2?170:60;pixels[p+2]=x>2*width/3?230:40;
+  }
+  const chunk=(kind,data)=>{
+    const type=Buffer.from(kind),body=Buffer.concat([type,data]);let crc=0xffffffff;
+    for(const byte of body){crc^=byte;for(let bit=0;bit<8;bit++)crc=(crc>>>1)^((crc&1)?0xedb88320:0);}
+    const head=Buffer.alloc(4),tail=Buffer.alloc(4);head.writeUInt32BE(data.length);tail.writeUInt32BE((crc^0xffffffff)>>>0);
+    return Buffer.concat([head,body,tail]);
+  };
+  const dimensions=Buffer.alloc(13);dimensions.writeUInt32BE(width);dimensions.writeUInt32BE(height,4);dimensions[8]=8;dimensions[9]=2;
+  return Buffer.concat([Buffer.from([137,80,78,71,13,10,26,10]),chunk('IHDR',dimensions),chunk('IDAT',zlib.deflateSync(pixels)),chunk('IEND',Buffer.alloc(0))]);
+}
+const formats=[{name:'vertical',width:360,height:1080},{name:'horizontal',width:1200,height:600},{name:'panoramico',width:2400,height:180}];
+const formatImages=new Map();
+for(const [index,format]of formats.entries())for(const [id,placement,list]of [[10+index,'CABECERA',items],[110+index,'REPORTAR',reportItems]]){
+  formatImages.set(id,coloredPng(format.width,format.height));
+  list.push({id,tipo:'NOVEDAD',ubicacion:placement,titulo:`Publicidad ${format.name}: una descripción suficientemente extensa para comprobar que todo se mantiene dentro del espacio disponible`,mensaje:'La imagen se adapta sin recortar. Este contenido permite comprobar que los controles y la descripción siguen accesibles en pantallas pequeñas.',enlace:null,negocio:null,imagen:{id:imageId,alt:`Formato ${format.name} completo`}});
+}
 let premium = false, emptyReports = false, verified = true, phase = 'anuncios';
 const requestedPlacements = [], requests = [], errors = [], blockedHosts = new Set();
 const server = http.createServer(async (request,response)=>{
@@ -41,7 +65,8 @@ const server = http.createServer(async (request,response)=>{
     requestedPlacements.push(url.searchParams.get('ubicacion') || 'CABECERA');
     return response.end(JSON.stringify(url.searchParams.get('ubicacion')==='REPORTAR' ? (emptyReports?[]:reportItems) : items));
   }
-  if(/^\/api\/announcements\/(?:1|3|101|102)\/image$/.test(url.pathname)) {response.setHeader('Content-Type','image/png');return response.end(png);}
+  const imageMatch=url.pathname.match(/^\/api\/announcements\/(\d+)\/image$/);
+  if(imageMatch&&(formatImages.has(Number(imageMatch[1]))||[1,3,101,102].includes(Number(imageMatch[1])))) {response.setHeader('Content-Type','image/png');return response.end(formatImages.get(Number(imageMatch[1]))||png);}
   if(/^\/api\/announcements\/(?:4|103)\/image$/.test(url.pathname)) {response.statusCode=404;return response.end('{"error":"No disponible"}');}
   if(url.pathname==='/api/catalog') return response.end(JSON.stringify({categorias:[{id:3,nombre:'Infraestructura',slug:'infraestructura',tipos:[{id:27,nombre:'Bache',slug:'bache',emergencia:false,historico:false,fotoObligatoria:true,individual:false,ubicacionRemota:false}]}],distritos:['Ica'],config:{maxVideoBytes:15728640}}));
   if(url.pathname==='/api/uploads'&&request.method==='POST') {
@@ -89,10 +114,14 @@ async function chooseType(window) {
   await waitUntil(window,`!!document.querySelector('.location-editor')`);
 }
 const mutations=()=>requests.filter(request=>request.method!=='GET');
+async function setViewport(window,width,height=850){
+  window.setContentSize(width,height);
+  await window.webContents.debugger.sendCommand('Emulation.setDeviceMetricsOverride',{width,height,deviceScaleFactor:1,mobile:false});
+  await waitUntil(window,`innerWidth===${width}`);
+}
 async function layout(window,width,name){
   const height=window.getContentBounds().height;
-  window.webContents.enableDeviceEmulation({screenPosition:width<=900?'mobile':'desktop',screenSize:{width,height},viewPosition:{x:0,y:0},viewSize:{width,height},deviceScaleFactor:1,scale:1});
-  await waitUntil(window,`innerWidth===${width}`);
+  await setViewport(window,width,height);
   const result=await window.webContents.executeJavaScript(`(()=>{
     const rect=selector=>{const box=document.querySelector(selector).getBoundingClientRect();return{left:box.left,right:box.right,top:box.top,bottom:box.bottom,width:box.width,height:box.height};};
     return{width:innerWidth,scrollWidth:document.documentElement.scrollWidth,banner:rect('.map-announcements'),image:rect('.announcement-image'),brand:rect('.app-header .brand'),actions:rect('.header-actions')};
@@ -107,6 +136,44 @@ async function layout(window,width,name){
   await settle(window);
   await capture(window,name);
 }
+async function showImage(window,id,placement){
+  const imageSelector=placement==='CABECERA'?'.announcement-image':'[aria-label="Anuncios de Reportar"] img';
+  const nextSelector=placement==='CABECERA'?'[aria-label="Anuncio siguiente"]':'[aria-label="Banner siguiente"]';
+  for(let attempts=0;attempts<12;attempts++){
+    if(await window.webContents.executeJavaScript(`document.querySelector(${JSON.stringify(imageSelector)})?.getAttribute('src')?.includes('/announcements/${id}/image')`)){
+      await waitUntil(window,`document.querySelector(${JSON.stringify(imageSelector)})?.naturalWidth>0`);return;
+    }
+    await window.webContents.executeJavaScript(`document.querySelector(${JSON.stringify(nextSelector)}).click()`);await delay(120);
+  }
+  throw new Error(`No se pudo seleccionar la imagen publicitaria ${id}`);
+}
+async function formatLayouts(window,placement){
+  for(const [index,format]of formats.entries()){
+    await showImage(window,(placement==='CABECERA'?10:110)+index,placement);
+    const viewports=mobileHeaderFormatsOnly?[[390,844,'mobile'],[320,640,'mobile-small']]:[[1400,850,'desktop'],[850,700,'tablet'],[390,844,'mobile'],[320,640,'mobile-small']];
+    for(const [width,height,device]of viewports)for(const theme of ['light','dark']){
+      await setViewport(window,width,height);await window.webContents.executeJavaScript(`document.documentElement.dataset.theme=${JSON.stringify(theme)};window.scrollTo({top:0,behavior:'instant'})`);await settle(window);
+      const name=`format-${placement.toLowerCase()}-${format.name}-${device}-${theme}`;
+      const geometry=await window.webContents.executeJavaScript(`(()=>{
+        const panel=document.querySelector(${JSON.stringify(placement==='CABECERA'?'.map-announcements':'[aria-label="Anuncios de Reportar"]')}),image=panel.querySelector('img'),rect=element=>{const box=element.getBoundingClientRect();return{left:box.left,right:box.right,top:box.top,bottom:box.bottom,width:box.width,height:box.height};};
+        return{width:innerWidth,height:innerHeight,scrollWidth:document.documentElement.scrollWidth,panel:rect(panel),image:rect(image),media:rect(image.parentElement),naturalWidth:image.naturalWidth,naturalHeight:image.naturalHeight,fit:getComputedStyle(image).objectFit,heading:panel.querySelector(':scope > div')?rect(panel.querySelector(':scope > div')):null,copy:${placement==='REPORTAR'?"rect(panel.querySelector('img').parentElement.nextElementSibling)":"null"},maximum:parseFloat(getComputedStyle(panel).maxHeight)};
+      })()`);
+      assert.equal(geometry.naturalWidth,format.width);assert.equal(geometry.naturalHeight,format.height);assert.equal(geometry.fit,'contain');
+      assert.ok(geometry.scrollWidth<=width,name+': sin desbordamiento horizontal');assert.ok(geometry.panel.left>=-1&&geometry.panel.right<=width+1,name+': área dentro del espacio disponible');
+      assert.ok(geometry.image.width>0&&geometry.image.height>0,name+': imagen conserva área visible');
+      assert.ok(geometry.image.left>=geometry.media.left-1&&geometry.image.right<=geometry.media.right+1&&geometry.image.top>=geometry.media.top-1&&geometry.image.bottom<=geometry.media.bottom+1,name+': imagen completa dentro de su área');
+      if(placement==='CABECERA')assert.ok(geometry.panel.height<=(width<=600?48:64),name+': imagen y título no agrandan la cabecera');
+      else{
+        assert.ok(geometry.panel.height<=geometry.maximum+2,name+': cabe en el alto disponible');
+        assert.ok(geometry.copy.top>=geometry.media.bottom-1&&geometry.copy.bottom<=geometry.panel.bottom+1,name+': la imagen reserva espacio para descripción y enlace');
+        assert.ok(geometry.heading.bottom<=geometry.media.top+1,name+': controles permanecen fuera de la imagen');
+        await window.webContents.executeJavaScript(`document.querySelector('[aria-label="Anuncios de Reportar"]').scrollIntoView({block:'center',behavior:'instant'})`);await settle(window);
+      }
+      layouts.push({name,...geometry});await capture(window,name);
+    }
+  }
+  scenarios.push(`${placement}: fotografías verticales, horizontales y panorámicas completas, sin distorsión ni altura excesiva en 4 pantallas y ambos temas`);
+}
 async function run(){
   server.listen(fixturePort,'127.0.0.1'); await once(server,'listening'); await app.whenReady();
   const window=new BrowserWindow({show:false,width:1400,height:850,useContentSize:true,webPreferences:{sandbox:true,contextIsolation:true,nodeIntegration:false,backgroundThrottling:false,partition:'announcements-'+Date.now()}});
@@ -117,15 +184,22 @@ async function run(){
   });
   window.webContents.on('console-message',info=>{if(info.level==='error'&&/hydration|uncaught|error boundary|react error/i.test(info.message))errors.push(info.message);});
   window.webContents.on('render-process-gone',(_event,details)=>errors.push('Renderer: '+details.reason));
+  await window.loadURL('about:blank');window.webContents.debugger.attach('1.3');await window.webContents.debugger.sendCommand('Page.enable');await setViewport(window,1400,850);
   await window.loadURL('http://127.0.0.1:'+frontendPort+'/ingresar');
   await waitUntil(window,`document.querySelector('.announcement-image')?.naturalWidth>0`);
   assert.equal(await window.webContents.executeJavaScript(`document.querySelector('.announcement-image').alt`),'Promoción accesible de prueba');
   assert.equal(await window.webContents.executeJavaScript(`document.querySelector('a.announcement-content').getAttribute('rel')`),'noopener noreferrer');
   await window.webContents.executeJavaScript(`document.querySelector('.map-announcements').dispatchEvent(new MouseEvent('mouseover',{bubbles:true}))`);
+  if(mobileHeaderFormatsOnly){
+    await formatLayouts(window,'CABECERA');assert.deepEqual(errors,[]);assert.equal(blockedHosts.size,0);
+    const result={passed:true,scenarios,layouts,errors,externalRequests:blockedHosts.size};
+    await fs.writeFile(path.join(local,'resultado-cabecera-movil.json'),JSON.stringify(result,null,2));console.log(JSON.stringify({passed:true,scenarios,layouts:layouts.length,externalRequests:blockedHosts.size}));window.destroy();server.close();app.exit(0);return;
+  }
   for(const [width,name] of [[1400,'desktop-light'],[850,'tablet-light'],[390,'mobile-light'],[320,'mobile-small-light']]) await layout(window,width,name);
   await window.webContents.executeJavaScript(`document.documentElement.dataset.theme='dark'`);
   for(const [width,name] of [[1400,'desktop-dark'],[850,'tablet-dark'],[390,'mobile-dark'],[320,'mobile-small-dark']]) await layout(window,width,name);
   scenarios.push('Imagen accesible y enlace HTTPS seguro; 8 tamaños/temas sin desbordamiento');
+  await formatLayouts(window,'CABECERA');await showImage(window,1,'CABECERA');
   await window.webContents.executeJavaScript(`document.querySelector('[aria-label="Anuncio siguiente"]').click()`);
   await waitUntil(window,`document.querySelector('.announcement-content strong')?.textContent==='Novedad de texto'`);
   assert.equal(await window.webContents.executeJavaScript(`!!document.querySelector('.announcement-image')`),false);
@@ -144,7 +218,7 @@ async function run(){
   await waitUntil(window,`document.querySelector('.announcement-content strong')?.textContent==='Enlace inválido'`);
   assert.equal(await window.webContents.executeJavaScript(`!!document.querySelector('a.announcement-content')`),false);
   scenarios.push('Enlaces inseguros quedan sin acción');
-  window.webContents.disableDeviceEmulation();
+  await setViewport(window,1400,850);
   await window.loadURL('http://127.0.0.1:'+frontendPort+'/reportar');
   await waitUntil(window,`document.querySelector('[aria-label="Anuncios de Reportar"] img')?.naturalWidth>0`);
   await chooseType(window);
@@ -155,8 +229,7 @@ async function run(){
   assert.ok(requestedPlacements.includes('REPORTAR'));
   for(const [width,device] of [[1400,'desktop'],[850,'tablet'],[390,'mobile'],[320,'mobile-small']]) for(const theme of ['light','dark']) {
     const name=`report-${device}-${theme}`;
-    window.webContents.enableDeviceEmulation({screenPosition:width<=900?'mobile':'desktop',screenSize:{width,height:850},viewPosition:{x:0,y:0},viewSize:{width,height:850},deviceScaleFactor:1,scale:1});
-    await waitUntil(window,`innerWidth===${width}`);
+    await setViewport(window,width,850);
     await window.webContents.executeJavaScript(`document.documentElement.dataset.theme=${JSON.stringify(theme)};window.scrollTo(0,0)`);
     await settle(window);
     assert.equal(await window.webContents.executeJavaScript('document.documentElement.dataset.theme'),theme);
@@ -185,6 +258,7 @@ async function run(){
     await capture(window,name);
   }
   scenarios.push('Formulario en una columna y banner separado de cabecera, fijo en PC y debajo en móvil, en 8 tamaños/temas');
+  await formatLayouts(window,'REPORTAR');await showImage(window,101,'REPORTAR');
   await window.webContents.executeJavaScript(`document.querySelector('[aria-label="Banner siguiente"]').click()`);
   await waitUntil(window,`document.querySelector('[aria-label="Anuncios de Reportar"]').innerText.includes('Negocio del lateral')`);
   await window.webContents.executeJavaScript(`document.querySelector('[aria-label="Anuncios de Reportar"] > button').click()`);
@@ -209,7 +283,7 @@ async function run(){
   await waitUntil(window,`document.querySelector('[aria-label="Anuncios de Reportar"]').innerText.includes('Anuncios y novedades de CiviGo')&&!document.querySelector('[aria-label="Banner siguiente"]')`);
   scenarios.push('Sin anuncios laterales se muestra un espacio discreto sin promociones inventadas');
   phase='validaciones-y-envio';premium=false;emptyReports=false;
-  window.webContents.disableDeviceEmulation();
+  await setViewport(window,1400,850);
   await window.loadURL('http://127.0.0.1:'+frontendPort+'/reportar');await chooseType(window);
   await window.webContents.executeJavaScript(`Object.defineProperty(navigator.geolocation,'getCurrentPosition',{configurable:true,value:success=>success({coords:{latitude:-14.0678,longitude:-75.7286,accuracy:5},timestamp:Date.now()})});`);
   await clickElement(window,button('Enviar reporte'));await waitUntil(window,`document.body.innerText.includes('Confirma que la ubicación es correcta.')`);assert.equal(mutations().length,0);
@@ -227,7 +301,7 @@ async function run(){
   await settle(window);await capture(window,'report-envio');
   scenarios.push('Descripción y fotografía pública llegan al reporte con GPS y fecha; se muestra recepción');
   verified=false;phase='gmail-no-verificado';
-  window.webContents.enableDeviceEmulation({screenPosition:'mobile',screenSize:{width:390,height:850},viewPosition:{x:0,y:0},viewSize:{width:390,height:850},deviceScaleFactor:1,scale:1});
+  await setViewport(window,390,850);
   await window.loadURL('http://127.0.0.1:'+frontendPort+'/reportar');
   await waitUntil(window,`document.body.innerText.includes('Verifica tu Gmail para participar')`);assert.equal(await window.webContents.executeJavaScript('!!document.querySelector("form")'),false);
   assert.equal(requests.filter(request=>request.phase===phase&&request.path==='/api/reports').length,0);

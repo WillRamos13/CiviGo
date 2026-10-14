@@ -2,7 +2,13 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { loadTs } from './helpers/ts-module.mjs';
 
-const { reportPublicationState } = loadTs('lib/incidents.ts');
+const { reportPublicationState, isHistoricalAntecedent } = loadTs('lib/incidents.ts');
+
+test('una carga inicial activa no se confunde con antecedentes históricos importados', () => {
+    assert.equal(isHistoricalAntecedent({ estado: 'VALIDADO', historico: true, fuente: 'CARGA_INICIAL' }), false);
+    assert.equal(isHistoricalAntecedent({ estado: 'RESUELTO', historico: true, fuente: 'CARGA_INICIAL' }), true);
+    assert.equal(isHistoricalAntecedent({ estado: 'VALIDADO', fuente: 'REGISTRO_HISTORICO' }), true);
+});
 
 test('un aporte en revisión no hereda la aprobación del incidente publicado', () => {
     assert.equal(reportPublicationState({ estado: 'EN_REVISION' }, { publicado: true, evaluacion: 'AGENTE', porEvaluar: false }), 'review');

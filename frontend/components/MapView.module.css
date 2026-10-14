@@ -1,0 +1,41 @@
+.orientation {
+  position: absolute;
+  right: 24px;
+  bottom: 87px;
+  z-index: 3;
+  width: 44px;
+  height: 44px;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 10px;
+  border: 1px solid var(--map-panel-border);
+  border-radius: 12px;
+  background: var(--map-panel);
+  color: var(--ink);
+}
+
+.orientation.besidePosition {
+  right: 76px;
+}
+
+.orientation:focus-visible {
+  outline: 3px solid var(--brand-cyan, #19c8ff);
+  outline-offset: 3px;
+}
+
+@media (max-width: 600px) {
+  .orientation {
+    right: 17px;
+    bottom: 79px;
+  }
+
+  .orientation.besidePosition {
+    right: 69px;
+  }
+}
+
+@media (max-width: 360px) {
+  :global(.map-frame):has(.orientation.besidePosition) :global(.risk-legend) {
+    width: 140px;
+  }
+}

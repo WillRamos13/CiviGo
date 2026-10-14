@@ -16,7 +16,7 @@ export function reportPublicationState(report: Pick<Reporte, 'estado'>, incident
 
 export function isHistoricalAntecedent(incident: Incidente) {
     const source = incident.fuente?.trim().toUpperCase();
-    return Boolean((incident.estado === 'RESUELTO' && incident.historico) || (source && source !== 'CIUDADANO'));
+    return Boolean((incident.estado === 'RESUELTO' && incident.historico) || (source && !['CIUDADANO', 'CARGA_INICIAL'].includes(source)));
 }
 
 export function incidentSource(incident: Incidente) {

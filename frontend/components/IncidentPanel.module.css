@@ -10,6 +10,8 @@
 .cover { border: 1px solid var(--map-panel-border); border-radius: 11px; overflow: hidden; aspect-ratio: 16 / 9; margin-bottom: 13px; background: var(--surface-muted); }
 .cover img, .cover video { width: 100%; height: 100%; object-fit: cover; display: block; }
 .cover a { display: block; height: 100%; }
+.referenceCaption { margin: -6px 0 13px; color: var(--muted); font-size: 10px; line-height: 1.5; overflow-wrap: anywhere; }
+.referenceCaption a { color: var(--brand); text-decoration: underline; }
 .information { margin: 0; }
 .information > div { padding: 12px 0; border-bottom: 1px solid var(--line); }
 .information dt { display: flex; gap: 10px; align-items: center; font-size: 12px; font-weight: 700; }

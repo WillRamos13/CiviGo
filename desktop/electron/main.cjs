@@ -3,6 +3,7 @@ const fs = require('node:fs/promises');
 const path = require('node:path');
 const { ApiClient } = require('./client.cjs');
 const { imagePreview } = require('./image-preview.cjs');
+const { saveExport } = require('./excel-export.cjs');
 const { backendUrl, requestOrigin, RENDERER_URL, DesktopError, senderAllowed, bundlePath, publicUrl, imageReferenceUrl, uploadId } = require('./policy.cjs');
 protocol.registerSchemesAsPrivileged([{ scheme: 'civigo', privileges: { standard: true, secure: true } }]);
 app.enableSandbox();
@@ -61,7 +62,14 @@ async function bootstrap({ hidden = false } = {}) {
       return { dataUrl: imagePreview(file) };
     } finally { file.bytes.fill(0); }
   }
-  for (const [channel, action] of Object.entries({ login: value => client.login(value), session: () => client.me(), logout: () => client.logout(), request: value => client.request(value), 'cancel-read': value => client.cancelRead(value), upload: value => client.upload(value), download, 'image-preview': previewImage, public: value => shell.openExternal(publicUrl(value)), 'image-reference': openImageReference })) {
+  let exportBusy = false;
+  async function exportExcel(input) {
+    if (exportBusy) throw new DesktopError('Espera a que termine la exportación anterior.', 409, 'DESKTOP_EXPORT_BUSY');
+    exportBusy = true;
+    try { return await saveExport({ client, input, downloads: app.getPath('downloads'), showSaveDialog: options => dialog.showSaveDialog(window, options) }); }
+    finally { exportBusy = false; }
+  }
+  for (const [channel, action] of Object.entries({ login: value => client.login(value), session: () => client.me(), logout: () => client.logout(), request: value => client.request(value), 'cancel-read': value => client.cancelRead(value), upload: value => client.upload(value), download, 'image-preview': previewImage, 'export-excel': exportExcel, public: value => shell.openExternal(publicUrl(value)), 'image-reference': openImageReference })) {
     ipcMain.handle('civigo:' + channel, async (event, value) => {
       if (!senderAllowed(event, window)) return { ok: false, error: { message: 'Origen de solicitud no permitido.', status: 403 } };
       try { return { ok: true, data: await action(value) }; }
@@ -77,7 +85,7 @@ async function bootstrap({ hidden = false } = {}) {
     if (match) void download(match[1]).catch(() => { if (!window.isDestroyed()) void dialog.showMessageBox(window, { type: 'error', message: 'No se pudo descargar el archivo. Comprueba tu sesión y vuelve a intentarlo.' }); });
     return { action: 'deny' };
   });
-  window.on('closed', () => { client.clear(); for (const name of ['login', 'session', 'logout', 'request', 'cancel-read', 'upload', 'download', 'image-preview', 'public', 'image-reference']) ipcMain.removeHandler('civigo:' + name); rendererSession.protocol.unhandle('civigo'); });
+  window.on('closed', () => { client.clear(); for (const name of ['login', 'session', 'logout', 'request', 'cancel-read', 'upload', 'download', 'image-preview', 'export-excel', 'public', 'image-reference']) ipcMain.removeHandler('civigo:' + name); rendererSession.protocol.unhandle('civigo'); });
   await window.loadURL(RENDERER_URL);
   return { window, client };
 }

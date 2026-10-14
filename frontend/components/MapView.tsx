@@ -1,7 +1,7 @@
 'use client';
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import mapboxgl from 'mapbox-gl';
-import { MapPin, LocateFixed } from 'lucide-react';
+import { MapPin, LocateFixed, Compass } from 'lucide-react';
 import { getImageProps } from 'next/image';
 import { getIncidentIcon } from '@/lib/incident-icons';
 import { EMPTY_MAP_DATA, MAP_STYLE, bindIncidentMarkerZoom, syncMapLayers, type MapLayerState } from '@/lib/map-layers';
@@ -14,6 +14,8 @@ import { RISK_COLORS } from '@/lib/types';
 import type { TrafficResponse, TrafficStatus, ExternalTrafficIncident } from '@/lib/traffic';
 import { trafficAffectsRoute, trafficFlowMessage } from '@/lib/traffic';
 import { syncTrafficLayer } from '@/lib/map-traffic-layers';
+import { resetMapOrientation } from '@/lib/map-camera';
+import styles from './MapView.module.css';
 import RiskLegend, { TrafficLegend } from './RiskLegend';
 import OfflineRoute from './OfflineRoute';
 import CollapsiblePanel from './CollapsiblePanel';
@@ -36,8 +38,9 @@ type Props = {
 };
 const brandColor = (element: HTMLElement | null) => element ? getComputedStyle(element).getPropertyValue('--map-route-color').trim() || '#1554D8' : '#1554D8';
 const EMPTY_INCIDENTS: Incidente[] = [];
+type IncidentMarkerRecord = { marker: mapboxgl.Marker; incident: Incidente; signature: string };
 export default function MapView({ incidentes = EMPTY_INCIDENTS, ruta = null, onSelect, onPosition, onLocate, posicion = null, editor = false, typeFilter, navigating = false, heading, centerVersion = 0, focusPoint, onTrafficChange, onBounds }: Props) {
-    const container = useRef<HTMLDivElement>(null), mapRef = useRef<mapboxgl.Map | null>(null), markers = useRef<mapboxgl.Marker[]>([]), positionMarker = useRef<mapboxgl.Marker | null>(null);
+    const container = useRef<HTMLDivElement>(null), mapRef = useRef<mapboxgl.Map | null>(null), markers = useRef<Map<number, IncidentMarkerRecord>>(new Map()), positionMarker = useRef<mapboxgl.Marker | null>(null);
     const callbacks = useRef({ onSelect, onPosition, onLocate, onBounds });
     const [loaded, setLoaded] = useState(false), [risk, setRisk] = useState(true), [events, setEvents] = useState(true), [zones, setZones] = useState(true), [error, setError] = useState(''), [roads, setRoads] = useState<GeoJSON.FeatureCollection>(EMPTY_MAP_DATA), [roadError, setRoadError] = useState('');
     const geometryCache = useRef<RoadGeometry | null>(null), roadRevision = useRef('');
@@ -75,6 +78,7 @@ export default function MapView({ incidentes = EMPTY_INCIDENTS, ruta = null, onS
         if (!container.current || !token)
             return;
         const map = new mapboxgl.Map({ container: container.current, accessToken: token, style: MAP_STYLE, center: [posicion?.longitud ?? -75.7286, posicion?.latitud ?? -14.0678], zoom: editor ? 17 : 13.3, attributionControl: true });
+        const incidentMarkers = markers.current;
         mapRef.current = map;
         const stopMarkerZoom = bindIncidentMarkerZoom(map);
         // The main map uses wheel, pinch and keyboard gestures. Keep native
@@ -104,7 +108,7 @@ export default function MapView({ incidentes = EMPTY_INCIDENTS, ruta = null, onS
             setError('No se pudo cargar Mapbox. Revisa el token público y sus restricciones.'); });
         if (editor)
             map.on('click', e => callbacks.current.onPosition?.({ latitud: e.lngLat.lat, longitud: e.lngLat.lng }));
-        return () => { stopMarkerZoom(); styleReady.current = false; markers.current.forEach(m => m.remove()); markers.current = []; externalMarkers.current.forEach(m => m.remove()); externalMarkers.current = []; positionMarker.current?.remove(); positionMarker.current = null; map.remove(); mapRef.current = null; };
+        return () => { stopMarkerZoom(); styleReady.current = false; incidentMarkers.forEach(record => record.marker.remove()); incidentMarkers.clear(); externalMarkers.current.forEach(m => m.remove()); externalMarkers.current = []; positionMarker.current?.remove(); positionMarker.current = null; map.remove(); mapRef.current = null; };
         // The map is initialized once. Later coordinate changes update its marker.
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [token, editor]);
@@ -136,17 +140,28 @@ export default function MapView({ incidentes = EMPTY_INCIDENTS, ruta = null, onS
         const map = mapRef.current;
         if (!loaded || !map)
             return;
-        markers.current.forEach(m => m.remove());
-        markers.current = [];
-        if (!events || editor)
+        if (!events || editor) {
+            markers.current.forEach(record => record.marker.remove());
+            markers.current.clear();
             return;
+        }
+        const seen = new Set<number>();
         for (const incident of incidentes) {
             if (!Number.isFinite(incident.longitud) || !Number.isFinite(incident.latitud))
                 continue;
+            seen.add(incident.id);
+            const level = incident.gravedad ?? incident.nivelRiesgo;
+            const signature = JSON.stringify([incident.tipoSlug, incident.tipoNombre, incident.tipo, level, incident.longitud, incident.latitud]);
+            const previous = markers.current.get(incident.id);
+            if (previous?.signature === signature) {
+                previous.incident = incident;
+                continue;
+            }
+            previous?.marker.remove();
             const button = document.createElement('button');
             button.className = 'incident-marker';
             button.type = 'button';
-            const level = incident.gravedad ?? incident.nivelRiesgo;
+            button.dataset.incidentId = String(incident.id);
             const color = level == null ? '#64748b' : RISK_COLORS[Math.max(0, Math.min(5, level))];
             const asset = getIncidentIcon(incident.tipoSlug, incident.tipoNombre, incident.tipo);
             if (asset) {
@@ -181,12 +196,14 @@ export default function MapView({ incidentes = EMPTY_INCIDENTS, ruta = null, onS
             }
             button.style.color = level == null || level >= 5 ? '#fff' : 'var(--risk-badge-ink, #142033)';
             button.setAttribute('aria-label', `${incident.tipoNombre || incident.tipo}, gravedad ${level ?? 'por evaluar'}`);
-            button.addEventListener('click', () => callbacks.current.onSelect?.(incident));
             const marker = new mapboxgl.Marker({ element: button }).setLngLat([incident.longitud, incident.latitud]).addTo(map);
+            const record = { marker, incident, signature };
+            button.addEventListener('click', () => callbacks.current.onSelect?.(record.incident));
             // Mapbox assigns role="img" even to custom buttons during construction.
             button.setAttribute('role', 'button');
-            markers.current.push(marker);
+            markers.current.set(incident.id, record);
         }
+        for (const [id, record] of markers.current) if (!seen.has(id)) { record.marker.remove(); markers.current.delete(id); }
     }, [loaded, incidentes, events, editor]);
     useEffect(() => { const map = mapRef.current; if (!loaded || !map || navigating)
         return; if (ruta?.geometria.coordinates.length) {
@@ -207,6 +224,7 @@ export default function MapView({ incidentes = EMPTY_INCIDENTS, ruta = null, onS
         return () => { positionMarker.current?.off('dragend', onDrag); };
     } else if (navigating && followCamera.current) map.easeTo({center: [posicion.longitud, posicion.latitud], zoom: Math.max(16, map.getZoom()), bearing: heading ?? 0, pitch: 35, duration: 700}); }, [loaded, posicion, editor, navigating, heading]);
     const centerOnPosition = () => { followCamera.current = true; const map = mapRef.current, state = cameraState.current; if (map && state.posicion) map.easeTo({center: [state.posicion.longitud, state.posicion.latitud], zoom: 16.5, bearing: state.navigating ? state.heading ?? 0 : 0, pitch: state.navigating ? 35 : 0, duration: 500}); };
+    const restoreOrientation = () => { resetMapOrientation(mapRef.current, () => { followCamera.current = false; }); };
     useEffect(() => {
         if (!navigating) return;
         followCamera.current = true;
@@ -270,6 +288,7 @@ export default function MapView({ incidentes = EMPTY_INCIDENTS, ruta = null, onS
         </CollapsiblePanel>
         {traffic ? <TrafficLegend /> : <RiskLegend />}
         {posicion && <button type="button" className="map-recenter icon-btn" aria-label="Centrar mi ubicación" title="Mi ubicación" onClick={centerOnPosition}><LocateFixed size={20}/></button>}
+        <button type="button" className={`${styles.orientation} ${posicion ? styles.besidePosition : ''} icon-btn`} aria-label="Restablecer orientación" title="Restablecer orientación del mapa" onClick={restoreOrientation} disabled={!loaded}><Compass size={20}/></button>
         {traffic && trafficError && <div className="map-message notice notice-warning" role="status">{trafficError}</div>}
         {externalSelected && events && <div className="external-traffic-detail"><button className="icon-btn" aria-label="Cerrar aviso de tráfico" onClick={() => setExternalSelected(null)}>×</button><strong>{externalSelected.titulo}</strong><p>{externalSelected.descripcion}</p><small>TomTom · aviso temporal · no suma riesgo histórico</small></div>}
     </>}{(error || roadError && !editor) && <div className="map-message notice notice-warning">{error || `La capa vial no está disponible: ${roadError}`}</div>}</>;

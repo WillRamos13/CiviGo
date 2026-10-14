@@ -17,9 +17,12 @@ import AuditPanel from "./AuditPanel";
 import IntegrationsPanel from "./IntegrationsPanel";
 import AnnouncementsPanel from "./AnnouncementsPanel";
 import TrafficModerationPanel from "./TrafficModerationPanel";
+import StatisticsPanel from "./StatisticsPanel";
+import { ExcelExportToolbar } from "./ExcelExport";
 
 
 type Tab =
+  | "estadisticas"
   | "incidentes"
   | "apelaciones"
   | "usuarios"
@@ -41,6 +44,7 @@ const tabs: {
   permission?: string;
 }[] = [
   { id: "incidentes", label: "Incidentes", permission: "consultar" },
+  { id: "estadisticas", label: "Estadísticas", adminOnly: true },
   { id: "apelaciones", label: "Apelaciones", adminOnly: true },
   { id: "usuarios", label: "Usuarios", adminOnly: true },
 
@@ -151,7 +155,8 @@ function DashboardContent() {
           </p>
         </div>
       </div>
-      {admin && <OverviewPanel key={`${active}:${overviewRevision}`} />}
+      {admin && active !== "estadisticas" && <OverviewPanel key={`${active}:${overviewRevision}`} />}
+      {admin && <ExcelExportToolbar />}
       {availableTabs.length === 0 ? (
         <section className="card">
           <h2 className="text-lg font-bold">Permisos pendientes</h2>
@@ -183,6 +188,7 @@ function DashboardContent() {
             />
           )}
           {admin && active === "apelaciones" && <AppealsPanel />}
+          {admin && active === "estadisticas" && <StatisticsPanel />}
           {admin && active === "usuarios" && <UsersPanel />}
 
           {admin && active === "catalogo" && <CatalogPanel />}

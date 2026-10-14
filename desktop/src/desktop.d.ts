@@ -10,6 +10,7 @@ declare global {
       cancelRead: (requestId: string) => Promise<BridgeResult<void>>;
       upload: (value: { name: string; mimeType: string; bytes: Uint8Array; privado: boolean; tipo: string }) => Promise<BridgeResult<unknown>>;
       download: (id: string) => Promise<BridgeResult<{ guardado?: boolean; cancelado?: boolean }>>;
+      exportExcel: (input: { table: 'usuarios' | 'reportes' | 'incidentes' | 'catalogo' | 'estadisticas'; filters?: { district?: string; type?: string } }) => Promise<BridgeResult<{ guardado?: boolean; cancelado?: boolean; filas?: number; tabla?: string }>>;
       previewImage: (id: string) => Promise<BridgeResult<{ dataUrl: string }>>;
       openPublic: (path: string) => Promise<BridgeResult<void>>;
       openImageReference: (url: string) => Promise<BridgeResult<void>>;

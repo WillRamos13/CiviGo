@@ -37,6 +37,22 @@ const auditFixtures = Array.from({ length: 61 }, (_, index) => ({ id: index + 1,
 auditFixtures[0] = { ...auditFixtures[0], accion: 'EVALUACION_IA_REPORTE', entidad: 'REPORTE', datos: { origenImagenes: { habilitado: true, requiereRevision: true, evidencias: [{ adjuntoId: 'photo-fixture', resultado: 'COINCIDENCIA_WEB', motivo: 'Coincidencia de prueba local pendiente de revisión.', coincidencias: [{ tipo: 'PARCIAL', url: 'https://photos.example.com/image.jpg' }, { tipo: 'COMPLETA', url: 'https://localhost/private.jpg' }], paginas: ['https://news.example.com/article'] }] } } };
 let groupingMeters = 50;
 let backendLogin = false;
+let statisticsUnavailable = false;
+function statisticsFixture(url) {
+  const selectedType = url.searchParams.get('type');
+  const selectedDistrict = url.searchParams.get('district');
+  const bache = selectedType?.startsWith('bache');
+  const amount = selectedDistrict ? selectedType ? 150 : 300 : selectedType ? bache ? 300 : 250 : 550;
+  const security = bache ? 0 : selectedDistrict ? 150 : 250;
+  return { generatedAt: '2026-10-13T18:00:00.000Z', timeZone: 'America/Lima', filters: {}, totals: {incidents:amount,reports:amount,accounts:5,published:amount,active:amount,validated:amount,resolved:0,verifiedAccounts:5,securityIncidents:security}, incidentComparison:{current:50,previousSameDays:25,previousFullMonth:40,deltaPercent:100}, crimeComparison:{current:bache?0:50,previousSameDays:bache?0:25,previousFullMonth:bache?0:40,deltaPercent:bache?null:100}, datasets:{types:selectedType?[{key:selectedType,label:'Bache',count:amount}]:[{key:'bache',label:'Bache',count:300},{key:'robo',label:'Robo',count:250}],districts:[{key:'Ica',label:'Ica',count:amount}],statuses:[{key:'VALIDADO',label:'VALIDADO',count:amount}],severities:[{key:'2',label:'Nivel 2',count:amount}],timeline:Array.from({length:6},(_,index)=>({month:`2026-${String(index+5).padStart(2,'0')}`,label:['may.','jun.','jul.','ago.','set.','oct.'][index],incidents:index===5?50:100,reports:index===5?50:100,crimes:index===5?50:40})),accounts:[{role:'ADMIN',count:4,verified:4,unverified:0},{role:'AGENTE',count:1,verified:1,unverified:0}]} };
+}
+function exportFixture(url) {
+  const table = url.searchParams.get('table'), offset=Number(url.searchParams.get('cursor')||0);
+  const count=table==='usuarios'?5:table==='catalogo'?24:table==='estadisticas'?9:550;
+  const columns=table==='estadisticas'?[{key:'grupo',label:'Grupo',type:'string'},{key:'cantidad',label:'Cantidad',type:'number'}]:[{key:'id',label:'ID',type:'number'},{key:table==='usuarios'?'correo':table==='catalogo'?'nombre':'descripcion',label:'Descripción',type:'string'}];
+  const rows=Array.from({length:count},(_,index)=>table==='estadisticas'?{grupo:'grupo-'+index,cantidad:index}:{id:index+1,[columns[1].key]:index===0?'=HYPERLINK("https://invalid.example.test","texto literal")':'Registro '+(index+1)});
+  return {columns,rows:rows.slice(offset,offset+250),nextCursor:offset+250<count?String(offset+250):null,snapshot:{id:'fixture-export-'+table,table,totalRows:count,createdAt:'2026-10-13T18:00:00.000Z'}};
+}
 const server = http.createServer(async (request, response) => {
   const url = new URL(request.url, 'http://localhost');
   const requestPath = url.pathname;
@@ -53,6 +69,11 @@ const server = http.createServer(async (request, response) => {
   if (requestPath === '/api/users/logout') { backendLogin = false; return response.end('{"ok":true}'); }
   if (!backendLogin || request.headers.cookie !== `civigo_session=${token}`) { response.statusCode = 401; return response.end('{"error":"Sesión requerida"}'); }
   if (requestPath === '/api/users/me') return response.end(JSON.stringify({ usuario: actor }));
+  if (requestPath === '/api/admin/statistics') {
+    if (statisticsUnavailable) { response.statusCode=503; return response.end('{"error":"Fixture indisponible"}'); }
+    return response.end(JSON.stringify(statisticsFixture(url)));
+  }
+  if (requestPath === '/api/admin/exports') return response.end(JSON.stringify(exportFixture(url)));
   if (requestPath === '/api/admin/users' && request.method === 'POST') {
     const value = JSON.parse(body);
     const created = { id: 2, ...value, password: undefined, premium: false, bloqueado: false, monedas: 0, credibilidad: null, faltas: 0 };
@@ -190,6 +211,7 @@ async function run() {
   assert.equal(calls.some(call => call.path === '/api/notifications/1/read' && call.cookie), true);
   await window.webContents.executeJavaScript('document.querySelector(".desktop-notifications button").click()');
   const panels = [
+    ['Estadísticas', '/api/admin/statistics'],
     ['Incidentes', '/api/admin/incidents'], ['Apelaciones', '/api/admin/appeals'],
     ['Usuarios', '/api/admin/users'], ['Categorías y tipos', '/api/admin/catalog'],
     ['Negocios', '/api/admin/businesses'], ['Recompensas', '/api/admin/rewards'],
@@ -206,6 +228,70 @@ async function run() {
     assert.deepEqual(await window.webContents.executeJavaScript('window.__smokeErrors'), [], label + ' no debe fallar en React');
     assert.equal(await window.webContents.executeJavaScript(`document.querySelectorAll('.notice-error').length`), 0, label + ' no debe mostrar un error');
   }
+  await window.webContents.executeJavaScript(`Array.from(document.querySelectorAll('nav[aria-label="Herramientas de administración"] button')).find(button=>button.textContent==='Estadísticas').click()`);
+  await waitUntil(window, `document.querySelectorAll('.statistics-chart svg[role="img"]').length===6`);
+  assert.equal(await window.webContents.executeJavaScript(`document.querySelector('.statistics-totals strong').textContent`),'550');
+  assert.equal(await window.webContents.executeJavaScript(`document.querySelector('select[aria-label="Comparar registros de"]').value`),'all');
+  assert.ok(await window.webContents.executeJavaScript(`document.querySelector('.statistics-comparison').textContent.includes('+100')`));
+  await window.webContents.executeJavaScript(`document.querySelector('.statistics-panel').scrollIntoView({block:'start'})`);
+  await capture(window,'estadisticas-claro.png');
+  await window.webContents.executeJavaScript(`document.documentElement.dataset.theme='dark'`);
+  await capture(window,'estadisticas-oscuro.png');
+  const buttonContrast=await window.webContents.executeJavaScript(`(()=>{const rgb=value=>value.match(/[\\d.]+/g).slice(0,3).map(Number);const luminance=value=>rgb(value).map(v=>{v/=255;return v<=.04045?v/12.92:((v+.055)/1.055)**2.4;}).reduce((sum,v,i)=>sum+v*[.2126,.7152,.0722][i],0);return Array.from(document.querySelectorAll('.desktop-header .btn-secondary,.statistics-filters .btn-secondary')).map(button=>{const style=getComputedStyle(button),a=luminance(style.color),b=luminance(style.backgroundColor);return{label:button.textContent,ratio:(Math.max(a,b)+.05)/(Math.min(a,b)+.05)};});})()`);
+  assert.ok(buttonContrast.every(value=>value.ratio>=4.5),JSON.stringify(buttonContrast));
+  await window.webContents.executeJavaScript(`document.querySelector('.statistics-grid').scrollIntoView({block:'start'})`);
+  await capture(window,'estadisticas-graficas-oscuro.png');
+  await window.webContents.executeJavaScript(`document.querySelectorAll('.statistics-chart')[4].scrollIntoView({block:'center'})`);
+  await capture(window,'estadisticas-evolucion-oscuro.png');
+  for (const width of [1000,1400]) {
+    window.setContentSize(width,900);
+    await new Promise(resolve=>setTimeout(resolve,100));
+    assert.equal(await window.webContents.executeJavaScript(`document.documentElement.scrollWidth<=innerWidth+1`),true);
+    assert.equal(await window.webContents.executeJavaScript(`Array.from(document.querySelectorAll('.statistics-chart')).every(card=>card.getBoundingClientRect().right<=innerWidth+1)`),true);
+  }
+  await window.webContents.executeJavaScript(`document.documentElement.dataset.theme='light'`);
+  window.setContentSize(1320,920);
+  const changeStatisticsSelect=(label,value)=>window.webContents.executeJavaScript(`(()=>{const field=document.querySelector('select[aria-label=${JSON.stringify(label)}]');Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype,'value').set.call(field,${JSON.stringify(value)});field.dispatchEvent(new Event('change',{bubbles:true}));})()`);
+  await changeStatisticsSelect('Distrito de estadísticas','Ica');
+  await waitUntil(window,`document.querySelector('.statistics-totals strong')?.textContent==='300'`);
+  await changeStatisticsSelect('Tipo de estadísticas','bache-fixture-0');
+  await waitUntil(window,`document.querySelector('.statistics-totals strong')?.textContent==='150'`);
+  assert.ok(await window.webContents.executeJavaScript(`document.querySelector('.statistics-comparison').textContent.includes('+100')`));
+  await changeStatisticsSelect('Comparar registros de','security');
+  await waitUntil(window,`document.querySelector('.statistics-delta').textContent.includes('Sin base')`);
+  assert.ok(calls.some(call=>call.path==='/api/admin/statistics'&&call.query.includes('district=Ica')&&call.query.includes('type=bache-fixture-0')));
+  statisticsUnavailable=true;
+  await window.webContents.executeJavaScript(`Array.from(document.querySelectorAll('.statistics-panel button')).find(button=>button.textContent==='Actualizar estadísticas').click()`);
+  await waitUntil(window,`document.querySelector('.statistics-panel [role="status"]')?.textContent.includes('Se conservan')`);
+  assert.equal(await window.webContents.executeJavaScript(`document.querySelector('.statistics-totals strong').textContent`),'150');
+  assert.equal(await window.webContents.executeJavaScript(`document.querySelectorAll('.statistics-chart svg[role="img"]').length`),6);
+  statisticsUnavailable=false;
+  await window.webContents.executeJavaScript(`Array.from(document.querySelectorAll('.statistics-panel button')).find(button=>button.textContent==='Ver panorama general').click()`);
+  await waitUntil(window,`document.querySelector('.statistics-totals strong')?.textContent==='550'`);
+  const ExcelJS=require('exceljs'), exportDialogCalls=[];
+  dialog.showSaveDialog=async(_window,options)=>{exportDialogCalls.push(options);const table=path.basename(options.defaultPath).split('-')[1];return{canceled:false,filePath:path.join(local,table+'.xlsx')};};
+  for (const [label,table,expectedRows] of [['Usuarios','usuarios',5],['Reportes','reportes',550],['Incidentes','incidentes',550],['Catálogo','catalogo',24],['Estadísticas','estadisticas',9]]) {
+    await window.webContents.executeJavaScript(`Array.from(document.querySelectorAll('.excel-export-toolbar button')).find(button=>button.textContent===${JSON.stringify(label)}).click()`);
+    await waitUntil(window,`Array.from(document.querySelectorAll('.excel-export-toolbar .excel-export-action')).find(action=>action.querySelector('button').textContent===${JSON.stringify(label)})?.querySelector('[role="status"]')?.textContent.includes('${expectedRows} filas')`);
+    const book=new ExcelJS.Workbook();await book.xlsx.readFile(path.join(local,table+'.xlsx'));
+    assert.equal(book.worksheets[0].rowCount,expectedRows+1);
+    if(table!=='estadisticas') {assert.equal(book.worksheets[0].getCell('B2').type,ExcelJS.ValueType.String);assert.equal(book.worksheets[0].getCell('B2').formula,undefined);}
+    assert.equal(book.worksheets[0].views[0].ySplit,1);
+  }
+  assert.equal(exportDialogCalls.length,5);
+  for(const table of ['reportes','incidentes'])assert.equal(calls.filter(call=>call.path==='/api/admin/exports'&&call.query.includes('table='+table)).length,3);
+  const invalidExport=await window.webContents.executeJavaScript(`window.civigoDesktop.exportExcel({table:'usuarios',filePath:'C:/arbitrary.xlsx'})`);
+  assert.equal(invalidExport.ok,false);assert.equal(exportDialogCalls.length,5);
+  let releaseExcelDialog;const excelDialogWaiting=new Promise(resolve=>{releaseExcelDialog=resolve;});let excelDialogOpened=false;
+  dialog.showSaveDialog=async()=>{excelDialogOpened=true;return excelDialogWaiting;};
+  const pendingExcel=window.webContents.executeJavaScript(`window.civigoDesktop.exportExcel({table:'incidentes'})`);
+  while(!excelDialogOpened)await new Promise(resolve=>setTimeout(resolve,25));
+  await window.webContents.executeJavaScript(`window.civigoDesktop.logout()`);
+  await window.webContents.executeJavaScript(`window.civigoDesktop.login({correo:'admin@example.test',password:'fixture'})`);
+  const staleExcelPath=path.join(local,'stale.xlsx');await fs.unlink(staleExcelPath).catch(()=>{});
+  releaseExcelDialog({canceled:false,filePath:staleExcelPath});
+  const staleExcel=await pendingExcel;assert.equal(staleExcel.ok,false);assert.equal(staleExcel.error.status,401);await assert.rejects(fs.access(staleExcelPath));
+  await waitUntil(window,`document.body.innerText.includes('Centro de revisión')`);
   assert.equal(await window.webContents.executeJavaScript(`document.cookie.includes('${token}')`), false);
   await window.webContents.executeJavaScript(`Array.from(document.querySelectorAll('nav[aria-label="Herramientas de administración"] button')).find(button=>button.textContent==='Configuración').click()`);
   await waitUntil(window, `!!document.querySelector('form input[type="number"]')`);
@@ -442,7 +528,7 @@ async function run() {
   assert.equal(calls.filter(call => call.cookie).every(call => call.origin === 'https://civigo.online'), true);
   // CSP rejection must happen before an attempted remote network request.
   assert.equal(await window.webContents.executeJavaScript(`fetch('https://invalid.example.test').then(()=>false,()=>true)`), true);
-  await fs.writeFile(path.join(local, archive ? 'package-smoke-result.json' : 'smoke-result.json'), JSON.stringify({ passed: true, completedAt: new Date().toISOString(), packagedArchive: archive, calls: calls.length, panels: panels.length, isolation: { node: isolation.node, process: isolation.process, cookie: isolation.cookie }, createUserFromPanel: true, notificationsFromPanel: true, backgroundRefreshPreservesDraft: true, externalConfigRefreshPreservesDraft: true, paginationAndShrinkRecovery: true, auditedEmailVerificationFromPanel: true, downloadFromIncidentAndRecoveryPanels: true, authenticatedDownloads: true, logoutPreventsStaleDownload: true, revokedRoleRemovesPanel: true }, null, 2));
+  await fs.writeFile(path.join(local, archive ? 'package-smoke-result.json' : 'smoke-result.json'), JSON.stringify({ passed: true, completedAt: new Date().toISOString(), packagedArchive: archive, calls: calls.length, panels: panels.length, isolation: { node: isolation.node, process: isolation.process, cookie: isolation.cookie }, statisticsSixCharts:true,statisticsFilters:true,statisticsGeneralAndSecurityComparison:true,statisticsRefreshFailurePreservesData:true,excelExportsFiveTables:true,excelAll550Rows:true,excelNoFormulaExecution:true,logoutPreventsStaleExcel:true,createUserFromPanel: true, notificationsFromPanel: true, backgroundRefreshPreservesDraft: true, externalConfigRefreshPreservesDraft: true, paginationAndShrinkRecovery: true, auditedEmailVerificationFromPanel: true, downloadFromIncidentAndRecoveryPanels: true, authenticatedDownloads: true, logoutPreventsStaleDownload: true, revokedRoleRemovesPanel: true }, null, 2));
   window.destroy(); server.closeAllConnections(); server.close();
   console.log('Electron smoke: acceso ADMIN, interfaz local, IPC, adjuntos privados, CSP y cierre de sesión verificados.');
   app.exit(0);

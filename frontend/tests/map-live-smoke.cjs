@@ -778,8 +778,9 @@ async function run() {
       levels:Array.from(element.querySelectorAll(':scope > div:nth-of-type(2) > span')).map(span=>span.textContent),
       endpoints:Array.from(element.querySelectorAll(':scope > div:nth-of-type(3) > span')).map(span=>span.textContent),
       rounded:Array.from(element.querySelectorAll('.risk-scale span')).every(span=>parseFloat(getComputedStyle(span).borderRadius)>=8),
-      buttons:element.querySelectorAll('button').length,extras:element.querySelectorAll('p,small,details').length,visible:element.getBoundingClientRect().height>0};})()`);
-    assert.deepEqual(legend,{title:'Riesgo por zona',bars:6,levels:['0','1','2','3','4','5'],endpoints:['Seguro','Crítico'],rounded:true,buttons:0,extras:0,visible:true},'La leyenda fija tiene seis segmentos redondeados con números y extremos legibles');
+      buttons:element.querySelectorAll('button').length,extras:element.querySelectorAll('p,small,details').length,visible:element.getBoundingClientRect().height>0,
+      transparent:getComputedStyle(element).backgroundColor==='rgba(0, 0, 0, 0)'&&getComputedStyle(element).backgroundImage==='none'&&getComputedStyle(element).boxShadow==='none'&&getComputedStyle(element).borderTopWidth==='0px'};})()`);
+    assert.deepEqual(legend,{title:'Riesgo por zona',bars:6,levels:['0','1','2','3','4','5'],endpoints:['Seguro','Crítico'],rounded:true,buttons:0,extras:0,visible:true,transparent:true},'La leyenda fija conserva seis segmentos y números legibles, sin fondo ni marco');
   };
   for (const [index, window] of windows.entries()) {
     const viewport = index === 0 ? 'escritorio' : 'movil';
@@ -803,11 +804,13 @@ async function run() {
     const trafficLegend=await window.webContents.executeJavaScript(`(() => {const element=document.querySelector('.traffic-legend');return {
       title:element.querySelector('strong').textContent,bars:element.querySelectorAll('.traffic-scale span').length,
       labels:Array.from(element.querySelectorAll(':scope > div:nth-of-type(2) > span')).map(span=>span.textContent),
-      buttons:element.querySelectorAll('button').length,height:element.getBoundingClientRect().height};})()`);
+      buttons:element.querySelectorAll('button').length,height:element.getBoundingClientRect().height,
+      transparent:getComputedStyle(element).backgroundColor==='rgba(0, 0, 0, 0)'&&getComputedStyle(element).backgroundImage==='none'&&getComputedStyle(element).boxShadow==='none'&&getComputedStyle(element).borderTopWidth==='0px'};})()`);
     assert.equal(trafficLegend.title,'Tráfico · © TomTom');
     assert.equal(trafficLegend.bars,3);
     assert.deepEqual(trafficLegend.labels,['Fluido','Lento','Congestionado']);
     assert.equal(trafficLegend.buttons,0);
+    assert.equal(trafficLegend.transparent,true,'La leyenda de tráfico también queda sin fondo ni marco');
     assert.ok(trafficLegend.height<=80,'Tráfico utiliza la misma leyenda fija compacta');
     await clickVisible(window,'.map-layer-options > label:nth-of-type(1) input','.map-controls .collapsible-panel-body');
     await fixedLegend(window);

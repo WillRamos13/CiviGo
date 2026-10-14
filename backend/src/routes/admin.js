@@ -54,6 +54,30 @@ router.get("/integrations", adminOnly, (req, res) => {
   res.setHeader("Cache-Control", "no-store");
   res.json(require("../lib/integrations").integrationChecklist());
 });
+router.get(
+  "/statistics",
+  adminOnly,
+  asyncRoute(async (req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    res.json(
+      await require("../lib/admin-statistics").adminStatistics(prisma, req.query),
+    );
+  }),
+);
+router.get(
+  "/exports",
+  adminOnly,
+  asyncRoute(async (req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    res.json(
+      await require("../lib/admin-exports").exportPage(
+        prisma,
+        { ...req.user, sessionId: req.sessionId },
+        req.query,
+      ),
+    );
+  }),
+);
 async function audit(db, user, accion, entidad, entidadId, datos = {}) {
   return db.auditLog.create({
     data: {

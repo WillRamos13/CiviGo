@@ -1,6 +1,6 @@
 import Link from "next/link";
-import Image from "next/image";
-import { MapPin, ShieldCheck, Route, Users, ArrowUpRight } from "lucide-react";
+import { MapPin, ShieldCheck, Route, ArrowUpRight } from "lucide-react";
+import HomeVideo from '@/components/HomeVideo';
 export default function Home() {
   return (
     <div className="page">
@@ -41,54 +41,7 @@ export default function Home() {
             </div>
           </div>
         </div>
-        <div className="hero-visual">
-          <div className="hero-brand">
-            <Image
-              src="/civigo-logo.jpeg"
-              alt="CiviGo"
-              width={130}
-              height={156}
-              unoptimized
-              loading="eager"
-            />
-          </div>
-          <div className="hero-visual-card">
-            <div className="section-title">
-              <span className="brand-icon">
-                <Route />
-              </span>
-              <h3>Elige cómo llegar</h3>
-            </div>
-            <p>
-              Camina, pedalea o conduce. Compara distancia, tiempo y exposición
-              a incidentes.
-            </p>
-          </div>
-          <div className="hero-visual-card">
-            <div className="section-title">
-              <span className="brand-icon">
-                <MapPin />
-              </span>
-              <h3>Comparte lo que sucede</h3>
-            </div>
-            <p>
-              Reportes organizados por categorías, ubicación y evidencias, con
-              revisión de agentes.
-            </p>
-          </div>
-          <div className="hero-visual-card">
-            <div className="section-title">
-              <span className="brand-icon">
-                <Users />
-              </span>
-              <h3>Construimos en comunidad</h3>
-            </div>
-            <p>
-              Confirmaciones cercanas, participación y recompensas en
-              demostración.
-            </p>
-          </div>
-        </div>
+        <HomeVideo />
       </section>
       <div className="grid-3">
         <div className="card">

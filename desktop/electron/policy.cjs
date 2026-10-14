@@ -4,6 +4,8 @@ const DEFAULT_ORIGIN = 'https://civigo.online';
 const RENDERER_URL = 'civigo://app/index.html';
 const FILE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'application/pdf', 'video/mp4', 'video/webm', 'video/quicktime']);
 const MAX_FILE_BYTES = 15 * 1024 * 1024;
+const EXPORT_TABLES = Object.freeze(['usuarios', 'reportes', 'incidentes', 'catalogo', 'estadisticas']);
+const DISTRICTS = Object.freeze(['Ica', 'La Tinguiña', 'Los Aquijes', 'Ocucaje', 'Pachacútec', 'Parcona', 'Pueblo Nuevo', 'Salas', 'San José de Los Molinos', 'San Juan Bautista', 'Santiago', 'Subtanjalla', 'Tate', 'Yauca del Rosario']);
 
 class DesktopError extends Error {
   constructor(message, status = 400, code = 'DESKTOP_INVALID') { super(message); this.status = status; this.code = code; }
@@ -20,7 +22,7 @@ function backendUrl(value = DEFAULT_BACKEND, development = false) {
 function requestOrigin(value = DEFAULT_ORIGIN, development = false) { return backendUrl(value, development); }
 const numeric = '[1-9][0-9]{0,9}';
 const readRoutes = [
-  /^\/admin(?:\/(?:incidents|users|catalog|businesses|config|rewards|redemptions|appeals|recoveries|audit|integrations|permissions))?$/,
+  /^\/admin(?:\/(?:incidents|users|catalog|businesses|config|rewards|redemptions|appeals|recoveries|audit|integrations|permissions|statistics|exports))?$/,
   new RegExp(`^/admin/incidents/${numeric}/messages$`),
   /^\/catalog$/, /^\/users\/me$/, /^\/notifications$/,
   /^\/announcements\/(?:manage|traffic-moderation)$/, /^\/navigation\/traffic\/incidents$/,
@@ -48,7 +50,18 @@ function validateRequest(input) {
   if (query !== undefined) {
     if (method !== 'GET') throw new DesktopError('Consulta no permitida.');
     const params = new URLSearchParams(query), seen = new Set();
-    if (pathname === '/announcements/manage') {
+    if (pathname === '/admin/statistics' || pathname === '/admin/exports') {
+      for (const [key, value] of params) {
+        if (seen.has(key) || !['district', 'type', ...(pathname === '/admin/exports' ? ['table', 'limit', 'cursor'] : [])].includes(key)) throw new DesktopError('Filtro de estadísticas o exportación no permitido.');
+        seen.add(key);
+        if (key === 'district' && !DISTRICTS.includes(value)) throw new DesktopError('Distrito inválido.');
+        if (key === 'type' && !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(value) || (key === 'type' && value.length > 100)) throw new DesktopError('Tipo de incidente inválido.');
+        if (key === 'table' && !EXPORT_TABLES.includes(value)) throw new DesktopError('Tabla de exportación no permitida.');
+        if (key === 'limit' && (!/^[1-9]\d{0,2}$/.test(value) || Number(value) > 250)) throw new DesktopError('Límite de exportación inválido.');
+        if (key === 'cursor' && (!/^[a-zA-Z0-9_.-]{1,1000}$/.test(value))) throw new DesktopError('Cursor de exportación inválido.');
+      }
+      if (pathname === '/admin/exports' && !params.has('table')) throw new DesktopError('Selecciona una tabla de exportación.');
+    } else if (pathname === '/announcements/manage') {
       if (Array.from(params).length !== 1 || !['CABECERA', 'REPORTAR'].includes(params.get('ubicacion'))) throw new DesktopError('Ubicación no permitida.');
     } else {
     if (!/^\/admin\/(incidents|users|appeals|audit)$/.test(pathname)) throw new DesktopError('Consulta no permitida.');
@@ -69,6 +82,14 @@ function validateRequest(input) {
   if (body !== undefined) { try { const json = JSON.parse(body); if (!json || typeof json !== 'object' || Array.isArray(json)) throw new Error(); } catch { throw new DesktopError('Datos de solicitud inválidos.'); } }
   if (requestId !== undefined && (method !== 'GET' || typeof requestId !== 'string' || !/^[a-zA-Z0-9_-]{1,80}$/.test(requestId))) throw new DesktopError('Lectura inválida.');
   return { route, method, body, requestId };
+}
+function validateExport(input) {
+  if (!input || typeof input !== 'object' || Array.isArray(input) || Object.keys(input).some(key => !['table', 'filters'].includes(key)) || !EXPORT_TABLES.includes(input.table)) throw new DesktopError('Exportación no permitida.');
+  const filters = input.filters ?? {};
+  if (!filters || typeof filters !== 'object' || Array.isArray(filters) || Object.keys(filters).some(key => !['district', 'type'].includes(key))) throw new DesktopError('Filtros de exportación inválidos.');
+  if (filters.district !== undefined && !DISTRICTS.includes(filters.district)) throw new DesktopError('Distrito inválido.');
+  if (filters.type !== undefined && (typeof filters.type !== 'string' || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(filters.type) || filters.type.length > 100)) throw new DesktopError('Tipo de incidente inválido.');
+  return { table: input.table, filters: { ...(filters.district ? { district: filters.district } : {}), ...(filters.type ? { type: filters.type } : {}) } };
 }
 function validateUpload(input) {
   if (!input || typeof input !== 'object' || typeof input.name !== 'string' || input.name.length > 150 || /[\\/\x00-\x1f]/.test(input.name) || !FILE_TYPES.has(input.mimeType) || !['PUBLICO', 'EVIDENCIA', 'IDENTIDAD', 'ANUNCIO'].includes(input.tipo) || typeof input.privado !== 'boolean') throw new DesktopError('Archivo inválido.');
@@ -109,4 +130,4 @@ function bundlePath(root, value) {
   if (!relative || relative.startsWith('..') || path.isAbsolute(relative)) throw new DesktopError('Recurso inválido.');
   return target;
 }
-module.exports = { DEFAULT_BACKEND, DEFAULT_ORIGIN, RENDERER_URL, FILE_TYPES, MAX_FILE_BYTES, DesktopError, backendUrl, requestOrigin, validateRequest, validateUpload, uploadId, publicUrl, imageReferenceUrl, senderAllowed, bundlePath };
+module.exports = { DEFAULT_BACKEND, DEFAULT_ORIGIN, RENDERER_URL, FILE_TYPES, MAX_FILE_BYTES, EXPORT_TABLES, DISTRICTS, DesktopError, backendUrl, requestOrigin, validateRequest, validateExport, validateUpload, uploadId, publicUrl, imageReferenceUrl, senderAllowed, bundlePath };

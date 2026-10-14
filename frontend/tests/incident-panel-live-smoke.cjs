@@ -52,6 +52,7 @@ const server = http.createServer((request, response) => {
       if (!modalReady) { pendingModal.push(reply); return; }
       return reply();
     }
+    if (requestedMode === 'initial-reference') return response.end(JSON.stringify({...fixture,fuente:'CARGA_INICIAL',adjuntos:fixture.adjuntos.map(row=>row.privado?row:{...row,nombre:'Foto de referencia · Incendio ilustrativo · Autor de prueba · CC BY-SA 4.0 · https://commons.wikimedia.org/wiki/File:Example.jpg'})}));
     return response.end(JSON.stringify(requestedMode === 'owner' ? {...fixture, publicado:false, estado:'RETIRADO', descripcion:'Autor autorizado: incidente retirado'} : fixture));
   }
   if (url.pathname === '/api/users/me') return response.end(JSON.stringify({usuario:{id:901,nickname:'Usuario prueba',correo:'fixture@example.invalid',correoVerificado:true,rol:'USUARIO',premium:false,credibilidad:100}}));
@@ -161,6 +162,13 @@ async function run() {
   await window.webContents.executeJavaScript(`document.querySelector('button[aria-label="Cerrar detalle"]').click()`);
   await waitUntil(window,`!${dialog}`);
   assert.equal(await window.webContents.executeJavaScript(`document.activeElement===document.querySelector('.incident-row')`),true,'Cerrar una tarjeta con foco dentro debe devolverlo al reporte seleccionado');
+  mode='initial-reference';
+  await window.webContents.executeJavaScript(`document.querySelector('.incident-row').click()`);
+  await waitUntil(window,`${dialog}?.textContent.includes('Fotografía de referencia: Incendio ilustrativo.')`);
+  const credit=await window.webContents.executeJavaScript(`(() => {const link=[...${dialog}.querySelectorAll('a')].find(a=>a.textContent.includes('Autor de prueba'));return {href:link?.href,label:link?.textContent,alt:${dialog}.querySelector('img[alt^="Fotografía de referencia"]')?.alt};})()`);
+  assert.deepEqual(credit,{href:'https://commons.wikimedia.org/wiki/File:Example.jpg',label:'Autor de prueba · CC BY-SA 4.0',alt:'Fotografía de referencia: Incendio ilustrativo'});
+  await window.webContents.executeJavaScript(`document.querySelector('button[aria-label="Cerrar detalle"]').click()`);
+  await waitUntil(window,`!${dialog}`);
   for (const [width,height] of [[1400,768],[320,640]]) {
     for (const theme of ['light','dark']) {
       mode='modal';modalReady=false;
@@ -193,7 +201,7 @@ async function run() {
     }
   }
   assert.equal(requests.some(request=>request.url==='/api/uploads/private-proof'),false,'Tampoco el diálogo completo debe solicitar pruebas privadas');
-  const result = {passed:true,scenarios:['Incidente cercano ausente del listado general','Tarjeta no modal con imagen pública sin solicitar pruebas privadas','503 conserva detalle y muestra aviso','200 privado autorizado actualiza estado','404 cierra tarjeta sin robar foco de otro control','Respuesta tardía después de desmontar ignorada','Ocho layouts/temas con scroll interno y sin desbordamiento','Escape respeta foco y Ver en mapa cierra tarjeta conservando GPS','Cerrar tarjeta devuelve foco al reporte seleccionado','Detalle completo PC/320 en ambos temas: scroll final accesible, bloqueo exterior, ciclo de foco y restauración'],layouts,blockedHosts:[...blockedHosts],requests:requests.length};
+  const result = {passed:true,scenarios:['Incidente cercano ausente del listado general','Tarjeta no modal con imagen pública sin solicitar pruebas privadas','503 conserva detalle y muestra aviso','200 privado autorizado actualiza estado','404 cierra tarjeta sin robar foco de otro control','Respuesta tardía después de desmontar ignorada','Ocho layouts/temas con scroll interno y sin desbordamiento','Escape respeta foco y Ver en mapa cierra tarjeta conservando GPS','Cerrar tarjeta devuelve foco al reporte seleccionado','Fotografía ilustrativa conserva crédito público, licencia, fuente y texto accesible','Detalle completo PC/320 en ambos temas: scroll final accesible, bloqueo exterior, ciclo de foco y restauración'],layouts,blockedHosts:[...blockedHosts],requests:requests.length};
   await fs.writeFile(path.join(local,'resultado.json'),JSON.stringify(result,null,2));
   console.log(JSON.stringify(result));
   window.destroy();
