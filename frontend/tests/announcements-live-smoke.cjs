@@ -285,9 +285,12 @@ async function run(){
   phase='validaciones-y-envio';premium=false;emptyReports=false;
   await setViewport(window,1400,850);
   await window.loadURL('http://127.0.0.1:'+frontendPort+'/reportar');await chooseType(window);
-  await window.webContents.executeJavaScript(`Object.defineProperty(navigator.geolocation,'getCurrentPosition',{configurable:true,value:success=>success({coords:{latitude:-14.0678,longitude:-75.7286,accuracy:5},timestamp:Date.now()})});`);
+  await window.webContents.executeJavaScript(`Object.defineProperty(navigator.geolocation,'getCurrentPosition',{configurable:true,value:success=>success({coords:{latitude:-14.07142229461267,longitude:-75.73596139871156,accuracy:5},timestamp:Date.now()})});`);
   await clickElement(window,button('Enviar reporte'));await waitUntil(window,`document.body.innerText.includes('Confirma que la ubicación es correcta.')`);assert.equal(mutations().length,0);
   await clickElement(window,button('Usar mi ubicación actual'));await waitUntil(window,`!!document.querySelector('.inline-checkbox input')`);
+  const coordinateValidity=await window.webContents.executeJavaScript(`['lat','lng'].map(id=>{const input=document.getElementById(id);return{valid:input.checkValidity(),stepMismatch:input.validity.stepMismatch,value:input.valueAsNumber};})`);
+  assert.deepEqual(coordinateValidity,[{valid:true,stepMismatch:false,value:-14.07142229461267},{valid:true,stepMismatch:false,value:-75.73596139871156}],'Las coordenadas de alta precisión no bloquean el envío por los decimales');
+  scenarios.push('Las coordenadas del GPS conservan su precisión y son válidas sin recortarlas');
   await clickElement(window,button('Enviar reporte'));assert.equal(mutations().length,0);
   await clickElement(window,`document.querySelector('.inline-checkbox input')`);
   await clickElement(window,button('Enviar reporte'));await waitUntil(window,`document.body.innerText.includes('requiere al menos una fotografía')`);assert.equal(mutations().length,0);
@@ -297,7 +300,7 @@ async function run(){
   await waitUntil(window,`!!document.querySelector('button[aria-label="Quitar bache.png"]')`);await clickElement(window,button('Enviar reporte'));
   await waitUntil(window,`document.body.innerText.includes('Recibimos tu reporte #950')`);
   assert.deepEqual(mutations().map(request=>request.path),['/api/uploads','/api/reports']);
-  const payload=mutations()[1].body;assert.equal(payload.tipo,'bache');assert.equal(payload.latitud,-14.0678);assert.equal(payload.longitud,-75.7286);assert.equal(payload.gpsLatitud,-14.0678);assert.equal(payload.gpsLongitud,-75.7286);assert.deepEqual(payload.adjuntosIds,['report-photo-fixture']);assert.ok(payload.descripcion.includes('Bache abierto'));assert.ok(Number.isFinite(Date.parse(payload.fechaEvento)));
+  const payload=mutations()[1].body;assert.equal(payload.tipo,'bache');assert.equal(payload.latitud,-14.07142229461267);assert.equal(payload.longitud,-75.73596139871156);assert.equal(payload.gpsLatitud,-14.07142229461267);assert.equal(payload.gpsLongitud,-75.73596139871156);assert.deepEqual(payload.adjuntosIds,['report-photo-fixture']);assert.ok(payload.descripcion.includes('Bache abierto'));assert.ok(Number.isFinite(Date.parse(payload.fechaEvento)));
   await settle(window);await capture(window,'report-envio');
   scenarios.push('Descripción y fotografía pública llegan al reporte con GPS y fecha; se muestra recepción');
   verified=false;phase='gmail-no-verificado';
