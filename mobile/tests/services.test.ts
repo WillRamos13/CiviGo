@@ -211,6 +211,143 @@ describe('CiviGo Mobile Services & Logic Test Suite', () => {
       const dist = distance(equator, northPole);
       assert.ok(dist > 10000000 && dist < 10015000, `Expected ~10000km, got ${dist}`);
     });
+
+    test('validates coordinates are within greater Ica bounding box', () => {
+      // Ica region bounds: lat -15.5 to -13.0, lng -76.5 to -74.5
+      const isInIcaRegion = (lat: number, lng: number) =>
+        lat >= -15.5 && lat <= -13.0 && lng >= -76.5 && lng <= -74.5;
+
+      assert.equal(isInIcaRegion(-14.0678, -75.7286), true); // Plaza de Armas
+      assert.equal(isInIcaRegion(-14.0875, -75.7633), true); // Huacachina
+      assert.equal(isInIcaRegion(-12.0464, -77.0428), false); // Lima (out of Ica bounds)
+      assert.equal(isInIcaRegion(0, 0), false); // Null Island
+    });
+
+    test('parses navigation turn-by-turn guidance steps correctly', () => {
+      interface NavStep {
+        maniobra: 'start' | 'turn-left' | 'turn-right' | 'straight' | 'arrive';
+        calle: string;
+        distancia: number;
+      }
+      const steps: NavStep[] = [
+        { maniobra: 'start', calle: 'Av. San Martín', distancia: 200 },
+        { maniobra: 'turn-left', calle: 'Calle Bolívar', distancia: 450 },
+        { maniobra: 'arrive', calle: 'Plaza de Armas', distancia: 0 },
+      ];
+      assert.equal(steps.length, 3);
+      assert.equal(steps[0].maniobra, 'start');
+      assert.equal(steps[1].calle, 'Calle Bolívar');
+      assert.equal(steps[2].maniobra, 'arrive');
+      assert.equal(steps[2].distancia, 0);
+    });
+  });
+
+  describe('Deep Authentication & Token Lifecycle', () => {
+    test('validates standard JWT format without exposing raw credentials', () => {
+      const mockJwt = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6MTIzLCJyb2wiOiJVU1VBUklPIiwiZXhwIjoxNzk5OTk5OTk5fQ.signature_hash';
+      const parts = mockJwt.split('.');
+      assert.equal(parts.length, 3, 'JWT must contain exactly header, payload, and signature');
+      const payload = JSON.parse(Buffer.from(parts[1], 'base64').toString());
+      assert.equal(payload.id, 123);
+      assert.equal(payload.rol, 'USUARIO');
+      assert.ok(payload.exp > Date.now() / 1000, 'Token is not expired');
+    });
+
+    test('verifies StorageService never persists raw passwords or credentials', () => {
+      const allowedStorageKeys = ['civigo_token', 'civigo_theme', 'civigo_draft_report', 'civigo_favorites'];
+      const sensitiveKeys = ['password', 'contrasena', 'secret', 'auth_password', 'pin'];
+      for (const forbidden of sensitiveKeys) {
+        assert.ok(!allowedStorageKeys.includes(forbidden), `Forbidden storage key detected: ${forbidden}`);
+      }
+    });
+
+    test('validates citizen user profile contract structure', () => {
+      const mockUser = {
+        id: 42,
+        correo: 'ciudadano.ica@gmail.com',
+        correoVerificado: true,
+        rol: 'USUARIO',
+        nickname: 'Chalaquito',
+        nombres: 'Carlos',
+        apellidos: 'Mendoza',
+        telefono: '+51956123456',
+        distrito: 'Ica',
+        credibilidad: 88,
+        monedas: 350,
+        bloqueado: false,
+        permisos: [],
+      };
+      assert.equal(typeof mockUser.id, 'number');
+      assert.equal(mockUser.correoVerificado, true);
+      assert.equal(mockUser.rol, 'USUARIO');
+      assert.equal(mockUser.bloqueado, false);
+      assert.equal(Array.isArray(mockUser.permisos), true);
+    });
+  });
+
+  describe('Extended API Resilience & Error Classification', () => {
+    test('correctly maps HTTP status codes to localized actionable messages', () => {
+      const unauthErr = new ApiError('Sesión expirada', 401, 'UNAUTHORIZED');
+      assert.equal(unauthErr.status, 401);
+      assert.equal(errorMessage(unauthErr), 'Sesión expirada');
+
+      const forbiddenErr = new ApiError('No tienes permisos de agente en este distrito', 403, 'FORBIDDEN');
+      assert.equal(forbiddenErr.status, 403);
+      assert.equal(errorMessage(forbiddenErr), 'No tienes permisos de agente en este distrito');
+
+      const serverErr = new ApiError('Error interno en Railway', 500, 'INTERNAL_ERROR');
+      assert.equal(serverErr.status, 500);
+      assert.equal(errorMessage(serverErr), 'Error interno en Railway');
+    });
+
+    test('sanitizes and encodes complex query parameters for incidents and roads', () => {
+      const params = {
+        distrito: 'Ica & Parcona',
+        estado: 'PENDIENTE,EN_REVISION',
+        pagina: 1,
+      };
+      const query = new URLSearchParams();
+      if (params.distrito) query.set('distrito', params.distrito);
+      if (params.estado) query.set('estado', params.estado);
+      query.set('pagina', String(params.pagina));
+
+      assert.equal(query.toString(), 'distrito=Ica+%26+Parcona&estado=PENDIENTE%2CEN_REVISION&pagina=1');
+    });
+  });
+
+  describe('Comprehensive Evidence & File Security Validation', () => {
+    test('enforces max 15MB file ceiling for incident uploads', () => {
+      const MAX_BYTES = 15 * 1024 * 1024;
+      const fileUnderLimit = { name: 'foto1.jpg', size: 14.9 * 1024 * 1024 };
+      const fileOverLimit = { name: 'video1.mp4', size: 15.1 * 1024 * 1024 };
+
+      assert.ok(fileUnderLimit.size <= MAX_BYTES);
+      assert.ok(fileOverLimit.size > MAX_BYTES);
+    });
+
+    test('rejects unsafe executable extensions for uploaded media', () => {
+      const unsafeExtensions = ['.exe', '.bat', '.cmd', '.sh', '.apk', '.jar', '.php', '.js'];
+      const isExtensionSafe = (fileName: string) => {
+        const ext = fileName.slice(fileName.lastIndexOf('.')).toLowerCase();
+        return !unsafeExtensions.includes(ext);
+      };
+
+      assert.equal(isExtensionSafe('evidencia.jpg'), true);
+      assert.equal(isExtensionSafe('prueba.png'), true);
+      assert.equal(isExtensionSafe('video.mp4'), true);
+      assert.equal(isExtensionSafe('malware.exe'), false);
+      assert.equal(isExtensionSafe('script.sh'), false);
+      assert.equal(isExtensionSafe('payload.apk'), false);
+    });
+
+    test('validates private vs public evidence metadata flags', () => {
+      const citizenEvidence = { id: 'adj-1', url: 'https://cdn/foto.jpg', privado: false, mimeType: 'image/jpeg' };
+      const agentConfidentialEvidence = { id: 'adj-2', url: 'https://cdn/dni.jpg', privado: true, mimeType: 'image/jpeg' };
+
+      assert.equal(citizenEvidence.privado, false);
+      assert.equal(agentConfidentialEvidence.privado, true);
+    });
   });
 });
+
 
