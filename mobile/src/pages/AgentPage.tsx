@@ -15,7 +15,9 @@ export const AgentPage: React.FC<AgentPageProps> = ({ onBack }) => {
   const { usuario } = useAuth();
   const canConsult = hasAgentPermission(usuario, 'consultar');
   const canValidate = hasAgentPermission(usuario, 'validar');
+  const canGravity = hasAgentPermission(usuario, 'gravedad');
   const canClassify = hasAgentPermission(usuario, 'clasificar');
+  const canFalsify = hasAgentPermission(usuario, 'falsedad');
   const canResolve = hasAgentPermission(usuario, 'resolver');
   const canReopen = hasAgentPermission(usuario, 'reabrir');
   const canEvidence = hasAgentPermission(usuario, 'evidencia');
@@ -98,7 +100,7 @@ export const AgentPage: React.FC<AgentPageProps> = ({ onBack }) => {
       await AgentService.applyIncidentReview(selectedIncident.id, {
         accion: currentAction,
         motivo: actionReason.trim(),
-        gravedad: currentAction === 'GRAVEDAD' ? actionGravity : undefined,
+        nivelRiesgo: currentAction === 'GRAVEDAD' ? actionGravity : undefined,
       });
 
       setMessage(`Acción ${currentAction} aplicada con éxito al incidente #${selectedIncident.id}.`);
@@ -147,10 +149,13 @@ export const AgentPage: React.FC<AgentPageProps> = ({ onBack }) => {
             style={{ flex: 1, padding: '8px 10px', fontSize: 12 }}
           >
             <option value="">Todos los estados</option>
-            <option value="PENDIENTE">Pendientes de evaluación</option>
-            <option value="PUBLICADO">Publicados activos</option>
+            <option value="REVISION">En revisión / evaluación</option>
+            <option value="ACTIVO">Activos comunitarios</option>
+            <option value="PUBLICADOS">Publicados en mapa</option>
+            <option value="VALIDADO">Validados</option>
             <option value="RESUELTO">Resueltos</option>
             <option value="FALSO">Descartados / Falsos</option>
+            <option value="SIN_PUBLICAR">Sin publicar</option>
           </select>
 
           <button
@@ -400,7 +405,7 @@ export const AgentPage: React.FC<AgentPageProps> = ({ onBack }) => {
                 </button>
               )}
 
-              {canClassify && (
+              {canGravity && (
                 <button
                   type="button"
                   className="btn btn-secondary btn-small"
@@ -433,14 +438,16 @@ export const AgentPage: React.FC<AgentPageProps> = ({ onBack }) => {
                 </button>
               )}
 
-              <button
-                type="button"
-                className="btn btn-danger btn-small"
-                onClick={() => setCurrentAction('FALSO')}
-              >
-                <X size={16} />
-                <span>Declarar falso / spam</span>
-              </button>
+              {canFalsify && (
+                <button
+                  type="button"
+                  className="btn btn-danger btn-small"
+                  onClick={() => setCurrentAction('FALSO')}
+                >
+                  <X size={16} />
+                  <span>Declarar falso / spam</span>
+                </button>
+              )}
             </div>
 
             {/* Subform for Action Motive */}

@@ -20,17 +20,35 @@ export const CommunityPage: React.FC = () => {
     setError('');
     try {
       const [rankingData, rewardsData] = await Promise.allSettled([
-        api<{ ranking?: RankingEntry[] } | RankingEntry[]>('/ranking'),
-        api<RewardItem[]>('/rewards'),
+        api<{ entries?: any[]; ranking?: any[] } | any[]>('/ranking'),
+        api<{ recompensas?: RewardItem[]; canjes?: any[] } | RewardItem[]>('/recompensas'),
       ]);
 
       if (rankingData.status === 'fulfilled') {
         const val = rankingData.value;
-        const list = Array.isArray(val) ? val : (val as any).ranking || [];
-        setRanking(list);
+        const rawList = Array.isArray(val)
+          ? val
+          : val && typeof val === 'object' && Array.isArray((val as any).entries)
+          ? (val as any).entries
+          : (val as any).ranking || [];
+
+        const normalized: RankingEntry[] = rawList.map((item: any, idx: number) => ({
+          posicion: item.position ?? item.posicion ?? idx + 1,
+          id: item.id ?? item.usuarioId ?? idx + 1,
+          nickname: item.nickname || 'Ciudadano Ica',
+          puntosMensuales: item.puntos ?? item.puntosMensuales ?? 0,
+          reportesValidados: item.reportesValidados ?? 0,
+          insigniaPrincipal: item.credibilidad ? `Credibilidad ${item.credibilidad}%` : undefined,
+        }));
+        setRanking(normalized);
       }
+
       if (rewardsData.status === 'fulfilled') {
-        setRewards(rewardsData.value || []);
+        const val = rewardsData.value;
+        const list: RewardItem[] = Array.isArray(val)
+          ? val
+          : (val as any).recompensas || [];
+        setRewards(list);
       }
     } catch (err) {
       setError(errorMessage(err));
@@ -55,8 +73,8 @@ export const CommunityPage: React.FC = () => {
     setMessage('');
 
     try {
-      await post(`/rewards/${reward.id}/redeem`);
-      setMessage(`¡Canje de «${reward.titulo}» realizado con éxito!`);
+      await post(`/recompensas/${reward.id}/canjear`);
+      setMessage(`¡Canje de «${reward.titulo}» solicitado con éxito!`);
       await refresh();
       void loadData();
     } catch (err) {

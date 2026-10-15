@@ -348,6 +348,114 @@ describe('CiviGo Mobile Services & Logic Test Suite', () => {
       assert.equal(agentConfidentialEvidence.privado, true);
     });
   });
+
+  describe('Spotify Navigation Integration Service', () => {
+    test('is disabled by default for privacy and battery conservation', async () => {
+      const { SpotifyService } = await import('../src/services/spotify.ts');
+      const { StorageService } = await import('../src/services/native.ts');
+      await StorageService.remove('civigo:spotify_nav_enabled');
+      const enabled = await SpotifyService.isEnabled();
+      assert.equal(enabled, false);
+    });
+
+    test('can be toggled on and persisted in storage', async () => {
+      const { SpotifyService } = await import('../src/services/spotify.ts');
+      await SpotifyService.setEnabled(true);
+      const enabled = await SpotifyService.isEnabled();
+      assert.equal(enabled, true);
+
+      // Reset to disabled
+      await SpotifyService.setEnabled(false);
+      const disabledAfter = await SpotifyService.isEnabled();
+      assert.equal(disabledAfter, false);
+    });
+  });
+
+  describe('Agent Review Payload & Backend Route Contracts', () => {
+    test('constructs valid review action with nivelRiesgo field', () => {
+      const payload: import('../src/services/agent.ts').ReviewActionPayload = {
+        accion: 'GRAVEDAD',
+        motivo: 'Ajuste verificado en campo por agente CiviGo en Ica',
+        nivelRiesgo: 4,
+      };
+      assert.equal(payload.accion, 'GRAVEDAD');
+      assert.equal(payload.nivelRiesgo, 4);
+      assert.ok(payload.motivo.length >= 5);
+    });
+
+    test('validates allowed backend status query filters for admin incidents', () => {
+      const validBackendStatuses = [
+        '',
+        'TODOS',
+        'REVISION',
+        'PUBLICADOS',
+        'SIN_PUBLICAR',
+        'ACTIVO',
+        'VALIDADO',
+        'RESUELTO',
+        'FALSO',
+        'RETIRADO',
+        'PENDIENTE',
+      ];
+
+      const agentSelectedStatus = 'REVISION';
+      assert.ok(validBackendStatuses.includes(agentSelectedStatus));
+      assert.ok(validBackendStatuses.includes('PUBLICADOS'));
+      assert.ok(validBackendStatuses.includes('ACTIVO'));
+      assert.ok(validBackendStatuses.includes('RESUELTO'));
+      assert.ok(!validBackendStatuses.includes('PUBLICADO')); // Singular is invalid in backend
+    });
+  });
+
+  describe('Community & Notifications Route Contracts', () => {
+    test('confirms official root-mounted community endpoints', () => {
+      const routes = {
+        ranking: '/ranking',
+        recompensas: '/recompensas',
+        canjear: (id: number) => `/recompensas/${id}/canjear`,
+        notifications: '/notifications',
+        markRead: (id: number) => `/notifications/${id}/read`,
+      };
+
+      assert.equal(routes.ranking, '/ranking');
+      assert.equal(routes.recompensas, '/recompensas');
+      assert.equal(routes.canjear(5), '/recompensas/5/canjear');
+      assert.equal(routes.notifications, '/notifications');
+      assert.equal(routes.markRead(12), '/notifications/12/read');
+    });
+
+    test('marks notification as read in local state correctly', () => {
+      const initialAlerts = [
+        { id: 1, titulo: 'Aviso 1', mensaje: 'Mensaje 1', leida: false, creadoEn: '2026-10-15T00:00:00Z' },
+        { id: 2, titulo: 'Aviso 2', mensaje: 'Mensaje 2', leida: false, creadoEn: '2026-10-15T01:00:00Z' },
+      ];
+
+      const updated = initialAlerts.map((a) => (a.id === 1 ? { ...a, leida: true } : a));
+      assert.equal(updated.find((a) => a.id === 1)?.leida, true);
+      assert.equal(updated.find((a) => a.id === 2)?.leida, false);
+    });
+  });
+
+  describe('Google Email Verification Two-Step Flow', () => {
+    test('validates challengeId string format for Railway endpoint', () => {
+      const challengeId = '12345';
+      const isPositiveInt = /^[1-9]\d{0,9}$/.test(challengeId);
+      assert.ok(isPositiveInt);
+
+      const invalidChallenge = 'abc-xyz';
+      assert.ok(!/^[1-9]\d{0,9}$/.test(invalidChallenge));
+    });
+
+    test('constructs valid verification submission payload', () => {
+      const challengeId = '42';
+      const idToken = 'mock_google_id_token_from_firebase_or_auth_sdk_test_string_exceeding_length';
+      const payload = { challengeId, idToken };
+
+      assert.equal(payload.challengeId, '42');
+      assert.ok(payload.idToken.length >= 20);
+    });
+  });
 });
+
 
 

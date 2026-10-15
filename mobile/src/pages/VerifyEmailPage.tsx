@@ -20,6 +20,8 @@ export const VerifyEmailPage: React.FC<VerifyEmailPageProps> = ({
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   const [challenge, setChallenge] = useState<string | null>(null);
+  const [projectId, setProjectId] = useState<string | null>(null);
+  const [idToken, setIdToken] = useState('');
 
   const handleStartVerification = async () => {
     if (!consent) return;
@@ -31,7 +33,32 @@ export const VerifyEmailPage: React.FC<VerifyEmailPageProps> = ({
     try {
       const res = await AuthService.requestGoogleEmail();
       setChallenge(res.challengeId);
-      setMessage('Solicitud de comprobación con Google generada correctamente. El sistema verificará tu titularidad.');
+      setProjectId(res.projectId || null);
+      setMessage(`Ticket #${res.challengeId} generado. Ingresa el token de comprobación de Google para completar la validación.`);
+      await refresh();
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleCompleteVerification = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!challenge || !idToken.trim()) {
+      setError('Por favor ingresa la credencial o comprobante de Google.');
+      return;
+    }
+    void triggerHaptic('heavy');
+    setBusy(true);
+    setError('');
+    setMessage('');
+
+    try {
+      await AuthService.verifyGoogleEmail(challenge, idToken.trim());
+      setMessage('¡Gmail verificado correctamente con Google! Ya puedes participar y reportar.');
+      setChallenge(null);
+      setIdToken('');
       await refresh();
     } catch (err) {
       setError(errorMessage(err));
@@ -98,26 +125,78 @@ export const VerifyEmailPage: React.FC<VerifyEmailPageProps> = ({
               </div>
             </div>
 
-            <label className="inline-checkbox" style={{ marginBottom: 20 }}>
-              <input
-                type="checkbox"
-                checked={consent}
-                onChange={(e) => setConsent(e.target.checked)}
-                disabled={busy}
-              />
-              <span>
-                Acepto que CiviGo compruebe mi dirección de Gmail para validar la autenticidad de mi cuenta ciudadana.
-              </span>
-            </label>
+            {!challenge ? (
+              <>
+                <label className="inline-checkbox" style={{ marginBottom: 20 }}>
+                  <input
+                    type="checkbox"
+                    checked={consent}
+                    onChange={(e) => setConsent(e.target.checked)}
+                    disabled={busy}
+                  />
+                  <span>
+                    Acepto que CiviGo compruebe mi dirección de Gmail para validar la autenticidad de mi cuenta ciudadana.
+                  </span>
+                </label>
 
-            <button
-              type="button"
-              className="btn btn-primary btn-full"
-              disabled={busy || !consent}
-              onClick={handleStartVerification}
-            >
-              {busy ? 'Generando solicitud…' : 'Comprobar con Google'}
-            </button>
+                <button
+                  type="button"
+                  className="btn btn-primary btn-full"
+                  disabled={busy || !consent}
+                  onClick={handleStartVerification}
+                >
+                  {busy ? 'Generando solicitud…' : 'Comprobar con Google'}
+                </button>
+              </>
+            ) : (
+              <form onSubmit={handleCompleteVerification} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                <div
+                  style={{
+                    padding: '12px',
+                    borderRadius: 8,
+                    backgroundColor: 'var(--surface-muted)',
+                    fontSize: 12,
+                    border: '1px solid var(--line)',
+                  }}
+                >
+                  <p style={{ margin: '0 0 6px', fontWeight: 600, color: 'var(--brand)' }}>
+                    Ticket de verificación #{challenge}
+                  </p>
+                  <p className="muted" style={{ margin: 0 }}>
+                    Proyecto: {projectId || 'CiviGo Ica'}. Para completar la verificación de titularidad, ingresa el ID token de Google o presiona Validar.
+                  </p>
+                </div>
+
+                <div className="field">
+                  <label>Comprobante / Google ID Token</label>
+                  <textarea
+                    rows={3}
+                    placeholder="Pega el idToken emitido por Google Auth..."
+                    value={idToken}
+                    onChange={(e) => setIdToken(e.target.value)}
+                    required
+                    style={{ fontSize: 11, fontFamily: 'monospace' }}
+                  />
+                </div>
+
+                <button
+                  type="submit"
+                  className="btn btn-primary btn-full"
+                  disabled={busy || !idToken.trim()}
+                >
+                  {busy ? 'Verificando con servidor…' : 'Confirmar verificación Google'}
+                </button>
+
+                <button
+                  type="button"
+                  className="btn btn-quiet btn-small"
+                  onClick={() => setChallenge(null)}
+                  disabled={busy}
+                >
+                  Cancelar y generar nueva solicitud
+                </button>
+              </form>
+            )}
 
             <div style={{ textAlign: 'center', marginTop: 16 }}>
               <button

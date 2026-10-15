@@ -75,6 +75,8 @@ export async function getCurrentDevicePosition(): Promise<LocationFix> {
   });
 }
 
+export const getCurrentPosition = getCurrentDevicePosition;
+
 export function watchDevicePosition(
   onSuccess: (pos: LocationFix) => void,
   onError?: (err: Error) => void
@@ -175,27 +177,40 @@ export async function capturePhotoOrVideo(
 }
 
 /* --- PERSISTENT STORAGE (Preferences) --- */
+const memoryStore = new Map<string, string>();
+
 export const StorageService = {
   async get(key: string): Promise<string | null> {
     try {
       const { value } = await Preferences.get({ key });
       return value;
     } catch {
-      return localStorage.getItem(key);
+      if (typeof localStorage !== 'undefined') {
+        return localStorage.getItem(key);
+      }
+      return memoryStore.get(key) ?? null;
     }
   },
   async set(key: string, value: string): Promise<void> {
     try {
       await Preferences.set({ key, value });
     } catch {
-      localStorage.setItem(key, value);
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem(key, value);
+      } else {
+        memoryStore.set(key, value);
+      }
     }
   },
   async remove(key: string): Promise<void> {
     try {
       await Preferences.remove({ key });
     } catch {
-      localStorage.removeItem(key);
+      if (typeof localStorage !== 'undefined') {
+        localStorage.removeItem(key);
+      } else {
+        memoryStore.delete(key);
+      }
     }
   },
 };

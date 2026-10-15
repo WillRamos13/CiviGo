@@ -281,11 +281,13 @@ export const MapView: React.FC<MapViewProps> = ({
     if (!userMarkerRef.current) {
       const el = document.createElement('div');
       el.className = 'user-gps-marker';
-      el.innerHTML = `
-        <div style="width: 22px; height: 22px; border-radius: 50%; background: #1554d8; border: 3px solid #fff; box-shadow: 0 0 10px rgba(21, 84, 216, 0.7); display: flex; align-items: center; justify-content: center;">
-          <div style="width: 6px; height: 6px; border-radius: 50%; background: #fff;"></div>
-        </div>
-      `;
+      const outerRing = document.createElement('div');
+      outerRing.style.cssText =
+        'width: 22px; height: 22px; border-radius: 50%; background: #1554d8; border: 3px solid #fff; box-shadow: 0 0 10px rgba(21, 84, 216, 0.7); display: flex; align-items: center; justify-content: center;';
+      const innerDot = document.createElement('div');
+      innerDot.style.cssText = 'width: 6px; height: 6px; border-radius: 50%; background: #fff;';
+      outerRing.appendChild(innerDot);
+      el.appendChild(outerRing);
       userMarkerRef.current = new mapboxgl.Marker({ element: el })
         .setLngLat([posicion.longitud, posicion.latitud])
         .addTo(map);
@@ -301,11 +303,13 @@ export const MapView: React.FC<MapViewProps> = ({
 
     if (!editorMarkerRef.current) {
       const el = document.createElement('div');
-      el.innerHTML = `
-        <div style="width: 32px; height: 32px; background: #dc2626; border-radius: 50% 50% 50% 0; transform: rotate(-45deg); display: flex; align-items: center; justify-content: center; border: 2px solid #fff; box-shadow: 0 3px 8px rgba(0,0,0,0.3);">
-          <div style="width: 10px; height: 10px; border-radius: 50%; background: #fff; transform: rotate(45deg);"></div>
-        </div>
-      `;
+      const pinBody = document.createElement('div');
+      pinBody.style.cssText =
+        'width: 32px; height: 32px; background: #dc2626; border-radius: 50% 50% 50% 0; transform: rotate(-45deg); display: flex; align-items: center; justify-content: center; border: 2px solid #fff; box-shadow: 0 3px 8px rgba(0,0,0,0.3);';
+      const pinDot = document.createElement('div');
+      pinDot.style.cssText = 'width: 10px; height: 10px; border-radius: 50%; background: #fff; transform: rotate(45deg);';
+      pinBody.appendChild(pinDot);
+      el.appendChild(pinBody);
       editorMarkerRef.current = new mapboxgl.Marker({ element: el, draggable: true })
         .setLngLat([posicion.longitud, posicion.latitud])
         .addTo(map);
@@ -343,12 +347,23 @@ export const MapView: React.FC<MapViewProps> = ({
 
       const el = document.createElement('div');
       el.className = 'incident-marker';
-      el.innerHTML = `
-        <div class="marker-inner">
-          <img src="${iconPath}" alt="${inc.tipoNombre || inc.tipo}" onerror="this.src='/iconos/robo.png'"/>
-          <span class="marker-risk-pill" style="background-color: ${riskColor};"></span>
-        </div>
-      `;
+      const inner = document.createElement('div');
+      inner.className = 'marker-inner';
+
+      const img = document.createElement('img');
+      img.src = iconPath;
+      img.alt = inc.tipoNombre || inc.tipo || 'Incidente';
+      img.addEventListener('error', () => {
+        img.src = '/iconos/robo.png';
+      });
+
+      const pill = document.createElement('span');
+      pill.className = 'marker-risk-pill';
+      pill.style.backgroundColor = riskColor;
+
+      inner.appendChild(img);
+      inner.appendChild(pill);
+      el.appendChild(inner);
 
       el.addEventListener('click', (e) => {
         e.stopPropagation();

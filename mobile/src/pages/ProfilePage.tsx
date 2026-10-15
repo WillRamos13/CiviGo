@@ -5,7 +5,8 @@ import { AuthService } from '../services/auth';
 import { NavigationService, type SavedRoute } from '../services/navigation';
 import { api, upload, formatDate, errorMessage } from '../services/api';
 import { triggerHaptic } from '../services/native';
-import { User, ShieldCheck, Mail, Phone, Bookmark, Trash2, Medal, LogOut, KeyRound } from 'lucide-react';
+import { SpotifyService } from '../services/spotify';
+import { User, ShieldCheck, Mail, Phone, Bookmark, Trash2, Medal, LogOut, KeyRound, Music, Settings } from 'lucide-react';
 import type { ParticipationSummaryData } from '../types';
 
 interface ProfilePageProps {
@@ -40,6 +41,9 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
   const [recoveryReason, setRecoveryReason] = useState('');
   const [idFile, setIdFile] = useState<File | null>(null);
 
+  // Spotify integration state
+  const [spotifyEnabled, setSpotifyEnabled] = useState(false);
+
   useEffect(() => {
     if (!usuario) return;
     setNicknameInput(usuario.nickname);
@@ -51,7 +55,17 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
     api<ParticipationSummaryData>('/participation')
       .then(setParticipation)
       .catch(() => {});
+
+    SpotifyService.isEnabled()
+      .then(setSpotifyEnabled)
+      .catch(() => {});
   }, [usuario]);
+
+  const handleToggleSpotify = async (checked: boolean) => {
+    void triggerHaptic('light');
+    setSpotifyEnabled(checked);
+    await SpotifyService.setEnabled(checked);
+  };
 
   const handleUpdateNickname = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -449,6 +463,70 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
               ))}
             </div>
           )}
+        </div>
+
+        {/* App & Media Preferences */}
+        <div className="card">
+          <div className="card-header">
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <Settings size={18} color="var(--brand)" />
+              <h2 style={{ fontSize: 15 }}>Preferencias de navegación</h2>
+            </div>
+          </div>
+
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'flex-start',
+              gap: 12,
+              padding: '12px',
+              borderRadius: 8,
+              backgroundColor: 'var(--surface-subtle)',
+              border: '1px solid var(--line)',
+            }}
+          >
+            <div
+              style={{
+                width: 32,
+                height: 32,
+                borderRadius: '50%',
+                backgroundColor: spotifyEnabled ? '#1DB954' : 'var(--surface-muted)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                flexShrink: 0,
+              }}
+            >
+              <Music size={16} color={spotifyEnabled ? '#000' : 'var(--muted)'} />
+            </div>
+
+            <div style={{ flex: 1 }}>
+              <label
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  cursor: 'pointer',
+                  margin: 0,
+                }}
+              >
+                <div>
+                  <strong style={{ fontSize: 13, display: 'block' }}>
+                    Spotify durante la navegación
+                  </strong>
+                  <span className="muted" style={{ fontSize: 11, display: 'block', marginTop: 2 }}>
+                    Muestra un reproductor compacto con pistas recomendadas y controles rápidos al iniciar una ruta. Desactivado por defecto.
+                  </span>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={spotifyEnabled}
+                  onChange={(e) => void handleToggleSpotify(e.target.checked)}
+                  style={{ marginLeft: 12, width: 18, height: 18, cursor: 'pointer' }}
+                />
+              </label>
+            </div>
+          </div>
         </div>
 
         {/* Logout */}

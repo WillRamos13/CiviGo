@@ -5,6 +5,7 @@ import { useAuth } from '../../hooks/useAuth';
 import { triggerHaptic } from '../../services/native';
 import { RISK_COLORS, RISK_NAMES } from '../../types';
 import type { Posicion, Ruta, RouteStep } from '../../types';
+import { SpotifyNavPlayer } from './SpotifyNavPlayer';
 
 interface RoutePlannerProps {
   currentPosition?: Posicion | null;
@@ -239,6 +240,9 @@ export const RoutePlanner: React.FC<RoutePlannerProps> = ({
               </span>
             </div>
           )}
+
+          {/* Optional Spotify mini-player (active only if enabled by user in settings) */}
+          <SpotifyNavPlayer isNavigating={isNavigating} />
         </div>
       ) : (
         /* Planner Form */

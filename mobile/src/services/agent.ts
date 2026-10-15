@@ -59,9 +59,9 @@ export interface IncidentReviewSummary {
 }
 
 export interface ReviewActionPayload {
-  accion: 'VALIDAR' | 'GRAVEDAD' | 'CLASIFICAR' | 'FALSO' | 'RESOLVER' | 'REABRIR' | 'RETIRAR_PUNTOS';
+  accion: 'VALIDAR' | 'GRAVEDAD' | 'FALSO' | 'RESOLVER' | 'REABRIR' | 'RETIRAR_PUNTOS';
   motivo: string;
-  gravedad?: number;
+  nivelRiesgo?: number;
   tipoId?: number;
 }
 

@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { X, CheckCircle, MessageSquare, Send, Shield, AlertTriangle, Image as ImageIcon } from 'lucide-react';
+import { X, CheckCircle, MessageSquare, Send, Shield, AlertTriangle, Image as ImageIcon, Flag, CheckCheck } from 'lucide-react';
 import { IncidentIcon } from '../map/IncidentIcon';
 import { api, post, formatDate, errorMessage } from '../../services/api';
 import { useAuth } from '../../hooks/useAuth';
-import { triggerHaptic } from '../../services/native';
+import { triggerHaptic, getCurrentPosition } from '../../services/native';
 import { RISK_COLORS, RISK_NAMES } from '../../types';
 import type { Incidente, Mensaje } from '../../types';
 
@@ -22,7 +22,12 @@ export const IncidentDetailModal: React.FC<IncidentDetailModalProps> = ({
   const [comments, setComments] = useState<Mensaje[]>([]);
   const [commentText, setCommentText] = useState('');
   const [busyConfirm, setBusyConfirm] = useState(false);
+  const [busyResolve, setBusyResolve] = useState(false);
+  const [busyFlag, setBusyFlag] = useState(false);
   const [busyComment, setBusyComment] = useState(false);
+  const [showFlagModal, setShowFlagModal] = useState(false);
+  const [flagType, setFlagType] = useState<'FALSO' | 'NO_ENCONTRADO' | 'REAPERTURA'>('NO_ENCONTRADO');
+  const [flagReason, setFlagReason] = useState('');
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   const [activeTab, setActiveTab] = useState<'info' | 'chat'>('info');
@@ -32,10 +37,10 @@ export const IncidentDetailModal: React.FC<IncidentDetailModalProps> = ({
   const riskColor = RISK_COLORS[riskIndex];
   const riskName = RISK_NAMES[riskIndex];
 
-  // Load comments
+  // Load chat messages from the official backend /incidents/:id/chat
   useEffect(() => {
     let active = true;
-    api<Mensaje[]>(`/incidents/${incidente.id}/comments`)
+    api<Mensaje[]>(`/incidents/${incidente.id}/chat`)
       .then((data) => {
         if (active) setComments(data);
       })
@@ -50,12 +55,24 @@ export const IncidentDetailModal: React.FC<IncidentDetailModalProps> = ({
       setError('Inicia sesión para confirmar este incidente.');
       return;
     }
+    if (!usuario.correoVerificado) {
+      setError('Tu cuenta requiere tener el Gmail verificado para confirmar incidentes.');
+      return;
+    }
     void triggerHaptic('medium');
     setBusyConfirm(true);
     setError('');
     setMessage('');
     try {
-      await post(`/incidents/${incidente.id}/confirm`);
+      const pos = await getCurrentPosition().catch(() => null);
+      if (!pos) {
+        setError('Debes activar y conceder permiso de GPS para comprobar tu proximidad al incidente.');
+        return;
+      }
+      await post(`/incidents/${incidente.id}/confirmar`, {
+        latitud: pos.latitud,
+        longitud: pos.longitud,
+      });
       setMessage('¡Confirmación registrada con éxito!');
       onRefresh?.();
     } catch (err) {
@@ -65,18 +82,79 @@ export const IncidentDetailModal: React.FC<IncidentDetailModalProps> = ({
     }
   };
 
+  const handleResolve = async () => {
+    if (!usuario) {
+      setError('Inicia sesión para resolver este incidente.');
+      return;
+    }
+    if (!usuario.correoVerificado) {
+      setError('Tu cuenta requiere tener el Gmail verificado para resolver incidentes.');
+      return;
+    }
+    void triggerHaptic('medium');
+    setBusyResolve(true);
+    setError('');
+    setMessage('');
+    try {
+      const pos = await getCurrentPosition().catch(() => null);
+      if (!pos) {
+        setError('Debes activar el GPS para validar la resolución en el lugar del hecho.');
+        return;
+      }
+      await post(`/incidents/${incidente.id}/resolver`, {
+        latitud: pos.latitud,
+        longitud: pos.longitud,
+      });
+      setMessage('¡Incidente marcado como resuelto!');
+      onRefresh?.();
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setBusyResolve(false);
+    }
+  };
+
+  const handleSendFlag = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!flagReason.trim()) return;
+    if (!usuario || !usuario.correoVerificado) {
+      setError('Debes tener tu correo verificado para señalar incidentes.');
+      return;
+    }
+    void triggerHaptic('medium');
+    setBusyFlag(true);
+    setError('');
+    try {
+      await post(`/incidents/${incidente.id}/flags`, {
+        tipo: flagType,
+        motivo: flagReason.trim(),
+      });
+      setMessage('Aviso enviado al equipo de seguridad de CiviGo para su revisión.');
+      setShowFlagModal(false);
+      setFlagReason('');
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setBusyFlag(false);
+    }
+  };
+
   const handleSendComment = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!commentText.trim()) return;
     if (!usuario) {
-      setError('Inicia sesión para comentar.');
+      setError('Inicia sesión para conversar en el chat comunitario.');
+      return;
+    }
+    if (!usuario.correoVerificado) {
+      setError('Debes verificar tu Gmail para participar en el chat del incidente.');
       return;
     }
     void triggerHaptic('light');
     setBusyComment(true);
     setError('');
     try {
-      const res = await post<Mensaje>(`/incidents/${incidente.id}/comments`, {
+      const res = await post<Mensaje>(`/incidents/${incidente.id}/chat`, {
         mensaje: commentText.trim(),
       });
       setComments((prev) => [...prev, res]);
@@ -246,19 +324,96 @@ export const IncidentDetailModal: React.FC<IncidentDetailModalProps> = ({
                 </div>
               )}
 
-              {/* Confirmation Action */}
-              <div style={{ marginTop: 14 }}>
+              {/* Community Actions */}
+              <div style={{ marginTop: 14, display: 'flex', flexDirection: 'column', gap: 8 }}>
                 <button
                   type="button"
                   className="btn btn-primary btn-full"
-                  disabled={busyConfirm}
+                  disabled={busyConfirm || busyResolve}
                   onClick={handleConfirm}
                 >
                   <CheckCircle size={18} />
-                  <span>{busyConfirm ? 'Confirmando…' : 'Confirmar que sigue presente'}</span>
+                  <span>{busyConfirm ? 'Confirmando con GPS…' : 'Confirmar que sigue presente'}</span>
                 </button>
-                <small className="muted" style={{ display: 'block', textAlign: 'center', marginTop: 8 }}>
-                  Tus confirmaciones ayudan a la comunidad a validar incidentes activos en Ica.
+
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button
+                    type="button"
+                    className="btn btn-secondary"
+                    style={{ flex: 1, fontSize: 12, padding: '8px 10px' }}
+                    disabled={busyResolve || busyConfirm}
+                    onClick={handleResolve}
+                  >
+                    <CheckCheck size={16} />
+                    <span>{busyResolve ? 'Resolviendo…' : 'Marcar resuelto'}</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    className="btn btn-quiet"
+                    style={{ flex: 1, fontSize: 12, padding: '8px 10px', color: 'var(--muted)' }}
+                    onClick={() => setShowFlagModal(!showFlagModal)}
+                  >
+                    <Flag size={15} />
+                    <span>Señalar aviso</span>
+                  </button>
+                </div>
+
+                {showFlagModal && (
+                  <form
+                    onSubmit={handleSendFlag}
+                    style={{
+                      padding: 12,
+                      borderRadius: 10,
+                      backgroundColor: 'var(--surface-subtle)',
+                      border: '1px solid var(--line)',
+                      marginTop: 6,
+                    }}
+                  >
+                    <label style={{ fontSize: 12, fontWeight: 600, display: 'block', marginBottom: 6 }}>
+                      Motivo del aviso
+                    </label>
+                    <select
+                      className="form-input"
+                      value={flagType}
+                      onChange={(e) => setFlagType(e.target.value as any)}
+                      style={{ width: '100%', marginBottom: 8, fontSize: 12, padding: '6px 8px' }}
+                    >
+                      <option value="NO_ENCONTRADO">No encontrado en el lugar</option>
+                      <option value="FALSO">Incidente falso o malicioso</option>
+                      <option value="REAPERTURA">Solicitar reapertura</option>
+                    </select>
+                    <textarea
+                      className="form-input"
+                      placeholder="Explica detalladamente la situación observada..."
+                      value={flagReason}
+                      onChange={(e) => setFlagReason(e.target.value)}
+                      rows={2}
+                      maxLength={500}
+                      required
+                      style={{ width: '100%', fontSize: 12, marginBottom: 8 }}
+                    />
+                    <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+                      <button
+                        type="button"
+                        className="btn btn-quiet btn-small"
+                        onClick={() => setShowFlagModal(false)}
+                      >
+                        Cancelar
+                      </button>
+                      <button
+                        type="submit"
+                        className="btn btn-primary btn-small"
+                        disabled={busyFlag || !flagReason.trim()}
+                      >
+                        {busyFlag ? 'Enviando…' : 'Enviar aviso'}
+                      </button>
+                    </div>
+                  </form>
+                )}
+
+                <small className="muted" style={{ display: 'block', textAlign: 'center', marginTop: 4 }}>
+                  Tus confirmaciones con GPS ayudan a la comunidad a validar incidentes activos en Ica.
                 </small>
               </div>
             </>
