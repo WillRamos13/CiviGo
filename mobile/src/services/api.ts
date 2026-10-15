@@ -1,4 +1,5 @@
 import { Capacitor } from '@capacitor/core';
+import { NativeHttpError, requestNativeApi } from './nativeHttp';
 import type { Adjunto, Posicion, Reporte, Incidente } from '../types';
 
 export const isNative = Capacitor.isNativePlatform();
@@ -90,17 +91,29 @@ export async function api<T>(path: string, options: ApiOptions = {}): Promise<T>
       headers.set('Content-Type', 'application/json');
     }
 
-    let response: Response;
+    let response: { ok: boolean; status: number };
+    let data: unknown;
     const url = resolveApiUrl(path);
 
     try {
-      response = await fetch(url, {
-        ...requestOptions,
-        signal: controller.signal,
-        headers,
-        credentials: 'include',
-        cache: requestOptions.cache ?? 'no-store',
-      });
+      if (isNative) {
+        const native = await requestNativeApi(url, { ...requestOptions, headers, signal: controller.signal, timeoutMs });
+        response = native;
+        data = native.data;
+      } else {
+        const web = await fetch(url, {
+          ...requestOptions,
+          signal: controller.signal,
+          headers,
+          credentials: 'include',
+          redirect: 'error',
+          cache: requestOptions.cache ?? 'no-store',
+        });
+        if (web.url && new URL(web.url).href !== url)
+          throw new NativeHttpError('La conexión cambió de dirección y se bloqueó para proteger tus datos.', 'API_REDIRECT_BLOCKED');
+        response = web;
+        data = await web.json().catch(() => null);
+      }
     } catch (error) {
       if (options.signal?.aborted) throw error;
       if (timedOut) {
@@ -110,14 +123,13 @@ export async function api<T>(path: string, options: ApiOptions = {}): Promise<T>
           'REQUEST_TIMEOUT'
         );
       }
+      if (error instanceof NativeHttpError) throw new ApiError(error.message, error.status, error.code);
       throw new ApiError(
         'No se pudo conectar con el servidor de CiviGo. Comprueba tu conexión.',
         0,
         'NETWORK_ERROR'
       );
     }
-
-    const data = await response.json().catch(() => null);
 
     if (options.signal?.aborted) {
       throw new DOMException('Solicitud cancelada.', 'AbortError');
@@ -131,6 +143,7 @@ export async function api<T>(path: string, options: ApiOptions = {}): Promise<T>
     }
 
     if (!response.ok) {
+      const errorData = data && typeof data === 'object' ? data as Record<string, unknown> : {};
       // Invalid login credentials are not an expiry of the current session.
       if (response.status === 401 && requestSession === sessionRevision &&
           !/^\/users\/(login|register|logout|password\/(forgot|reset))$/.test(path)) {
@@ -139,23 +152,23 @@ export async function api<T>(path: string, options: ApiOptions = {}): Promise<T>
       let message = 'No se pudo completar la solicitud.';
       if (response.status >= 500) {
         message = 'El servicio de CiviGo no está disponible en este momento. Inténtalo de nuevo.';
-        if (response.status === 503 && data?.code === 'ROADS_UNAVAILABLE') {
+        if (response.status === 503 && errorData.code === 'ROADS_UNAVAILABLE') {
           message = 'Los datos de calles no están disponibles en este momento.';
-        } else if (response.status === 503 && data?.code === 'PLACES_SEARCH_UNAVAILABLE') {
+        } else if (response.status === 503 && errorData.code === 'PLACES_SEARCH_UNAVAILABLE') {
           message = 'No se pudo ampliar la búsqueda de lugares.';
-        } else if (response.status === 503 && typeof data?.code === 'string' && data.code.startsWith('EMAIL_GOOGLE_')) {
+        } else if (response.status === 503 && typeof errorData.code === 'string' && errorData.code.startsWith('EMAIL_GOOGLE_')) {
           message = 'La verificación con Google no está disponible en este momento.';
-        } else if (response.status === 503 && typeof data?.code === 'string' && data.code.startsWith('STORAGE_')) {
+        } else if (response.status === 503 && typeof errorData.code === 'string' && errorData.code.startsWith('STORAGE_')) {
           message = 'No se pudo acceder al archivo multimedia.';
         }
       } else {
-        message = typeof data?.error === 'string'
-          ? data.error
-          : typeof data?.mensaje === 'string'
-          ? data.mensaje
+        message = typeof errorData.error === 'string'
+          ? errorData.error.slice(0, 1000)
+          : typeof errorData.mensaje === 'string'
+          ? errorData.mensaje.slice(0, 1000)
           : message;
       }
-      throw new ApiError(message, response.status, data?.code);
+      throw new ApiError(message, response.status, typeof errorData.code === 'string' ? errorData.code : undefined);
     }
 
     if (data === null && response.status !== 204) {
@@ -169,16 +182,16 @@ export async function api<T>(path: string, options: ApiOptions = {}): Promise<T>
   }
 }
 
-export const post = <T>(path: string, body: unknown = {}, options: RequestInit = {}) =>
+export const post = <T>(path: string, body: unknown = {}, options: ApiOptions = {}) =>
   api<T>(path, { ...options, method: 'POST', body: JSON.stringify(body) });
 
-export const put = <T>(path: string, body: unknown = {}, options: RequestInit = {}) =>
+export const put = <T>(path: string, body: unknown = {}, options: ApiOptions = {}) =>
   api<T>(path, { ...options, method: 'PUT', body: JSON.stringify(body) });
 
-export const patch = <T>(path: string, body: unknown = {}, options: RequestInit = {}) =>
+export const patch = <T>(path: string, body: unknown = {}, options: ApiOptions = {}) =>
   api<T>(path, { ...options, method: 'PATCH', body: JSON.stringify(body) });
 
-export const del = <T>(path: string, options: RequestInit = {}) =>
+export const del = <T>(path: string, options: ApiOptions = {}) =>
   api<T>(path, { ...options, method: 'DELETE' });
 
 export async function upload(

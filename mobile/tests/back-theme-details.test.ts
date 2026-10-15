@@ -5,6 +5,23 @@ import { ThemeController } from '../src/services/theme';
 import { getIncidentDetail } from '../src/services/incidentDetails';
 
 const tick = () => new Promise(resolve => setTimeout(resolve, 0));
+
+test('Back remains functional in WebViews without Array.at', () => {
+  const descriptor = Object.getOwnPropertyDescriptor(Array.prototype, 'at')!;
+  const handlers = new BackHandlers(), calls: string[] = [];
+  let top = false, dismissed = false;
+  try {
+    Object.defineProperty(Array.prototype, 'at', { ...descriptor, value: undefined });
+    const entry = handlers.register(() => calls.push('dialog'));
+    top = entry.isTop();
+    dismissed = handlers.dismissTop();
+    entry.remove();
+    handlers.dismissTop();
+  } finally { Object.defineProperty(Array.prototype, 'at', descriptor); }
+  assert.equal(top, true);
+  assert.equal(dismissed, true);
+  assert.deepEqual(calls, ['dialog']);
+});
 function deferred<T>() {
   let resolve!: (value: T) => void;
   const promise = new Promise<T>(yes => { resolve = yes; });

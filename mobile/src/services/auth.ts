@@ -104,7 +104,7 @@ export function updateAuthNetworkStatus(connected: boolean) { currentNetworkStat
 
 export const sessionRevocation = new SessionRevocation(
   StorageService,
-  () => post('/users/logout', {}, { signal: AbortSignal.timeout(10000) }),
+  () => post('/users/logout', {}, { timeoutMs: 10000 }),
   () => currentNetworkStatus ?? (typeof navigator === 'undefined' || navigator.onLine !== false)
 );
 

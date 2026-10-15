@@ -1,6 +1,6 @@
 import type { CapacitorConfig } from '@capacitor/cli';
-import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { hasAndroidFirebaseConfig } from './android-firebase-config';
 
 const nativePlugins = [
   '@capacitor/app', '@capacitor/camera', '@capacitor/geolocation', '@capacitor/haptics',
@@ -8,7 +8,7 @@ const nativePlugins = [
 ];
 // The plugin initializes Firebase at application startup. Without native project
 // resources, exclude it so the rest of the app can run and report the missing setup.
-if (existsSync(resolve('android/app/google-services.json'))) nativePlugins.push('@capacitor-firebase/authentication');
+if (hasAndroidFirebaseConfig(resolve('android/app/google-services.json'), 'com.civigo.app')) nativePlugins.push('@capacitor-firebase/authentication');
 
 const config: CapacitorConfig = {
   appId: 'com.civigo.app',

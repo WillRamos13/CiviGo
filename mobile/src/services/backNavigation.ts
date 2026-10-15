@@ -7,12 +7,12 @@ export class BackHandlers {
     const token = Symbol('dialog');
     this.entries.push({ token, dismiss });
     return {
-      isTop: () => this.entries.at(-1)?.token === token,
+      isTop: () => this.entries[this.entries.length - 1]?.token === token,
       remove: () => { this.entries = this.entries.filter(entry => entry.token !== token); },
     };
   }
   dismissTop(): boolean {
-    const entry = this.entries.at(-1);
+    const entry = this.entries[this.entries.length - 1];
     if (!entry) return false;
     entry.dismiss();
     return true;

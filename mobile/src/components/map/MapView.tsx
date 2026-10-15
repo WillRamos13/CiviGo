@@ -131,6 +131,9 @@ export const MapView: React.FC<MapViewProps> = ({
       center: initialCenter,
       zoom: editor ? 16 : 13.5,
       attributionControl: false,
+      // Bound off-screen tile retention on phones; visible tiles still load.
+      maxTileCacheSize: 32,
+      fadeDuration: 0,
     }); } catch {
       setMapError('No se pudo iniciar el mapa en este dispositivo.');
       return;

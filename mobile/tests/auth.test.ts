@@ -15,6 +15,30 @@ function deferred<T>() {
   return { promise, resolve, reject };
 }
 const user = { id: 7, nickname: 'Ciudadano', correo: 'ciudadano@gmail.com', rol: 'AGENTE', correoVerificado: true, permisos: ['validar'], telefono: '+51999999999', monedas: 120, premium: false, ocultarAnuncios: false, credibilidad: 4 } as Usuario;
+
+test('server logout works when the WebView lacks AbortSignal.timeout', async () => {
+  const descriptor = Object.getOwnPropertyDescriptor(AbortSignal, 'timeout')!;
+  const originalFetch = globalThis.fetch;
+  const controller = new SessionController(() => {}, () => true);
+  let logouts = 0;
+  updateAuthNetworkStatus(true);
+  try {
+    Object.defineProperty(AbortSignal, 'timeout', { ...descriptor, value: undefined });
+    globalThis.fetch = async (url, options) => {
+      assert.match(String(url), /\/users\/logout$/);
+      assert.equal(options?.method, 'POST');
+      assert.ok(options?.signal instanceof AbortSignal);
+      logouts++;
+      return new Response(JSON.stringify({ mensaje: 'Sesión cerrada.' }));
+    };
+    await controller.logout();
+    assert.equal(logouts, 1);
+  } finally {
+    Object.defineProperty(AbortSignal, 'timeout', descriptor);
+    globalThis.fetch = originalFetch;
+    controller.invalidate();
+  }
+});
 function fixture() {
   const data = new Map<string, string>();
   let online = true;

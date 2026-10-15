@@ -21,7 +21,7 @@ export function useDialog<T extends HTMLElement>(open: boolean, onClose: () => v
       if (!registration.isTop() || event.defaultPrevented) return;
       if (event.key === 'Escape') { event.preventDefault(); close.current(); return; }
       if (event.key !== 'Tab') return;
-      const items = focusable(), first = items[0], last = items.at(-1);
+      const items = focusable(), first = items[0], last = items[items.length - 1];
       if (!first || !last) { event.preventDefault(); element.focus(); return; }
       const current = document.activeElement;
       if (event.shiftKey && (current === first || !element.contains(current))) {
