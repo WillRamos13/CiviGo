@@ -28,6 +28,8 @@ jobs:
         working-directory: backend
       - run: npx prisma generate && npx prisma migrate deploy && npm run check && npm test
         working-directory: backend
+      - run: npm audit --omit=dev --audit-level=high
+        working-directory: backend
       - run: npm ci
         working-directory: frontend
       - run: npm run lint && npx tsc --noEmit && npm test && npm run build
@@ -76,3 +78,24 @@ jobs:
         working-directory: desktop
       - run: npm run test:electron
         working-directory: desktop
+      - run: npm audit --omit=dev --audit-level=high
+        working-directory: desktop
+  mobile:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: npm ci
+        working-directory: mobile
+      - name: Preparar navegador para pruebas locales aisladas
+        run: |
+          echo "CIVIGO_CHROME_PATH=$(command -v google-chrome)" >> "$GITHUB_ENV"
+          test -x "$(command -v google-chrome)"
+      - run: npm test
+        working-directory: mobile
+      - run: npm run build
+        working-directory: mobile
+      - run: npm audit --omit=dev --audit-level=high
+        working-directory: mobile

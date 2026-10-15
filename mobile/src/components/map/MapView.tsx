@@ -8,9 +8,9 @@ import { updateIncidentMarker } from './incidentMarker';
 import { RISK_COLORS } from '../../types';
 import type { Incidente, Ruta, Posicion, LocationFix } from '../../types';
 import { RiskLegend } from './RiskLegend';
-import { NavigationService, isPosition } from '../../services/navigation';
+import { NavigationService, isPosition, isUsableFix } from '../../services/navigation';
 import { applyRoadRisk, type RoadGeometry } from '../../services/roadMap';
-import type { MapBounds } from '../../services/mapData';
+import { isInMarkerViewport, type MapBounds } from '../../services/mapData';
 
 // Official CiviGo Mapbox Token
 const MAPBOX_TOKEN =
@@ -25,7 +25,7 @@ interface MapViewProps {
   editor?: boolean;
   onSelectIncident?: (incidente: Incidente) => void;
   onSelectCoordinates?: (pos: Posicion) => void;
-  onLocateMe?: () => void;
+  onLocateMe?: () => Promise<LocationFix | null> | LocationFix | null;
   locating?: boolean;
   onBoundsChange?: (bounds: MapBounds) => void;
   refreshEnabled?: boolean;
@@ -56,6 +56,8 @@ export const MapView: React.FC<MapViewProps> = ({
   const [loadingRoads, setLoadingRoads] = useState(false);
   const [reload, setReload] = useState(0);
   const [roadReload, setRoadReload] = useState(0);
+  const [markerBounds, setMarkerBounds] = useState<MapBounds | null>(null);
+  const locateAttempt = useRef(0);
   const coordinatesCallback = useRef(onSelectCoordinates);
   coordinatesCallback.current = onSelectCoordinates;
   const boundsCallback = useRef(onBoundsChange);
@@ -141,6 +143,8 @@ export const MapView: React.FC<MapViewProps> = ({
     const publishBounds = () => {
       const bounds = map.getBounds();
       if (!active || !bounds || editor) return;
+      const viewport: MapBounds = [bounds.getWest(), bounds.getSouth(), bounds.getEast(), bounds.getNorth()];
+      setMarkerBounds((previous) => previous && previous.every((value, index) => value === viewport[index]) ? previous : viewport);
       const west = Math.max(-180, bounds.getWest()), east = Math.min(180, bounds.getEast());
       const south = Math.max(-90, bounds.getSouth()), north = Math.min(90, bounds.getNorth());
       if (west < east && south < north) boundsCallback.current?.([west, south, east, north]);
@@ -296,6 +300,7 @@ export const MapView: React.FC<MapViewProps> = ({
 
     return () => {
       active = false;
+      locateAttempt.current += 1;
       clearTimeout(loadingTimer);
       unsubscribe();
       resizeObserver?.disconnect();
@@ -400,7 +405,7 @@ export const MapView: React.FC<MapViewProps> = ({
     const seenIds = new Set<number>();
 
     incidentes.forEach((inc) => {
-      if (!isPosition(inc)) return;
+      if (!markerBounds || !isInMarkerViewport(inc, markerBounds)) return;
       seenIds.add(inc.id);
 
       if (currentMarkers.has(inc.id)) {
@@ -438,7 +443,7 @@ export const MapView: React.FC<MapViewProps> = ({
         currentMarkers.delete(id);
       }
     });
-  }, [incidentes, mapLoaded, editor, onSelectIncident]);
+  }, [incidentes, markerBounds, mapLoaded, editor, onSelectIncident]);
 
   // Sync Road Features and Visibility
   useEffect(() => {
@@ -477,16 +482,20 @@ export const MapView: React.FC<MapViewProps> = ({
     }
   }, [incidentes, showRisks, mapLoaded, editor]);
 
-  const handleCenterUser = () => {
+  const handleCenterUser = async () => {
     void triggerHaptic('medium');
-    if (posicion && mapRef.current) {
-      mapRef.current.flyTo({
-        center: [posicion.longitud, posicion.latitud],
+    const map = mapRef.current;
+    const attempt = ++locateAttempt.current;
+    let fix: LocationFix | null | undefined;
+    try { fix = onLocateMe ? await onLocateMe() : posicion; }
+    catch { return; }
+    if (map && mapRef.current === map && attempt === locateAttempt.current && isUsableFix(fix)) {
+      map.flyTo({
+        center: [fix.longitud, fix.latitud],
         zoom: 16,
         duration: 800,
       });
     }
-    onLocateMe?.();
   };
 
   const handleResetOrientation = () => {

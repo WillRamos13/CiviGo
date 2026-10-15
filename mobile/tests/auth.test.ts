@@ -195,6 +195,52 @@ describe('Google email verification with mocked SDK and backend only', () => {
     await assert.rejects(sdk.open(email), /test token failure/);
     assert.equal(signedOut, 2);
   });
+  test('disposing a queued native verification never opens its Google window', async () => {
+    const firstStarted = deferred<void>();
+    const releaseFirst = deferred<void>();
+    let opened = 0, committed = 0, signedOut = 0;
+    const bridge = {
+      signOut: async () => { signedOut++; },
+      signInWithGoogle: async () => {
+        opened++;
+        if (opened === 1) { firstStarted.resolve(); await releaseFirst.promise; }
+        return { user: { email, emailVerified: true } };
+      },
+      getIdToken: async () => ({ token: token() }),
+    };
+    const load = async () => createNativeGoogleEmailSdk(bridge);
+    const first = new GoogleEmailFlow(config, load), queued = new GoogleEmailFlow(config, load);
+    await first.prepare(async () => challenge()); await queued.prepare(async () => challenge());
+    const running = first.verify(email, async () => 'verified');
+    await firstStarted.promise;
+    const canceled = queued.verify(email, async () => { committed++; });
+    const rejected = assert.rejects(canceled, { name: 'AbortError' });
+    queued.dispose();
+    releaseFirst.resolve();
+    assert.equal(await running, 'verified');
+    await rejected;
+    assert.equal(opened, 1);
+    assert.equal(committed, 0);
+    assert.equal(signedOut, 2);
+    first.dispose();
+  });
+  test('native cancellation during initial cleanup prevents opening Google and still cleans up', async () => {
+    const cleaning = deferred<void>(), release = deferred<void>();
+    let signedOut = 0, opened = 0;
+    const sdk = createNativeGoogleEmailSdk({
+      signOut: async () => { signedOut++; if (signedOut === 1) { cleaning.resolve(); await release.promise; } },
+      signInWithGoogle: async () => { opened++; return { user: { email, emailVerified: true } }; },
+      getIdToken: async () => ({ token: token() }),
+    });
+    const pending = sdk.open(email);
+    const rejected = assert.rejects(pending, { name: 'AbortError' });
+    await cleaning.promise;
+    await sdk.signOut();
+    release.resolve();
+    await rejected;
+    assert.equal(opened, 0);
+    assert.equal(signedOut, 2);
+  });
   test('requires all public Firebase settings and a valid project', () => {
     assert.equal(firebaseEmailConfig({}), null);
     assert.deepEqual(firebaseEmailConfig({ VITE_FIREBASE_API_KEY: config.apiKey, VITE_FIREBASE_AUTH_DOMAIN: config.authDomain, VITE_FIREBASE_PROJECT_ID: config.projectId, VITE_FIREBASE_APP_ID: config.appId }), config);
@@ -335,6 +381,114 @@ describe('Authentication backend contracts and cookie persistence', () => {
       assert.equal(invalidated, 1);
       assert.equal(await StorageService.get('civigo:offline-account'), null);
     } finally { globalThis.fetch = originalFetch; unsubscribe(); }
+  });
+  test('a later login waits for the password-reset cookie deletion and remains authenticated', async () => {
+    const originalFetch = globalThis.fetch;
+    const started = deferred<void>(), releaseReset = deferred<void>();
+    const order: string[] = [];
+    const nextUser = { ...user, id: 82, correo: 'otra-cuenta@gmail.com' };
+    let cookie: Usuario | null = null;
+    let state: SessionState = { usuario: null, loading: true, offline: false };
+    const controller = new SessionController(next => { state = next; }, () => true);
+    const unsubscribe = onUnauthorized(() => controller.expire());
+    updateAuthNetworkStatus(true);
+    try {
+      globalThis.fetch = async url => {
+        const pathname = new URL(String(url)).pathname;
+        if (pathname.endsWith('/password/reset')) {
+          order.push('reset-start'); started.resolve(); await releaseReset.promise;
+          cookie = null; order.push('reset-cookie-cleared');
+          return new Response(JSON.stringify({ mensaje: 'Contraseña actualizada.' }));
+        }
+        if (pathname.endsWith('/login')) { order.push('login'); cookie = nextUser; }
+        assert.ok(cookie, 'the login must finish after the old reset clears its cookie');
+        return new Response(JSON.stringify({ usuario: cookie }));
+      };
+      const resetting = AuthService.resetPassword('a'.repeat(64), 'local-new-password');
+      await started.promise;
+      const loggingIn = AuthService.login(nextUser.correo, 'local-next-password');
+      await new Promise<void>(resolve => setImmediate(resolve));
+      assert.deepEqual(order, ['reset-start']);
+      releaseReset.resolve();
+      await resetting;
+      assert.equal((await loggingIn).id, nextUser.id);
+      await controller.refresh();
+      assert.equal(state.usuario?.id, nextUser.id);
+      assert.deepEqual(order, ['reset-start', 'reset-cookie-cleared', 'login']);
+    } finally { releaseReset.resolve(); globalThis.fetch = originalFetch; unsubscribe(); controller.invalidate(); }
+  });
+  test('an in-flight password change holds logout and the next login even after the profile is canceled', async () => {
+    const originalFetch = globalThis.fetch;
+    const started = deferred<void>(), releaseChange = deferred<void>();
+    const profile = new AbortController();
+    const order: string[] = [];
+    const nextUser = { ...user, id: 83, correo: 'cuenta-posterior@gmail.com' };
+    let cookie: Usuario | null = user;
+    let requestSignal: AbortSignal | undefined;
+    let state: SessionState = { usuario: null, loading: true, offline: false };
+    const controller = new SessionController(next => { state = next; }, () => true);
+    const unsubscribe = onUnauthorized(() => controller.expire());
+    updateAuthNetworkStatus(true);
+    try {
+      globalThis.fetch = async (url, options) => {
+        const pathname = new URL(String(url)).pathname;
+        if (pathname.endsWith('/password/change')) {
+          assert.deepEqual(JSON.parse(String(options?.body)), { actual: 'current-fixture-password', password: 'new-fixture-password' });
+          requestSignal = options?.signal ?? undefined;
+          order.push('change-start'); started.resolve(); await releaseChange.promise;
+          cookie = null; order.push('change-cookie-cleared');
+          return new Response(JSON.stringify({ mensaje: 'Se cerraron las sesiones.' }));
+        }
+        if (pathname.endsWith('/logout')) {
+          order.push('logout'); cookie = null;
+          return new Response(JSON.stringify({ error: 'Sesión ya cerrada.' }), { status: 401 });
+        }
+        if (pathname.endsWith('/login')) { order.push('login'); cookie = nextUser; }
+        return new Response(JSON.stringify(cookie ? { usuario: cookie } : { error: 'Inicia sesión.' }), { status: cookie ? 200 : 401 });
+      };
+      await controller.refresh();
+      assert.equal(state.usuario?.id, user.id);
+      const changing = AuthService.changePassword('current-fixture-password', 'new-fixture-password', profile.signal);
+      const canceled = assert.rejects(changing, /cancelada/);
+      await started.promise;
+      const loggingOut = controller.logout();
+      profile.abort();
+      const loggingIn = AuthService.login(nextUser.correo, 'next-fixture-password');
+      await new Promise<void>(resolve => setImmediate(resolve));
+      assert.deepEqual(order, ['change-start']);
+      assert.equal(requestSignal?.aborted, false, 'profile disposal must not detach the cookie mutation from its session queue');
+      releaseChange.resolve();
+      await canceled; await loggingOut;
+      assert.equal((await loggingIn).id, nextUser.id);
+      await controller.refresh();
+      assert.equal(state.usuario?.id, nextUser.id);
+      assert.deepEqual(order, ['change-start', 'change-cookie-cleared', 'logout', 'login']);
+    } finally { releaseChange.resolve(); globalThis.fetch = originalFetch; unsubscribe(); controller.invalidate(); }
+  });
+  test('password changes canceled before dispatch never send credentials, including while queued', async () => {
+    const originalFetch = globalThis.fetch;
+    const started = deferred<void>(), releaseReset = deferred<void>();
+    const beforeQueue = new AbortController(), queued = new AbortController();
+    let changesSent = 0;
+    updateAuthNetworkStatus(true);
+    try {
+      globalThis.fetch = async url => {
+        const pathname = new URL(String(url)).pathname;
+        if (pathname.endsWith('/password/reset')) { started.resolve(); await releaseReset.promise; }
+        else changesSent++;
+        return new Response(JSON.stringify({ mensaje: 'Contraseña actualizada.' }));
+      };
+      beforeQueue.abort();
+      await assert.rejects(AuthService.changePassword('never-send-current', 'never-send-next', beforeQueue.signal), { name: 'AbortError' });
+      const resetting = AuthService.resetPassword('a'.repeat(64), 'local-new-password');
+      await started.promise;
+      const changing = AuthService.changePassword('never-send-current', 'never-send-next', queued.signal);
+      const canceled = assert.rejects(changing, { name: 'AbortError' });
+      queued.abort();
+      releaseReset.resolve();
+      await resetting; await canceled;
+      assert.equal(changesSent, 0);
+    } finally { releaseReset.resolve(); globalThis.fetch = originalFetch; }
   });
 });
 

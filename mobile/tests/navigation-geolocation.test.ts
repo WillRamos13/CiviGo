@@ -6,6 +6,19 @@ import type { LocationFix } from '../src/types';
 
 const fix: LocationFix = { latitud: -14.0678, longitud: -75.7286, accuracy: 10, timestamp: 100000 };
 
+test('GPS failures keep their retry semantics while displaying Spanish instructions', () => {
+  for (const code of [3, 'OS-PLUG-GLOC-0010']) {
+    const failure = normalizeGeolocationError({ code, message: 'Timeout expired' });
+    assert.match(failure.message, /GPS tardó demasiado/);
+    assert.equal(failure.code, code);
+    const policy = new GeolocationAccessPolicy();
+    policy.observeError(failure);
+    assert.equal(policy.canWatchAutomatically(), true);
+  }
+  assert.match(normalizeGeolocationError({ code: 2, message: 'Position unavailable' }).message, /No se pudo obtener tu ubicación/);
+  assert.match(normalizeGeolocationError({ code: 'OS-PLUG-GLOC-0007', message: 'Disabled' }).message, /Activa la ubicación/);
+});
+
 test('Android accuracy refusal stops its watcher and hiding/returning never reprompts automatically', () => {
   const policy = new GeolocationAccessPolicy();
   let starts = 0, stops = 0, successes = 0;

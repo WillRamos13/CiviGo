@@ -40,6 +40,9 @@ export const AgentPage: React.FC<AgentPageProps> = ({ onBack }) => {
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
+  const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0);
+  const [pages, setPages] = useState(1);
   const [activeEvidence, setActiveEvidence] = useState<{ url: string; mimeType: string; privado?: boolean } | null>(null);
   const [busyAction, setBusyAction] = useState(false);
   const [actionReason, setActionReason] = useState('');
@@ -53,6 +56,7 @@ export const AgentPage: React.FC<AgentPageProps> = ({ onBack }) => {
   const [messagesLoading, setMessagesLoading] = useState(false);
   const [messagesError, setMessagesError] = useState('');
   const queueRequest = useRef(0);
+  const queueController = useRef<AbortController | null>(null);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
   const operations = useOperationScope(`${usuario?.id ?? 'guest'}:${selectedIncident?.id ?? 'queue'}`);
@@ -77,25 +81,34 @@ export const AgentPage: React.FC<AgentPageProps> = ({ onBack }) => {
 
   const loadIncidents = useCallback(async () => {
     const request = ++queueRequest.current;
+    queueController.current?.abort();
     if (!canConsult) return;
+    const controller = new AbortController();
+    queueController.current = controller;
     setLoading(true);
     setError('');
     try {
       const res = await AgentService.getIncidents({
         distrito: usuario?.distrito || undefined,
         estado: statusFilter || undefined,
-      });
-      if (request === queueRequest.current) setIncidents(res.items);
+        pagina: page,
+        busqueda: searchQuery,
+      }, { signal: controller.signal });
+      if (request !== queueRequest.current || controller.signal.aborted) return;
+      setTotal(res.total);
+      setPages(res.pages);
+      if (page > res.pages) { setPage(res.pages); return; }
+      setIncidents(res.items);
     } catch (err) {
       if (request === queueRequest.current) setError(errorMessage(err));
     } finally {
       if (request === queueRequest.current) setLoading(false);
     }
-  }, [canConsult, usuario?.id, usuario?.distrito, statusFilter]);
+  }, [canConsult, usuario?.id, usuario?.distrito, statusFilter, page, searchQuery]);
 
   useEffect(() => {
     void loadIncidents();
-    return () => { ++queueRequest.current; };
+    return () => { ++queueRequest.current; queueController.current?.abort(); };
   }, [loadIncidents]);
 
   useEffect(() => {
@@ -103,6 +116,7 @@ export const AgentPage: React.FC<AgentPageProps> = ({ onBack }) => {
     setActiveEvidence(null);
     setCurrentAction(null);
     setIncidents([]);
+    setPage(1); setTotal(0); setPages(1);
     setError(''); setMessage('');
   }, [usuario?.id]);
 
@@ -221,14 +235,16 @@ export const AgentPage: React.FC<AgentPageProps> = ({ onBack }) => {
           type="text"
           className="form-input"
           placeholder="Buscar por ID, tipo o descripción en Ica..."
+          aria-label="Buscar incidentes"
+          maxLength={160}
           value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
+          onChange={(e) => { setSearchQuery(e.target.value); setPage(1); }}
           style={{ width: '100%', padding: '8px 12px', fontSize: 13, marginBottom: 8 }}
         />
         <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
           <select
             value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
+            onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }}
             className="form-input"
             style={{ flex: 1, padding: '8px 10px', fontSize: 12 }}
           >
@@ -253,32 +269,25 @@ export const AgentPage: React.FC<AgentPageProps> = ({ onBack }) => {
         </div>
       </div>
 
+      {!loading && !error && <p className="muted" role="status" style={{ fontSize: 12 }}>
+        {total} {total === 1 ? 'incidente encontrado' : 'incidentes encontrados'}
+      </p>}
+
       {loading ? (
         <div className="card" style={{ textAlign: 'center', padding: '30px' }}>
           <p className="muted">Cargando cola de incidentes…</p>
         </div>
-      ) : incidents.length === 0 ? (
+      ) : error ? null : incidents.length === 0 ? (
         <div className="card" style={{ textAlign: 'center', padding: '30px' }}>
           <Check size={32} color="var(--success-ink)" style={{ margin: '0 auto 10px' }} />
-          <h3>Cola al día</h3>
+          <h3>{searchQuery.trim() ? 'Sin coincidencias' : 'Cola al día'}</h3>
           <p className="muted" style={{ fontSize: 12 }}>
             No hay incidentes pendientes con los filtros seleccionados.
           </p>
         </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-          {incidents
-            .filter((inc) => {
-              if (!searchQuery.trim()) return true;
-              const q = searchQuery.toLowerCase().trim();
-              return (
-                String(inc.id).includes(q) ||
-                (inc.tipoNombre || inc.tipo).toLowerCase().includes(q) ||
-                (inc.descripcion || '').toLowerCase().includes(q) ||
-                (inc.distrito || '').toLowerCase().includes(q)
-              );
-            })
-            .map((inc) => {
+          {incidents.map((inc) => {
               const riskLevel = inc.gravedad ?? inc.nivelRiesgo;
               const knownRisk = inc.evaluacion !== 'PENDIENTE' && typeof riskLevel === 'number'
                 && Number.isInteger(riskLevel) && riskLevel >= 0 && riskLevel < RISK_COLORS.length;
@@ -327,6 +336,14 @@ export const AgentPage: React.FC<AgentPageProps> = ({ onBack }) => {
           })}
         </div>
       )}
+
+      {pages > 1 && <nav aria-label="Páginas de incidentes" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginTop: 16 }}>
+        <button type="button" className="btn btn-secondary btn-small" disabled={loading || page <= 1}
+          onClick={() => setPage((current) => Math.max(1, current - 1))}>Anterior</button>
+        <span className="muted" style={{ fontSize: 12 }}>Página {page} de {pages}</span>
+        <button type="button" className="btn btn-secondary btn-small" disabled={loading || page >= pages}
+          onClick={() => setPage((current) => Math.min(pages, current + 1))}>Siguiente</button>
+      </nav>}
 
       {/* Incident Review Modal Sheet */}
       {selectedIncident && (

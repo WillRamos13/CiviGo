@@ -232,6 +232,12 @@ export function onNetworkChange(callback: (status: ConnectionStatus) => void): (
 }
 
 /* --- ANDROID HARDWARE BACK BUTTON --- */
+export async function minimizeAndroidApp(): Promise<void> {
+  if (!isNative) return;
+  try { await App.minimizeApp(); }
+  catch { try { await App.exitApp(); } catch { /* The native activity may already be closing. */ } }
+}
+
 export function onHardwareBackButton(callback: () => void): () => void {
   if (!isNative) return () => {};
   return subscribeAsync(async isActive => {

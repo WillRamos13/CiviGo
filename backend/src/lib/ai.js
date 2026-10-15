@@ -300,7 +300,7 @@ const EVALUATION_FORMAT = {
     properties: {
       gravedad: { type: "integer", minimum: 1, maximum: 5 },
       posibleFalso: { type: "boolean" },
-      motivo: { type: "string", maxLength: 500 },
+      motivo: { type: "string", minLength: 1, maxLength: 500 },
       emergenciaActiva: { type: "boolean" },
       tipoPropuesto: {
         anyOf: [
@@ -342,6 +342,10 @@ function validEvaluation(result, type) {
     !("tipoPropuesto" in result)
   )
     return null;
+  const motivo = result.motivo
+    .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, "")
+    .trim();
+  if (!motivo) return null;
   let tipoPropuesto = null;
   const proposed = result.tipoPropuesto;
   if (proposed !== null) {
@@ -364,7 +368,7 @@ function validEvaluation(result, type) {
   return {
     gravedad: result.gravedad,
     posibleFalso: result.posibleFalso,
-    motivo: result.motivo.trim(),
+    motivo,
     emergenciaActiva: result.emergenciaActiva,
     tipoPropuesto,
   };

@@ -18,7 +18,15 @@ export function normalizeGeolocationError(value: unknown): GeolocationError {
     ? 'No se activó la precisión de ubicación. Pulsa Reintentar GPS para volver a intentarlo.'
     : code === 'OS-PLUG-GLOC-0003' || code === 1
       ? 'Permiso de GPS denegado. Pulsa Reintentar GPS para volver a solicitarlo.'
-      : originalMessage;
+      : code === 3 || code === 'OS-PLUG-GLOC-0010'
+        ? 'El GPS tardó demasiado en obtener tu ubicación. Comprueba la ubicación del dispositivo y pulsa Reintentar GPS.'
+        : code === 2 || code === 'OS-PLUG-GLOC-0002'
+          ? 'No se pudo obtener tu ubicación. Comprueba la señal GPS e inténtalo de nuevo.'
+          : code === 'OS-PLUG-GLOC-0007'
+            ? 'Activa la ubicación en los ajustes del dispositivo y pulsa Reintentar GPS.'
+            : code === 'OS-PLUG-GLOC-0008'
+              ? 'El acceso a la ubicación está restringido. Revisa los permisos de CiviGo en los ajustes del dispositivo.'
+              : originalMessage;
   return new GeolocationError(message, code);
 }
 

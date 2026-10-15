@@ -6,7 +6,8 @@ import AuthGate from "@/components/AuthGate";
 import IncidentIcon from "@/components/IncidentIcon";
 import { useAuth } from "@/components/AuthProvider";
 import { canParticipate } from "@/lib/session";
-import { api, post, errorMessage, formatDate, upload } from "@/lib/api";
+import { api, post, errorMessage, formatDate } from "@/lib/api";
+import { remainingAttachmentSlots, submitWithAttachments } from "@/lib/attachments";
 import type { Reporte } from "@/lib/types";
 import { incidentEvaluationLabel } from "@/lib/incidents";
 function AppealHistory({ appeals }: { appeals: Reporte["apelaciones"] }) {
@@ -85,11 +86,11 @@ function Reports() {
     setBusy(true);
     setError("");
     try {
-      if (proofs.length === 0 || proofs.length > 3)
-        throw new Error("Selecciona de una a tres pruebas.");
-      const ids = [];
-      for (const f of proofs) ids.push((await upload(f, true, "EVIDENCIA")).id);
-      await post(`/reports/${r.id}/evidence`, { adjuntosIds: ids });
+      const available = remainingAttachmentSlots(r.adjuntos);
+      if (proofs.length === 0 || proofs.length > available)
+        throw new Error(`Espacios disponibles para pruebas: ${available}. Selecciona archivos dentro de este límite.`);
+      await submitWithAttachments(proofs, { privado: true, tipo: "EVIDENCIA" }, attachments =>
+        post(`/reports/${r.id}/evidence`, { adjuntosIds: attachments.map(item => item.id) }));
       setMessage(
         "Pruebas privadas enviadas. Un agente autorizado las revisará.",
       );
@@ -279,6 +280,7 @@ function Reports() {
                   !["FALSO", "RETIRADO"].includes(r.estado) && (
                     <button
                       className="btn btn-secondary btn-small"
+                      disabled={busy || remainingAttachmentSlots(r.adjuntos) === 0}
                       onClick={() => {
                         setActive(active === r.id ? null : r.id);
                         setProofs([]);
@@ -310,24 +312,27 @@ function Reports() {
                       type="file"
                       accept="image/jpeg,image/png,image/webp,application/pdf,video/mp4,video/webm,video/quicktime"
                       multiple
+                      disabled={busy}
                       onChange={(e) => {
                         const list = Array.from(e.target.files || []);
                         if (
-                          list.length > 3 ||
+                          list.length > remainingAttachmentSlots(r.adjuntos) ||
                           list.some((f) => f.size > 15 * 1024 * 1024)
                         ) {
                           setError(
-                            "Máximo tres archivos, hasta 15 MB cada uno.",
+                            `Espacios disponibles: ${remainingAttachmentSlots(r.adjuntos)}. Máximo 15 MB por archivo.`,
                           );
                           e.target.value = "";
+                          setProofs([]);
                           return;
                         }
                         setProofs(list);
+                        setError("");
                       }}
                     />
                     <small>
                       Documentos, fotos o videos de hasta 30 segundos. Máximo 15
-                      MB por archivo. No se publican en el mapa.
+                      MB por archivo. No se publican en el mapa. Espacios disponibles: {remainingAttachmentSlots(r.adjuntos)} de tres por reporte.
                     </small>
                   </div>
                   <button

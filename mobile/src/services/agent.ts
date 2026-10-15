@@ -101,15 +101,25 @@ function checkGravity(value: number | undefined): void {
 export interface AgentIncidentPage {
   total: number;
   items: IncidentReviewSummary[];
+  page: number;
+  pageSize: number;
+  pages: number;
 }
 
+export const AGENT_PAGE_SIZE = 50;
+
+const positiveInteger = (value: unknown): value is number => Number.isSafeInteger(value) && Number(value) > 0;
+
 export function normalizeAgentIncidents(value: unknown): AgentIncidentPage {
-  if (Array.isArray(value)) return { total: value.length, items: value };
+  if (Array.isArray(value)) return { total: value.length, items: value, page: 1, pageSize: value.length || AGENT_PAGE_SIZE, pages: 1 };
   if (value && typeof value === 'object' && 'items' in value && Array.isArray(value.items)) {
-    const total = 'total' in value && typeof value.total === 'number' && Number.isFinite(value.total)
+    const total = 'total' in value && Number.isSafeInteger(value.total) && Number(value.total) >= 0
       ? value.total
       : value.items.length;
-    return { total, items: value.items };
+    const page = 'page' in value && positiveInteger(value.page) ? value.page : 1;
+    const pageSize = 'pageSize' in value && positiveInteger(value.pageSize) ? value.pageSize : AGENT_PAGE_SIZE;
+    const pages = Math.max(1, Math.ceil(Number(total) / pageSize));
+    return { total: Number(total), items: value.items, page, pageSize, pages };
   }
   throw new Error('La respuesta de la cola de incidentes no es válida.');
 }
@@ -119,12 +129,15 @@ export const AgentService = {
     distrito?: string;
     estado?: string;
     pagina?: number;
-  } = {}): Promise<AgentIncidentPage> {
+    busqueda?: string;
+  } = {}, options: { signal?: AbortSignal } = {}): Promise<AgentIncidentPage> {
     const query = new URLSearchParams();
     if (params.distrito) query.set('distrito', params.distrito);
     if (params.estado) query.set('estado', params.estado);
-    if (params.pagina) query.set('page', String(params.pagina));
-    const value = await api<unknown>(`/admin/incidents?${query.toString()}`);
+    query.set('page', String(params.pagina ?? 1));
+    query.set('limit', String(AGENT_PAGE_SIZE));
+    if (params.busqueda?.trim()) query.set('q', params.busqueda.trim());
+    const value = await api<unknown>(`/admin/incidents?${query.toString()}`, { signal: options.signal });
     return normalizeAgentIncidents(value);
   },
 

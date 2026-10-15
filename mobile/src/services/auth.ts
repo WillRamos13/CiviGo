@@ -82,16 +82,17 @@ export class SessionRevocation {
 
   flush(): Promise<void> { return this.serial(() => this.revoke()); }
 
-  authenticate<T>(operation: () => Promise<T>): Promise<T> {
+  authenticate<T>(operation: () => Promise<T>, action = 'iniciar sesión'): Promise<T> {
     const revision = this.revision;
+    const canceledMessage = action === 'iniciar sesión' ? 'El inicio de sesión fue cancelado.' : 'La operación fue cancelada.';
     return this.serial(async () => {
-      if (!this.networkAvailable()) throw new Error('Necesitas conexión para iniciar sesión.');
+      if (!this.networkAvailable()) throw new Error(`Necesitas conexión para ${action}.`);
       await this.revoke();
-      if (revision !== this.revision) throw new Error('El inicio de sesión fue cancelado.');
+      if (revision !== this.revision) throw new Error(canceledMessage);
       const result = await operation();
       // Logout may occur while Set-Cookie is still in flight. Its queued
       // revocation runs after this response, so that cookie cannot revive it.
-      if (revision !== this.revision) throw new Error('El inicio de sesión fue cancelado.');
+      if (revision !== this.revision) throw new Error(canceledMessage);
       advanceApiSession();
       return result;
     });
@@ -265,17 +266,31 @@ export const AuthService = {
   },
 
   async resetPassword(token: string, password: string): Promise<{ mensaje: string }> {
-    const result = await post<{ mensaje: string }>('/users/password/reset', { token, password });
-    invalidateAuthenticatedSession();
-    await sessionRevocation.store(storage => storage.remove(ACCOUNT_KEY)).catch(() => {});
-    return result;
+    // Reset clears the browser cookie too. A later login must wait for that
+    // response before it can install and confirm a new session cookie.
+    return sessionRevocation.authenticate(async () => {
+      const result = await post<{ mensaje: string }>('/users/password/reset', { token, password });
+      invalidateAuthenticatedSession();
+      await sessionRevocation.store(storage => storage.remove(ACCOUNT_KEY)).catch(() => {});
+      return result;
+    }, 'restablecer la contraseña');
   },
 
   async changePassword(actual: string, password: string, signal?: AbortSignal): Promise<{ mensaje: string }> {
-    const result = await post<{ mensaje: string }>('/users/password/change', { actual, password }, { signal });
-    invalidateAuthenticatedSession();
-    await sessionRevocation.store(storage => storage.remove(ACCOUNT_KEY)).catch(() => {});
-    return result;
+    const assertRequested = () => {
+      if (signal?.aborted) throw new DOMException('Solicitud cancelada.', 'AbortError');
+    };
+    assertRequested();
+    return sessionRevocation.authenticate(async () => {
+      assertRequested();
+      // Once dispatched, keep the queue until the cookie-clearing response
+      // finishes. Leaving the profile only cancels its UI operation; aborting
+      // this request could release a later login before Set-Cookie arrives.
+      const result = await post<{ mensaje: string }>('/users/password/change', { actual, password });
+      invalidateAuthenticatedSession();
+      await sessionRevocation.store(storage => storage.remove(ACCOUNT_KEY)).catch(() => {});
+      return result;
+    }, 'cambiar la contraseña');
   },
 
   async updateNickname(nickname: string, signal?: AbortSignal): Promise<Usuario> {

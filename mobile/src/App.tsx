@@ -3,7 +3,9 @@ import { AuthProvider } from './hooks/useAuth';
 import { ThemeProvider } from './hooks/useTheme';
 import { MobileHeader } from './components/layout/MobileHeader';
 import { BottomNavigation, type TabId } from './components/layout/BottomNavigation';
-import { onHardwareBackButton, triggerHaptic } from './services/native';
+import { onHardwareBackButton, triggerHaptic, minimizeAndroidApp } from './services/native';
+import { handleAppBack } from './services/backNavigation';
+import { IncidentFromAlert } from './components/incident/IncidentFromAlert';
 import { isPasswordResetLocation } from './services/password-recovery';
 
 // Pages
@@ -32,6 +34,7 @@ export const AppContent: React.FC = () => {
   const [activeTab, setActiveTab] = useState<TabId>('map');
   const [viewMode, setViewMode] = useState<ViewMode>(() => isPasswordResetLocation(window.location.href) ? 'forgot' : 'tab');
   const [viewHistory, setViewHistory] = useState<ViewMode[]>([]);
+  const [notificationIncidentId, setNotificationIncidentId] = useState<number | null>(null);
   const mapVisible = viewMode === 'tab' && activeTab === 'map';
   const [mapVisited, setMapVisited] = useState(mapVisible);
   const mainRef = useRef<HTMLElement>(null);
@@ -64,11 +67,11 @@ export const AppContent: React.FC = () => {
   // Handle hardware Android back button
   useEffect(() => {
     const unsub = onHardwareBackButton(() => {
-      if (viewMode !== 'tab') {
-        handleBack();
-      } else if (activeTab !== 'map') {
-        setActiveTab('map');
-      }
+      handleAppBack({ inSubview: viewMode !== 'tab', inOtherTab: activeTab !== 'map' }, {
+        previousView: handleBack,
+        mapTab: () => setActiveTab('map'),
+        minimize: () => { void minimizeAndroidApp(); },
+      });
     });
     return () => unsub();
   }, [viewMode, activeTab, handleBack]);
@@ -78,7 +81,7 @@ export const AppContent: React.FC = () => {
       case 'login':
         return (
           <LoginPage
-            onSuccess={() => setViewMode('tab')}
+            onSuccess={() => { setViewHistory([]); setViewMode('tab'); }}
             onGoRegister={() => navigateTo('register')}
             onGoForgot={() => navigateTo('forgot')}
             onBack={handleBack}
@@ -104,6 +107,7 @@ export const AppContent: React.FC = () => {
           <VerifyEmailPage
             onBack={handleBack}
             onGoMap={() => {
+              setViewHistory([]);
               setViewMode('tab');
               setActiveTab('map');
             }}
@@ -141,6 +145,7 @@ export const AppContent: React.FC = () => {
               <AlertsPage
                 onGoLogin={() => navigateTo('login')}
                 onGoRegister={() => navigateTo('register')}
+                onSelectIncidentId={setNotificationIncidentId}
               />
             );
           case 'profile':
@@ -200,6 +205,8 @@ export const AppContent: React.FC = () => {
         {(mapVisited || mapVisible) && <div className="retained-map-view" hidden={!mapVisible} style={{ height: '100%' }}><MapPage visible={mapVisible} onGoReport={() => setActiveTab('report')} /></div>}
         <div className="other-app-view" hidden={mapVisible}>{renderContent()}</div>
       </main>
+
+      {notificationIncidentId !== null && <IncidentFromAlert key={notificationIncidentId} id={notificationIncidentId} onClose={() => setNotificationIncidentId(null)} />}
 
       {viewMode === 'tab' && (
         <BottomNavigation

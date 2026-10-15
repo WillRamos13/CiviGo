@@ -81,24 +81,35 @@ type NativeGoogleBridge = {
 
 /** Native SDK boundary is injectable for tests; production binds the Capacitor plugin. */
 export function createNativeGoogleEmailSdk(bridge: NativeGoogleBridge): GoogleEmailSdk {
+    let revision = 0;
     return {
         open: async () => {
+            const acquisition = revision;
+            const assertCurrent = () => {
+                if (acquisition !== revision) throw new DOMException('Solicitud cancelada.', 'AbortError');
+            };
             // The native SDK has one current user. Keep sign-in and token
             // retrieval together so a disposed flow cannot read a newer
             // flow's user, then immediately close its temporary session.
             const task = nativeTasks.then(async () => {
+                assertCurrent();
                 await bridge.signOut();
                 try {
+                    assertCurrent();
                     const result = await bridge.signInWithGoogle({ skipNativeAuth: false });
+                    assertCurrent();
                     if (!result.user) throw new GoogleEmailError('token', 'Google no pudo completar la comprobación del correo.');
                     const proof = await bridge.getIdToken({ forceRefresh: true });
+                    assertCurrent();
                     return { email: result.user.email, emailVerified: result.user.emailVerified, getIdToken: async () => proof.token };
                 } finally { await bridge.signOut(); }
             });
             nativeTasks = task.catch(() => {});
             return task;
         },
-        signOut: async () => { /* The native acquisition owns its cleanup. */ },
+        // Cancel this flow's queued acquisition without signing out another
+        // flow's active native session; the running task owns its cleanup.
+        signOut: async () => { revision++; },
     };
 }
 

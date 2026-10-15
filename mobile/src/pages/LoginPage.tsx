@@ -35,13 +35,12 @@ export const LoginPage: React.FC<LoginPageProps> = ({
 
     try {
       await AuthService.login(correo.trim(), password);
-      if (!active.current) return;
+      // The cookie belongs to the app even if this screen was left meanwhile.
       await refresh();
       if (!active.current) return;
       void triggerHaptic('success');
       onSuccess();
     } catch (err) {
-      if (!active.current) return;
       if (err instanceof ApiError && err.code === 'ACCOUNT_BLOCKED') await refresh();
       if (!active.current) return;
       setError(errorMessage(err));

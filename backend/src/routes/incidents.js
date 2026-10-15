@@ -1,6 +1,12 @@
 const express = require("express");
 const prisma = require("../lib/db");
-const { auth, optionalAuth, requireEmail, canReview } = require("../lib/auth");
+const {
+  auth,
+  optionalAuth,
+  requireEmail,
+  currentParticipant,
+  canReview,
+} = require("../lib/auth");
 const {
   asyncRoute,
   HttpError,
@@ -322,6 +328,7 @@ router.post(
   requireEmail,
   asyncRoute(async (req, res) => {
     const m = await transaction(async (db) => {
+      await currentParticipant(db, req.user.id);
       const row = await db.incident.findUnique({
         where: { id: id(req.params.id) },
         include: { reportes: true },

@@ -289,6 +289,9 @@ test("Evaluación usa esquema estricto y valida gravedad, booleanos y tipos nuev
       { ...evaluation, posibleFalso: "false" },
       { ...evaluation, emergenciaActiva: undefined },
       { ...evaluation, motivo: { mensaje: "inválido" } },
+      { ...evaluation, motivo: "" },
+      { ...evaluation, motivo: " \t\n " },
+      { ...evaluation, motivo: "\u0000\u0007" },
       { ...evaluation, motivo: "x".repeat(501) },
       { ...evaluation, tipoPropuesto: { nombre: "X", categoriaSlug: "otros" } },
       {

@@ -156,6 +156,7 @@ export default function CatalogPanel() {
         </p>
         <button
           className="btn btn-primary"
+          disabled={pending}
           onClick={() => {
             setCategory({ nombre: "", orden: data?.categorias.length ?? 0 });
             setCategoryOpening(value => value + 1);
@@ -171,6 +172,7 @@ export default function CatalogPanel() {
       {category && (
         <EditorPanel label={category.id ? "Editar categoría" : "Crear categoría"} selectionKey={`${category.id ?? "new-category"}:${categoryOpening}`}>
         <form className="card mb-5 brand-border" onSubmit={saveCategory}>
+          <fieldset disabled={pending} className="contents">
           <h2 className="font-bold text-xl mb-4">
             {category.id ? "Editar categoría" : "Nueva categoría"}
           </h2>
@@ -217,6 +219,7 @@ export default function CatalogPanel() {
               Cancelar
             </button>
           </div>
+          </fieldset>
         </form>
         </EditorPanel>
       )}
@@ -229,6 +232,7 @@ export default function CatalogPanel() {
                 <div className="flex flex-wrap gap-2">
                   <button
                     className="btn btn-secondary text-sm"
+                    disabled={pending}
                     onClick={() => {
                       setCategory({
                         id: item.id,
@@ -243,6 +247,7 @@ export default function CatalogPanel() {
                   </button>
                   <button
                     className="btn btn-secondary text-sm"
+                    disabled={pending}
                     onClick={() => {
                       setDraft({
                         nombre: "",
@@ -300,6 +305,7 @@ export default function CatalogPanel() {
                       </div>
                       <button
                         className="btn btn-secondary self-start"
+                        disabled={pending}
                         onClick={() => {
                           setDraft({
                             id: type.id,
@@ -330,6 +336,7 @@ export default function CatalogPanel() {
       {draft && (
         <EditorPanel label={draft.id ? "Editar tipo de incidente" : "Crear tipo de incidente"} selectionKey={`${draft.id ?? "new-type"}:${typeOpening}`}>
         <form className="card mt-5 brand-border" onSubmit={saveType}>
+          <fieldset disabled={pending} className="contents">
           <h2 className="text-xl font-bold mb-4">
             {draft.id ? "Editar tipo de incidente" : "Nuevo tipo de incidente"}
           </h2>
@@ -404,6 +411,7 @@ export default function CatalogPanel() {
               Cancelar
             </button>
           </div>
+          </fieldset>
         </form>
         </EditorPanel>
       )}

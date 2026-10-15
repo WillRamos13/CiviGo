@@ -7,9 +7,15 @@
 **/env.local
 **/.local
 **/.npm-cache
+**/.cache
+**/.gradle
+**/.test-build
 **/.test-uploads
+**/coverage
 **/uploads
 **/*.log
 **/*.tsbuildinfo
 .git
+mobile
+desktop
 docs/capturas

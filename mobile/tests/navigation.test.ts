@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { NavigationService, AutoRerouteGuard, isRoute, isPosition, isUsableFix, isNavigationAccountCurrent, getRouteProgress, routeWarnings } from '../src/services/navigation';
+import { NavigationService, AutoRerouteGuard, isRoute, isPosition, isUsableFix, isNavigationAccountCurrent, getRouteProgress, routeWarnings, onFavoritesChanged } from '../src/services/navigation';
 import { RoutePlanner } from '../src/components/navigation/RoutePlanner';
 import type { Ruta, RouteStep } from '../src/types';
 
@@ -157,4 +157,24 @@ test('retained navigation belongs to the same authorized account across views', 
   assert.equal(isNavigationAccountCurrent(1, { ...user, bloqueado: true }), false, 'revoked access cannot keep navigation active');
   assert.equal(isNavigationAccountCurrent(1, null), false, 'sign out removes access immediately');
   assert.equal(isNavigationAccountCurrent(undefined, user), false, 'an invalidated route cannot attach itself to a new session');
+});
+
+test('confirmed favorite mutations notify retained views; failures and disposed views do not', async () => {
+  const original = globalThis.fetch;
+  let changes = 0;
+  const unsubscribe = onFavoritesChanged(() => { changes++; });
+  try {
+    globalThis.fetch = async () => new Response(JSON.stringify({ id: 1, datos: route }));
+    await NavigationService.addFavorite('Destino', [], route, { latitud: 0, longitud: 0 }, { latitud: 0, longitud: 0.002 }, 'walking');
+    assert.equal(changes, 1, 'a successful save invalidates the other view');
+    await NavigationService.removeFavorite(1);
+    assert.equal(changes, 2, 'deleting from profile also invalidates the retained map');
+    globalThis.fetch = async () => new Response(JSON.stringify({ error: 'No permitido' }), { status: 403 });
+    await assert.rejects(() => NavigationService.removeFavorite(1), /No permitido/);
+    assert.equal(changes, 2, 'a failed mutation cannot announce a new snapshot');
+    unsubscribe();
+    globalThis.fetch = async () => new Response(JSON.stringify({ ok: true }));
+    await NavigationService.removeFavorite(1);
+    assert.equal(changes, 2, 'unmounted views must not receive notifications');
+  } finally { unsubscribe(); globalThis.fetch = original; }
 });

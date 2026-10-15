@@ -15,15 +15,48 @@ test('agent consumes legacy arrays and the actual paginated items envelope witho
   const calls: URL[] = [];
   t.mock.method(globalThis, 'fetch', async (url: string) => {
     calls.push(new URL(url, 'https://offline.test'));
-    return Response.json(calls.length === 1 ? [incident] : { items: [incident], total: 87, page: 2 });
+    return Response.json(calls.length === 1 ? [incident] : { items: [incident], total: 87, page: 2, pageSize: 50, pages: 2 });
   });
-  assert.deepEqual(await AgentService.getIncidents(), { total: 1, items: [incident] });
-  assert.deepEqual(await AgentService.getIncidents({ pagina: 2, estado: 'REVISION' }), { total: 87, items: [incident] });
+  assert.deepEqual(await AgentService.getIncidents(), { total: 1, items: [incident], page: 1, pageSize: 1, pages: 1 });
+  assert.deepEqual(await AgentService.getIncidents({ pagina: 2, estado: 'REVISION' }), { total: 87, items: [incident], page: 2, pageSize: 50, pages: 2 });
+  assert.equal(calls[0].searchParams.get('page'), '1');
+  assert.equal(calls[0].searchParams.get('limit'), '50');
   assert.equal(calls[1].searchParams.get('page'), '2');
   assert.equal(calls[1].searchParams.has('pagina'), false);
   assert.equal(calls[1].pathname, '/api/admin/incidents');
-  assert.deepEqual(normalizeAgentIncidents([]), { total: 0, items: [] });
+  assert.deepEqual(normalizeAgentIncidents([]), { total: 0, items: [], page: 1, pageSize: 50, pages: 1 });
   assert.throws(() => normalizeAgentIncidents({ incidentes: [] }), /respuesta/);
+});
+
+test('agent pages and server search reach incidents beyond the old 250-item ceiling', async (t) => {
+  const incidents = Array.from({ length: 251 }, (_, index) => ({ id: index + 1, tipo: 'Bache' }));
+  const requests: URL[] = [];
+  const controller = new AbortController();
+  t.mock.method(globalThis, 'fetch', async (url: string, options: RequestInit) => {
+    const parsed = new URL(url, 'https://offline.test');
+    requests.push(parsed);
+    assert.equal(parsed.searchParams.get('estado'), 'ACTIVO');
+    assert.ok(options.signal instanceof AbortSignal);
+    const page = Number(parsed.searchParams.get('page'));
+    const pageSize = Number(parsed.searchParams.get('limit'));
+    assert.equal(pageSize, 50);
+    const query = parsed.searchParams.get('q');
+    const filtered = query ? incidents.filter((item) => String(item.id) === query) : incidents;
+    return Response.json({ items: filtered.slice((page - 1) * pageSize, page * pageSize),
+      total: filtered.length, page, pageSize, pages: Math.max(1, Math.ceil(filtered.length / pageSize)) });
+  });
+  const first = await AgentService.getIncidents({ estado: 'ACTIVO' }, { signal: controller.signal });
+  assert.equal(first.total, 251);
+  assert.equal(first.pages, 6);
+  assert.equal(first.items.length, 50);
+  const last = await AgentService.getIncidents({ estado: 'ACTIVO', pagina: 6 });
+  assert.deepEqual(last.items.map((item) => item.id), [251]);
+  const found = await AgentService.getIncidents({ estado: 'ACTIVO', busqueda: ' 251 ' });
+  assert.equal(found.total, 1);
+  assert.equal(found.pages, 1);
+  assert.equal(found.items[0].id, 251);
+  assert.equal(requests[2].searchParams.get('q'), '251');
+  assert.equal(requests[2].searchParams.get('page'), '1');
 });
 
 test('agent review uses the real review endpoint and forwards the required reason and gravity', async (t) => {

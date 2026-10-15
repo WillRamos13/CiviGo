@@ -10,7 +10,7 @@ function visit(dir) {
       const r = spawnSync(process.execPath, ["--check", file], {
         stdio: "inherit",
       });
-      if (r.status) failed = true;
+      if (r.error || r.status !== 0) failed = true;
     }
   }
 }

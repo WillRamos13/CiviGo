@@ -5,6 +5,7 @@ import { askAssistant } from '../../services/assistant';
 import { useAuth } from '../../hooks/useAuth';
 import { AssistantReply } from './AssistantReply';
 import { triggerHaptic } from '../../services/native';
+import { useDialog } from '../../hooks/useDialog';
 
 const PREGUNTAS = [
   '¿Cómo hago un reporte?',
@@ -33,6 +34,7 @@ export const ChatBotModal: React.FC<ChatBotModalProps> = ({ isOpen, onClose }) =
   const listRef = useRef<HTMLDivElement>(null);
   const request = useRef<AbortController | null>(null);
   const { usuario } = useAuth();
+  const dialogRef = useDialog<HTMLDivElement>(isOpen, onClose);
 
   useEffect(() => {
     request.current?.abort(); request.current = null;
@@ -42,9 +44,6 @@ export const ChatBotModal: React.FC<ChatBotModalProps> = ({ isOpen, onClose }) =
 
   useEffect(() => {
     if (!isOpen) { request.current?.abort(); request.current = null; setBusy(false); return; }
-    const escape = (event: KeyboardEvent) => { if (event.key === 'Escape') onClose(); };
-    document.addEventListener('keydown', escape);
-    return () => document.removeEventListener('keydown', escape);
   }, [isOpen, onClose]);
 
   useEffect(() => {
@@ -102,7 +101,7 @@ export const ChatBotModal: React.FC<ChatBotModalProps> = ({ isOpen, onClose }) =
 
   return (
     <div className="chatbot-modal" onClick={onClose}>
-      <div className="chatbot-sheet" role="dialog" aria-modal="true" aria-label="Asistente CiviGo" onClick={(e) => e.stopPropagation()}>
+      <div ref={dialogRef} tabIndex={-1} className="chatbot-sheet" role="dialog" aria-modal="true" aria-label="Asistente CiviGo" onClick={(e) => e.stopPropagation()}>
         <div className="bottom-sheet-handle" />
 
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>

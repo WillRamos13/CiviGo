@@ -5,7 +5,9 @@ import { AuthenticatedMedia } from './AuthenticatedMedia';
 import { api, post, formatDate, errorMessage } from '../../services/api';
 import { useAuth } from '../../hooks/useAuth';
 import { useOperationScope } from '../../hooks/useOperationScope';
-import { submitProximityAction } from '../../services/incidentParticipation';
+import { useDialog } from '../../hooks/useDialog';
+import { incidentAfterParticipation, resolutionMessage, submitProximityAction } from '../../services/incidentParticipation';
+import { mergeIncidentMessages } from '../../services/incidentMessages';
 import { triggerHaptic, getCurrentPosition } from '../../services/native';
 import { resolveMediaUrl } from '../../services/media';
 import { RISK_COLORS, RISK_NAMES } from '../../types';
@@ -18,11 +20,14 @@ interface IncidentDetailModalProps {
 }
 
 export const IncidentDetailModal: React.FC<IncidentDetailModalProps> = ({
-  incidente,
+  incidente: suppliedIncident,
   onClose,
   onRefresh,
 }) => {
   const { usuario } = useAuth();
+  const [participation, setParticipation] = useState<{ source: Incidente; userId: number; incident: Incidente } | null>(null);
+  const incidente = participation?.source === suppliedIncident && participation.userId === usuario?.id
+    ? participation.incident : suppliedIncident;
   const operations = useOperationScope(`${usuario?.id ?? 'guest'}:${incidente.id}`);
   const [comments, setComments] = useState<Mensaje[]>([]);
   const [commentText, setCommentText] = useState('');
@@ -38,6 +43,7 @@ export const IncidentDetailModal: React.FC<IncidentDetailModalProps> = ({
   const [activeTab, setActiveTab] = useState<'info' | 'chat'>('info');
   const [chatError, setChatError] = useState('');
   const [chatLoading, setChatLoading] = useState(false);
+  const dialogRef = useDialog<HTMLDivElement>(true, () => showFlagModal ? setShowFlagModal(false) : onClose());
 
   useEffect(() => {
     setCommentText(''); setFlagReason(''); setShowFlagModal(false); setMessage(''); setError('');
@@ -60,7 +66,7 @@ export const IncidentDetailModal: React.FC<IncidentDetailModalProps> = ({
     setChatLoading(true);
     api<Mensaje[]>(`/incidents/${incidente.id}/chat`)
       .then((data) => {
-        if (active) setComments(data);
+        if (active) setComments((current) => mergeIncidentMessages(data, current));
       })
       .catch((err) => { if (active) setChatError(errorMessage(err)); })
       .finally(() => { if (active) setChatLoading(false); });
@@ -85,10 +91,13 @@ export const IncidentDetailModal: React.FC<IncidentDetailModalProps> = ({
     setError('');
     setMessage('');
     try {
-      await submitProximityAction(incidente.id, 'confirmar', operation, {
+      const result = await submitProximityAction(incidente.id, 'confirmar', operation, {
         locate: () => getCurrentPosition(),
         send: (path, body, options) => post(path, body, options),
       });
+      const updated = incidentAfterParticipation(incidente, result);
+      if (!updated) throw new Error('No se pudo confirmar el estado actualizado del incidente. Actualiza sus detalles.');
+      setParticipation({ source: suppliedIncident, userId: usuario.id, incident: updated });
       setMessage('¡Confirmación registrada con éxito!');
       onRefresh?.();
     } catch (err) {
@@ -115,11 +124,14 @@ export const IncidentDetailModal: React.FC<IncidentDetailModalProps> = ({
     setError('');
     setMessage('');
     try {
-      await submitProximityAction(incidente.id, 'resolver', operation, {
+      const result = await submitProximityAction(incidente.id, 'resolver', operation, {
         locate: () => getCurrentPosition(),
         send: (path, body, options) => post(path, body, options),
       });
-      setMessage('¡Incidente marcado como resuelto!');
+      const updated = incidentAfterParticipation(incidente, result);
+      if (!updated) throw new Error('No se pudo confirmar el estado actualizado del incidente. Actualiza sus detalles.');
+      setParticipation({ source: suppliedIncident, userId: usuario.id, incident: updated });
+      setMessage(resolutionMessage(updated));
       onRefresh?.();
     } catch (err) {
       if (operation.isActive()) setError(errorMessage(err));
@@ -181,7 +193,7 @@ export const IncidentDetailModal: React.FC<IncidentDetailModalProps> = ({
         mensaje: commentText.trim(),
       }, { signal: operation.signal });
       operation.assertActive();
-      setComments((prev) => [...prev, res]);
+      setComments((prev) => mergeIncidentMessages(prev, [res]));
       setCommentText('');
     } catch (err) {
       if (operation.isActive()) setError(errorMessage(err));
@@ -205,6 +217,11 @@ export const IncidentDetailModal: React.FC<IncidentDetailModalProps> = ({
       onClick={onClose}
     >
       <div
+        ref={dialogRef}
+        tabIndex={-1}
+        role="dialog"
+        aria-modal="true"
+        aria-label="Detalle del incidente"
         className="map-bottom-sheet"
         style={{ maxHeight: '85vh', display: 'flex', flexDirection: 'column' }}
         onClick={(e) => e.stopPropagation()}

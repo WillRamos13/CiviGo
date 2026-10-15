@@ -284,3 +284,77 @@ test('abrir o cambiar el editor lleva el foco y desplaza su contenedor debajo de
   render('3:3', 'Otro usuario seleccionado');
   assert.equal(calls.length, 6, 'Seleccionar otro usuario debe volver a mostrar su editor.');
 });
+
+test('guardar negocios, recompensas y catálogo bloquea el cambio de borrador y conserva los datos si falla', async () => {
+  const type = { id: 3, nombre: 'Bache inicial', slug: 'bache', categoriaId: 1, emergencia: false, historico: false, fotoObligatoria: true, individual: false, ubicacionRemota: false, persistente: true, activo: true };
+  const catalog = { categorias: [{ id: 1, nombre: 'Infraestructura', slug: 'infraestructura', orden: 1, tipos: [type] }] };
+  for (const scenario of [
+    { file: 'BusinessesPanel', data: [{ id: 12, nombre: 'Negocio inicial', descripcion: 'Comercio local', direccion: 'Dirección local', horario: '', sitioWeb: '', telefono: '', latitud: -14, longitud: -75, activo: true }], edit: 'Editar', initial: 'Negocio inicial', switches: ['Registrar negocio', 'Editar'], route: '/admin/businesses/12' },
+    { file: 'RewardsAdminPanel', data: [{ id: 14, nombre: 'Cupón inicial', descripcion: 'Recompensa local', costoMonedas: 50, stock: 1, activo: true }], edit: 'Editar', initial: 'Cupón inicial', switches: ['Crear recompensa', 'Editar'], route: '/admin/rewards/14' },
+    { file: 'CatalogPanel', data: catalog, edit: 'Editar reglas', initial: type.nombre, switches: ['Crear categoría', 'Editar categoría', 'Agregar tipo', 'Editar reglas'], route: '/admin/types/3' },
+    { file: 'CatalogPanel', data: catalog, edit: 'Editar categoría', initial: 'Infraestructura', switches: ['Crear categoría', 'Editar categoría', 'Agregar tipo', 'Editar reglas'], route: '/admin/categories/1' },
+  ]) {
+    let rejectSave;
+    const requests = [];
+    const renderer = componentFixture(`components/management/${scenario.file}.tsx`, {
+      '@/lib/api': { api: (route, options) => { requests.push({ route, body: JSON.parse(options.body) }); return new Promise((_resolve, reject) => { rejectSave = reject; }); } },
+      '@/components/EditorPanel': { default: 'editor-panel' },
+      ...(scenario.file === 'CatalogPanel' ? { '@/components/IncidentIcon': { default: 'incident-icon' } } : {}),
+      './common': { useRemote: route => ({ data: route === '/admin/redemptions' ? [] : scenario.data, loading: false, reload() {} }), Feedback: 'feedback', RemoteStatus: 'remote', number: String, stateLabel: String, dateTime: String, message: error => error.message },
+    });
+    const panel = renderer.mount(renderer.source.default);
+    findNode(panel.render(), node => node.type === 'button' && node.props.children === scenario.edit).props.onClick();
+    findNode(panel.render(), node => node.type === 'input' && node.props.value === scenario.initial).props.onChange({ target: { value: 'Borrador conservado' } });
+    const saving = findNode(panel.render(), node => node.type === 'form').props.onSubmit({ preventDefault() {} });
+    let tree = panel.render();
+    assert.equal(findNode(tree, node => node.type === 'fieldset' && node.props.className === 'contents').props.disabled, true, scenario.file);
+    for (const label of scenario.switches) assert.equal(findNode(tree, node => node.type === 'button' && node.props.children === label).props.disabled, true, `${scenario.file}: ${label}`);
+    assert.equal(requests[0].route, scenario.route);
+    assert.equal(requests[0].body.nombre, 'Borrador conservado');
+    rejectSave(new Error('No se pudo guardar en esta prueba local.'));
+    await saving;
+    tree = panel.render();
+    assert.ok(findNode(tree, node => node.type === 'input' && node.props.value === 'Borrador conservado'), scenario.file);
+    assert.equal(findNode(tree, node => node.type === 'fieldset' && node.props.className === 'contents').props.disabled, false);
+    assert.match(findNode(tree, node => node.type === 'feedback').props.error, /No se pudo guardar/);
+  }
+});
+
+test('la respuesta tardía de usuario, apelación o incidente no cierra un editor abierto después', () => {
+  const rows = [1, 2].map(id => ({ id, nickname: `usuario-${id}`, nombres: 'Vecino', correo: `vecino${id}@gmail.com`, rol: 'USUARIO', estado: 'PENDIENTE', permisos: [], usuario: { nickname: `usuario-${id}` }, motivo: 'Revisión solicitada', creadoEn: '2026-01-01T12:00:00Z', tipo: 'Bache', descripcion: 'Reporte de prueba', validacion: 0.5 }));
+  for (const scenario of [
+    { file: 'UsersPanel', button: 'Administrar', field: 'user', completed: 'save' },
+    { file: 'AppealsPanel', button: 'Revisar apelación', field: 'appeal', completed: 'saved' },
+    { file: 'IncidentReviewPanel', button: 'Revisar', field: 'incident', completed: 'done' },
+  ]) {
+    const renderer = componentFixture(`components/management/${scenario.file}.tsx`, {
+      '@/lib/api': { api: async () => ({}) },
+      '@/components/EditorPanel': { default: 'editor-panel' },
+      '@/components/AuthProvider': { useAuth: () => ({ usuario: { id: 10, rol: 'ADMIN' } }) },
+      '@/components/AttachmentDownload': { default: 'attachment' },
+      '@/components/IncidentIcon': { default: 'incident-icon' },
+      'next/link': { default: 'link' },
+      '@/lib/incidents': { incidentEvaluationLabel: () => 'Pendiente' },
+      '@/lib/agent-permissions': { hasAgentPermission: () => true },
+      './ConversationModeration': { default: 'moderation' },
+      './common': { useRemote: () => ({ data: [], loading: false, reload() {} }), usePagedRemote: () => ({ data: rows, total: 2, page: 1, pages: 1, setPage() {}, loading: false, reload() {} }), Pagination: 'pagination', Feedback: 'feedback', RemoteStatus: 'remote', number: String, dateTime: String, stateLabel: String, message: error => error.message },
+    });
+    const panel = renderer.mount(renderer.source.default);
+    const open = index => {
+      let seen = 0;
+      findNode(panel.render(), node => node.type === 'button' && node.props.children === scenario.button && seen++ === index).props.onClick();
+    };
+    open(0);
+    const oldEditor = findNode(panel.render(), node => typeof node.type === 'function' && node.props[scenario.field]?.id === 1);
+    open(1);
+    oldEditor.props[scenario.completed]();
+    assert.ok(findNode(panel.render(), node => typeof node.type === 'function' && node.props[scenario.field]?.id === 2), scenario.file);
+    if (scenario.file === 'UsersPanel') {
+      open(0);
+      const savingUser = findNode(panel.render(), node => typeof node.type === 'function' && node.props.user?.id === 1);
+      findNode(panel.render(), node => node.type === 'button' && node.props.children === 'Crear usuario').props.onClick();
+      savingUser.props.save();
+      assert.ok(findNode(panel.render(), node => typeof node.type === 'function' && node.props.user === null), 'Se conserva también la creación de otra cuenta.');
+    }
+  }
+});

@@ -7,7 +7,8 @@ import MapView from '@/components/MapView';
 import IncidentIcon from '@/components/IncidentIcon';
 import ReportAdvertisement from '@/components/ReportAdvertisement';
 import styles from './reportar.module.css';
-import { api, crearReporte, currentPosition, distance, errorMessage, upload } from '@/lib/api';
+import { api, crearReporte, currentPosition, distance, errorMessage } from '@/lib/api';
+import { submitWithAttachments } from '@/lib/attachments';
 import type { Catalogo, Posicion } from '@/lib/types';
 import { incidentEvaluationLabel, reportPublicationState } from '@/lib/incidents';
 function localDateTime(d: Date) { return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16); }
@@ -57,14 +58,11 @@ function Form() {
         return setError('Confirma que la ubicación es correcta.'); if (!tipo.ubicacionRemota && !gps)
         return setError('Obtén tu ubicación GPS antes de reportar.'); if (tipo.fotoObligatoria && !files.some(f => f.type.startsWith('image/')))
         return setError('Este tipo de incidente requiere al menos una fotografía.'); if (gps && !tipo.ubicacionRemota && distance(gps, position) > 50)
-        return setError('La corrección de ubicación supera los 50 metros.'); setBusy(true); const adjuntos: Awaited<ReturnType<typeof upload>>[] = []; try {
-        for (const file of files)
-            adjuntos.push(await upload(file, tipo.individual));
-        const data = await crearReporte({ tipo: slug, descripcion: description.trim(), ...position, gpsLatitud: gps?.latitud, gpsLongitud: gps?.longitud, fechaEvento: eventDate ? new Date(eventDate).toISOString() : new Date().toISOString(), adjuntosIds: adjuntos.map(a => a.id) });
+        return setError('La corrección de ubicación supera los 50 metros.'); setBusy(true); try {
+        const data = await submitWithAttachments(files, { privado: tipo.individual }, adjuntos => crearReporte({ tipo: slug, descripcion: description.trim(), ...position, gpsLatitud: gps?.latitud, gpsLongitud: gps?.longitud, fechaEvento: eventDate ? new Date(eventDate).toISOString() : new Date().toISOString(), adjuntosIds: adjuntos.map(a => a.id) }));
         setResult(data);
     }
     catch (err) {
-        await Promise.allSettled(adjuntos.map(a => api(`/uploads/${a.id}`, { method: 'DELETE' })));
         setError(errorMessage(err));
     }
     finally {

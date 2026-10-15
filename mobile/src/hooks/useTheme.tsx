@@ -1,7 +1,6 @@
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { StorageService } from '../services/native';
-
-type Theme = 'light' | 'dark';
+import { ThemeController, preferredTheme, type Theme } from '../services/theme';
 
 interface ThemeContextType {
   theme: Theme;
@@ -16,30 +15,18 @@ const ThemeContext = createContext<ThemeContextType>({
 });
 
 export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [theme, setTheme] = useState<Theme>('light');
+  const [theme, setTheme] = useState<Theme>(preferredTheme);
+  const controller = useRef<ThemeController | null>(null);
+  if (!controller.current) controller.current = new ThemeController(theme, StorageService, setTheme);
 
   useEffect(() => {
-    // Check saved theme
-    StorageService.get('civigo:theme').then((saved) => {
-      if (saved === 'dark' || saved === 'light') {
-        setTheme(saved);
-        document.documentElement.setAttribute('data-theme', saved);
-      } else {
-        const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-        const initial = prefersDark ? 'dark' : 'light';
-        setTheme(initial);
-        document.documentElement.setAttribute('data-theme', initial);
-      }
-    });
+    return controller.current!.initialize();
   }, []);
 
+  useEffect(() => { document.documentElement.setAttribute('data-theme', theme); }, [theme]);
+
   const toggleTheme = useCallback(() => {
-    setTheme((prev) => {
-      const next = prev === 'light' ? 'dark' : 'light';
-      document.documentElement.setAttribute('data-theme', next);
-      void StorageService.set('civigo:theme', next);
-      return next;
-    });
+    controller.current!.toggle();
   }, []);
 
   return (

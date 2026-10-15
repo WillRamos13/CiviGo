@@ -38,6 +38,7 @@ auditFixtures[0] = { ...auditFixtures[0], accion: 'EVALUACION_IA_REPORTE', entid
 let groupingMeters = 50;
 let backendLogin = false;
 let statisticsUnavailable = false;
+let denySessionWithoutJson = false;
 function statisticsFixture(url) {
   const selectedType = url.searchParams.get('type');
   const selectedDistrict = url.searchParams.get('district');
@@ -68,7 +69,10 @@ const server = http.createServer(async (request, response) => {
   }
   if (requestPath === '/api/users/logout') { backendLogin = false; return response.end('{"ok":true}'); }
   if (!backendLogin || request.headers.cookie !== `civigo_session=${token}`) { response.statusCode = 401; return response.end('{"error":"Sesión requerida"}'); }
-  if (requestPath === '/api/users/me') return response.end(JSON.stringify({ usuario: actor }));
+  if (requestPath === '/api/users/me') {
+    if (denySessionWithoutJson) { response.statusCode = 401; response.setHeader('Content-Type', 'text/html'); return response.end('<html>Session expired</html>'); }
+    return response.end(JSON.stringify({ usuario: actor }));
+  }
   if (requestPath === '/api/admin/statistics') {
     if (statisticsUnavailable) { response.statusCode=503; return response.end('{"error":"Fixture indisponible"}'); }
     return response.end(JSON.stringify(statisticsFixture(url)));
@@ -518,6 +522,21 @@ async function run() {
   const stale = await previousDownload;
   assert.equal(stale.ok, false); assert.equal(stale.error.status, 401);
   await assert.rejects(fs.access(savedPath));
+  let approveRevokedSave;
+  const waitingRevokedSave = new Promise(resolve => { approveRevokedSave = resolve; });
+  let saveOpened = false;
+  dialog.showSaveDialog = () => { saveOpened = true; return waitingRevokedSave; };
+  const revokedDownload = window.webContents.executeJavaScript(`window.civigoDesktop.download('private-fixture')`);
+  const saveDeadline = Date.now() + 10000;
+  while (!saveOpened && Date.now() < saveDeadline) await new Promise(resolve => setTimeout(resolve, 20));
+  assert.equal(saveOpened, true);
+  actor.rol = 'AGENTE';
+  approveRevokedSave({ canceled: false, filePath: savedPath });
+  const revokedFile = await revokedDownload;
+  assert.equal(revokedFile.ok, false); assert.equal(revokedFile.error.status, 403);
+  await assert.rejects(fs.access(savedPath));
+  actor.rol = 'ADMIN';
+  await window.webContents.executeJavaScript(`window.civigoDesktop.login({ correo:'admin@example.test', password:'fixture' })`);
   actor.rol = 'AGENTE';
   const demoted = await window.webContents.executeJavaScript('window.civigoDesktop.session()');
   assert.equal(demoted.ok, false); assert.equal(demoted.error.status, 403);
@@ -525,6 +544,13 @@ async function run() {
   actor.rol = 'ADMIN';
   assert.equal(client.authenticated(), false);
   assert.equal(await window.webContents.executeJavaScript('document.body.innerText.includes("admin-fixture")'), false);
+  await window.webContents.executeJavaScript(`window.civigoDesktop.login({ correo:'admin@example.test', password:'fixture' })`);
+  await waitUntil(window, 'document.body.innerText.includes("admin-fixture")');
+  denySessionWithoutJson = true;
+  const deniedSession = await window.webContents.executeJavaScript('window.civigoDesktop.session()');
+  assert.equal(deniedSession.ok, false); assert.equal(deniedSession.error.status, 401);
+  await waitUntil(window, 'document.body.innerText.includes("Administración de CiviGo") && !document.body.innerText.includes("admin-fixture")');
+  assert.equal(client.authenticated(), false);
   assert.equal(calls.filter(call => call.cookie).every(call => call.origin === 'https://civigo.online'), true);
   // CSP rejection must happen before an attempted remote network request.
   assert.equal(await window.webContents.executeJavaScript(`fetch('https://invalid.example.test').then(()=>false,()=>true)`), true);

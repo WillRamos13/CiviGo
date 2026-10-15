@@ -100,6 +100,7 @@ export default function RewardsAdminPanel() {
         </p>
         <button
           className="btn btn-primary"
+          disabled={pending}
           onClick={() => {
             setDraft({ ...newReward });
             setEditorOpening(value => value + 1);
@@ -138,6 +139,7 @@ export default function RewardsAdminPanel() {
                   </div>
                   <button
                     className="btn btn-secondary self-start"
+                    disabled={pending}
                     onClick={() => { setDraft({ ...reward }); setEditorOpening(value => value + 1); }}
                   >
                     Editar
@@ -151,6 +153,7 @@ export default function RewardsAdminPanel() {
       {draft && (
         <EditorPanel label={draft.id ? "Editar recompensa" : "Crear recompensa"} selectionKey={`${draft.id ?? "new-reward"}:${editorOpening}`}>
         <form className="card mt-5 brand-border" onSubmit={save}>
+          <fieldset disabled={pending} className="contents">
           <h2 className="font-bold text-xl mb-4">
             {draft.id ? "Editar recompensa" : "Nueva recompensa"}
           </h2>
@@ -235,6 +238,7 @@ export default function RewardsAdminPanel() {
               Cancelar
             </button>
           </div>
+          </fieldset>
         </form>
         </EditorPanel>
       )}

@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { AuthGate } from '../components/layout/AuthGate';
 import { useAuth } from '../hooks/useAuth';
 import { AuthService } from '../services/auth';
-import { NavigationService, type SavedRoute } from '../services/navigation';
+import { NavigationService, onFavoritesChanged, type SavedRoute } from '../services/navigation';
 import { api, formatDate, errorMessage } from '../services/api';
 import { ProfileOperationScope, submitProfileRecovery } from '../services/profileOperations';
 import { triggerHaptic } from '../services/native';
@@ -65,9 +65,17 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
     const owner = usuario.id;
     setNicknameInput(usuario.nickname);
 
-    NavigationService.getFavorites(controller.signal)
-      .then((items) => { if (!controller.signal.aborted && account.current === owner) setFavorites(items); })
-      .catch((err) => { if (!controller.signal.aborted && account.current === owner) setError(`Favoritos: ${errorMessage(err)}`); });
+    let favoritesRequest: AbortController | null = null;
+    const loadFavorites = () => {
+      favoritesRequest?.abort();
+      const current = new AbortController();
+      favoritesRequest = current;
+      void NavigationService.getFavorites(current.signal)
+        .then((items) => { if (!controller.signal.aborted && !current.signal.aborted && account.current === owner) setFavorites(items); })
+        .catch((err) => { if (!controller.signal.aborted && !current.signal.aborted && account.current === owner) setError(`Favoritos: ${errorMessage(err)}`); });
+    };
+    loadFavorites();
+    const unsubscribeFavorites = onFavoritesChanged(loadFavorites);
 
     api<ParticipationSummaryData>('/participation', { signal: controller.signal })
       .then((data) => { if (!controller.signal.aborted && account.current === owner) setParticipation(data); })
@@ -75,7 +83,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
 
     SpotifyService.isEnabled()
       .then((enabled) => { if (!controller.signal.aborted && account.current === owner) setSpotifyEnabled(enabled); });
-    return () => { controller.abort(); operations.current.invalidate(); };
+    return () => { controller.abort(); favoritesRequest?.abort(); unsubscribeFavorites(); operations.current.invalidate(); };
   }, [usuario?.id]);
 
   useEffect(() => { setNicknameInput(usuario?.nickname || ''); }, [usuario?.nickname]);
@@ -95,6 +103,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
 
   const handleUpdateNickname = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (busy || usuario?.bloqueado || !usuario?.correoVerificado) return;
     if (!nicknameInput.trim() || nicknameInput === usuario?.nickname) return;
     const operation = operations.current.start();
     if (!operation.isCurrent()) return;
@@ -254,6 +263,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                 id="nick-input"
                 type="text"
                 value={nicknameInput}
+                disabled={busy || usuario?.bloqueado || !usuario?.correoVerificado}
                 onChange={(e) => setNicknameInput(e.target.value)}
                 maxLength={30}
                 minLength={3}
@@ -263,7 +273,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
             <button
               type="submit"
               className="btn btn-secondary btn-small"
-              disabled={busy || !usuario?.correoVerificado || nicknameInput === usuario?.nickname}
+              disabled={busy || usuario?.bloqueado || !usuario?.correoVerificado || nicknameInput === usuario?.nickname}
             >
               Guardar nickname
             </button>

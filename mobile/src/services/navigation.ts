@@ -28,6 +28,18 @@ export interface NavigationPlace extends Posicion {
 export type { RoadRisk, RoadGeometry } from './roadMap';
 import type { RoadRisk, RoadGeometry } from './roadMap';
 
+const favoritesListeners = new Set<() => void>();
+
+/** Keep retained map and profile views in sync after a confirmed mutation. */
+export function onFavoritesChanged(listener: () => void): () => void {
+  favoritesListeners.add(listener);
+  return () => { favoritesListeners.delete(listener); };
+}
+
+function notifyFavoritesChanged() {
+  for (const listener of favoritesListeners) listener();
+}
+
 export const NavigationService = {
   async searchPlaces(query: string, signal?: AbortSignal): Promise<NavigationPlace[]> {
     const cleaned = query.trim();
@@ -83,7 +95,7 @@ export const NavigationService = {
     destino: Posicion,
     modo: string
   ): Promise<SavedRoute> {
-    return post<SavedRoute>('/navigation/favorites', {
+    const favorite = await post<SavedRoute>('/navigation/favorites', {
       nombre,
       tags,
       ruta,
@@ -91,10 +103,13 @@ export const NavigationService = {
       destino,
       modo,
     });
+    notifyFavoritesChanged();
+    return favorite;
   },
 
   async removeFavorite(id: number, signal?: AbortSignal): Promise<void> {
     await del(`/navigation/favorites/${id}`, { signal });
+    notifyFavoritesChanged();
   },
 
   async getStats(signal?: AbortSignal): Promise<RouteStats | null> {

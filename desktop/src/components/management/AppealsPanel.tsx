@@ -177,7 +177,7 @@ export default function AppealsPanel() {
           appeal={selected}
           cancel={() => setSelected(null)}
           saved={() => {
-            setSelected(null);
+            setSelected(current => current?.id === selected.id ? null : current);
             setSuccess("La respuesta quedó registrada.");
             reload();
           }}

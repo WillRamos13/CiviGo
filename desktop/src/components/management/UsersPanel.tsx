@@ -465,8 +465,8 @@ export default function UsersPanel() {
             permissions={permissions.data ?? []}
             cancel={() => { setSelected(null); setCreating(false); }}
             save={(feedback) => {
-              setSelected(null);
-              setCreating(false);
+              if (selected) setSelected(current => current?.id === selected.id ? null : current);
+              else setCreating(false);
               setSuccess(
                 feedback ?? "La cuenta y sus permisos se actualizaron.",
               );

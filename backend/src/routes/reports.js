@@ -1,6 +1,6 @@
 const express = require("express");
 const prisma = require("../lib/db");
-const { auth, requireEmail } = require("../lib/auth");
+const { auth, requireEmail, currentParticipant } = require("../lib/auth");
 const {
   asyncRoute,
   HttpError,
@@ -276,6 +276,20 @@ router.post(
           "Verifica tu correo con Google para participar.",
           "EMAIL_REQUIRED",
         );
+      // Another replica can commit while this request waits for evaluation.
+      // Serializable isolation makes the persisted quota apply across workers.
+      if (
+        (await db.report.count({
+          where: {
+            usuarioId: req.user.id,
+            fechaCreacion: { gte: new Date(Date.now() - 60000) },
+          },
+        })) >= 3
+      )
+        throw new HttpError(
+          429,
+          "Espera un momento antes de publicar otro reporte.",
+        );
       const cutoff = new Date(Date.now() - rules.agrupacionHoras * 3600000);
       let nearby = [];
       if (!type.individual)
@@ -546,6 +560,7 @@ router.post(
     if (!Array.isArray(ids) || !ids.length || ids.length > 3)
       throw new HttpError(400, "Selecciona hasta tres pruebas privadas.");
     await transaction(async (db) => {
+      await currentParticipant(db, req.user.id);
       const current = await db.incident.findUnique({
         where: { id: r.incidente.id },
       });

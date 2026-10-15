@@ -69,6 +69,34 @@ test('un 401 del servidor borra la cookie y la autorización', async () => {
   assert.equal(await client.me(), null);
 });
 
+test('401 y 403 sin JSON o con respuesta excesiva también retiran la sesión y bloquean adjuntos', async () => {
+  for (const status of [401, 403]) {
+    for (const large of [false, true]) {
+      const { client, calls } = fixture(async () => new Response('<html>Access denied</html>', { status, headers: large ? { 'Content-Length': String(11 * 1024 * 1024) } : {} }));
+      await client.login(credentials);
+      await assert.rejects(client.request({ route: '/admin/users' }), error => error.status === status);
+      assert.equal(client.authenticated(), false);
+      const count = calls.length;
+      await assert.rejects(client.attachment('private_file'), error => error.status === 401);
+      assert.equal(calls.length, count);
+    }
+  }
+});
+
+test('una denegación antigua no borra una sesión iniciada después', async () => {
+  let resolve;
+  const { client } = fixture(() => new Promise(done => { resolve = done; }));
+  await client.login(credentials);
+  const request = client.request({ route: '/admin/users' });
+  const rejected = assert.rejects(request, error => error.status === 401);
+  await client.logout();
+  await client.login(credentials);
+  resolve(new Response('<html>Access denied</html>', { status: 403 }));
+  await rejected;
+  assert.equal(client.authenticated(), true);
+  await client.logout();
+});
+
 test('logout olvida la sesión aunque Railway no responda y cambia su generación', async () => {
   const item = fixture(); await item.client.login(credentials);
   const generation = item.client.generation();

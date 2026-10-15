@@ -42,6 +42,7 @@ async function bootstrap({ hidden = false } = {}) {
     try {
       const result = await dialog.showSaveDialog(window, { title: 'Guardar archivo autorizado de CiviGo', defaultPath: path.join(app.getPath('downloads'), file.name), filters: [{ name: 'Archivo de CiviGo', extensions: [file.name.split('.').pop()] }] });
       if (result.canceled || !result.filePath) return { cancelado: true };
+      await client.me();
       if (!client.authenticated() || generation !== client.generation()) throw new DesktopError('La sesión terminó. Vuelve a solicitar el archivo.', 401);
       await fs.writeFile(result.filePath, file.bytes); return { guardado: true };
     } finally { file.bytes.fill(0); }

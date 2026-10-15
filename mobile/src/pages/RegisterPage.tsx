@@ -61,7 +61,7 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({
         password,
       });
 
-      if (!active.current) return;
+      // Keep the app session in sync when registration finishes after Back.
       await refresh();
       if (!active.current) return;
       void triggerHaptic('success');

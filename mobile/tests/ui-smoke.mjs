@@ -60,6 +60,8 @@ try {
     if (api === '/uploads/test-media') return handler.fulfill({ contentType: 'image/png',
       body: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9Zl1sAAAAASUVORK5CYII=', 'base64') });
     if (api === '/incidents/501/chat') return handler.fulfill({ json: [] });
+    if (api === '/incidents/501/resolver') return handler.fulfill({ json: { ...incident, estado: 'ACTIVO', resoluciones: 1 } });
+    if (api === '/incidents/501') return handler.fulfill({ json: incident });
     if (api === '/incidents') return handler.fulfill(failedIncidents ? { status: 503, json: { error: 'Fallo local de prueba' } }
       : { json: url.searchParams.has('bbox') ? { items: [incident], nextCursor: null } : [incident] });
     if (api === '/navigation/favorites' || api === '/reports/mine') return handler.fulfill({ json: [] });
@@ -69,7 +71,7 @@ try {
     if (api === '/navigation/plan') return handler.fulfill({ json: { rutas: [route] } });
     if (api === '/catalog') return handler.fulfill({ json: { categorias: [{ id: 1, nombre: 'Infraestructura', slug: 'infraestructura', tipos: [type] }], config: {}, distritos: ['Ica'] } });
     if (api === '/participation') return handler.fulfill({ json: { reportesValidados: 0, totalReportes: 0, puntosMensuales: 0, mes: '2026-10', insignias: [], movimientos: [] } });
-    if (api === '/notifications') return handler.fulfill({ json: [{ id: 3, titulo: 'Aviso de prueba', mensaje: 'Notificación local', leida: false, tipo: 'REVISION', creadoEn: new Date().toISOString() }] });
+    if (api === '/notifications') return handler.fulfill({ json: [{ id: 3, titulo: 'Aviso de prueba', mensaje: 'Notificación local', leida: false, tipo: 'REVISION', incidenteId: 501, creadoEn: new Date().toISOString() }] });
     if (api === '/notifications/3/read') return handler.fulfill({ json: { leida: true } });
     if (api === '/ranking') return handler.fulfill({ json: { mes: '2026-10', demo: true, finalized: false, entries: [{ nickname: 'Ciudadano local', position: 1, puntos: 30, credibilidad: null, monedasEstimadas: 100 }] } });
     if (api === '/recompensas') return handler.fulfill({ json: { monedas: 20, recompensas: [], canjes: [], demo: true } });
@@ -121,9 +123,30 @@ try {
   const photo = page.locator('img[src^="blob:"]').first();
   await photo.waitFor({ state: 'visible' });
   assert.ok(await photo.evaluate(element => element.complete && element.naturalWidth > 0));
+  const detailDialog = page.getByRole('dialog', { name: 'Detalle del incidente', exact: true });
+  await context.setGeolocation({ latitude: -14.0678, longitude: -75.7286, accuracy: 5 });
+  await detailDialog.getByRole('button', { name: 'Marcar resuelto', exact: true }).click();
+  await detailDialog.getByText('Tu aviso de resolución quedó registrado.', { exact: false }).waitFor();
+  assert.equal(await detailDialog.getByText('¡Incidente marcado como resuelto!', { exact: true }).count(), 0);
+  results.push('El primer voto de resolución informa del voto, sin declarar el incidente resuelto');
   await page.getByRole('button', { name: 'Cerrar', exact: true }).click();
   await photo.waitFor({ state: 'detached' });
   results.push('Detalle descarga la evidencia autenticada, muestra imagen Blob y libera el visor al cerrar');
+  await page.getByRole('button', { name: 'Abrir asistente de ayuda CiviGo' }).click();
+  const assistantDialog = page.getByRole('dialog', { name: 'Asistente CiviGo' });
+  await assistantDialog.waitFor();
+  for (let index = 0; index < 12; index++) {
+    await page.keyboard.press(index % 3 === 0 ? 'Shift+Tab' : 'Tab');
+    assert.equal(await assistantDialog.evaluate(element => element.contains(document.activeElement)), true);
+  }
+  await page.keyboard.press('Escape');
+  await assistantDialog.waitFor({ state: 'detached' });
+  await page.waitForFunction(() => document.activeElement?.getAttribute('aria-label') === 'Abrir asistente de ayuda CiviGo');
+  results.push('Los diálogos retienen el foco, responden a Escape y devuelven el foco al control de apertura');
+  await page.getByRole('button', { name: 'Abrir asistente de ayuda CiviGo' }).click();
+  assert.equal(await page.evaluate(async () => (await import('/src/services/backNavigation.ts')).backHandlers.dismissTop()), true);
+  await assistantDialog.waitFor({ state: 'detached' });
+  results.push('El registro usado por Atrás de Android cierra primero el diálogo activo');
   await page.getByRole('button', { name: 'Abrir asistente de ayuda CiviGo' }).click();
   await page.getByRole('button', { name: '¿Cómo hago un reporte?', exact: true }).click();
   await page.locator('.chat-bot strong').filter({ hasText: 'Guía local' }).waitFor();
@@ -134,6 +157,12 @@ try {
   await page.getByRole('button', { name: /Marcar.*leída/ }).click();
   await page.getByText('Leída', { exact: true }).waitFor();
   results.push('Avisos usa GET/PUT reales del contrato en transporte simulado');
+  await page.getByRole('button', { name: 'Ver incidente', exact: true }).click();
+  await page.getByRole('dialog', { name: 'Detalle del incidente', exact: true }).waitFor();
+  await page.keyboard.press('Escape');
+  await page.getByRole('dialog', { name: 'Detalle del incidente', exact: true }).waitFor({ state: 'detached' });
+  await page.waitForFunction(() => document.activeElement?.textContent?.trim() === 'Ver incidente');
+  results.push('Un aviso abre el detalle real de su incidente y permite volver a la lista');
   await page.getByRole('button', { name: 'Mi Perfil', exact: true }).click();
   await page.getByRole('button', { name: 'Ver ranking', exact: true }).click();
   await page.getByText('Ciudadano local', { exact: true }).waitFor();

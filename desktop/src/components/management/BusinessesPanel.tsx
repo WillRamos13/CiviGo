@@ -76,6 +76,7 @@ export default function BusinessesPanel() {
         </p>
         <button
           className="btn btn-primary"
+          disabled={pending}
           onClick={() => {
             setDraft({ ...emptyBusiness });
             setEditorOpening(value => value + 1);
@@ -121,6 +122,7 @@ export default function BusinessesPanel() {
                   </div>
                   <button
                     className="btn btn-secondary self-start"
+                    disabled={pending}
                     onClick={() => {
                       setDraft({
                         ...business,
@@ -142,6 +144,7 @@ export default function BusinessesPanel() {
       {draft && (
         <EditorPanel label={draft.id ? "Editar negocio" : "Registrar negocio"} selectionKey={`${draft.id ?? "new-business"}:${editorOpening}`}>
         <form className="card mt-5 brand-border" onSubmit={submit}>
+          <fieldset disabled={pending} className="contents">
           <h2 className="text-xl font-bold mb-5">
             {draft.id ? "Editar negocio" : "Nuevo negocio"}
           </h2>
@@ -282,6 +285,7 @@ export default function BusinessesPanel() {
               Cancelar
             </button>
           </div>
+          </fieldset>
         </form>
         </EditorPanel>
       )}

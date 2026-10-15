@@ -40,6 +40,7 @@ test("Los reportes reservan cuota antes de la IA incluso con solicitudes concurr
       releaseProvider = resolve;
     });
     let providerCalls = 0;
+    let providerShouldFail = true;
     const listeners = [];
     function providerEntered(count) {
       if (providerCalls >= count) return Promise.resolve();
@@ -68,7 +69,9 @@ test("Los reportes reservan cuota antes de la IA incluso con solicitudes concurr
         if (providerCalls >= listener.count) listener.resolve();
       await providerGate;
       // Finaliza las solicitudes sin pasar a persistencia ni conectar una BD.
-      throw new HttpError(503, "Fin de la evaluación simulada.");
+      if (providerShouldFail)
+        throw new HttpError(503, "Fin de la evaluación simulada.");
+      return null;
     });
     t.mock.method(global, "fetch", async () => {
       throw new Error("Esta prueba no debe invocar una API externa.");
@@ -152,6 +155,41 @@ test("Los reportes reservan cuota antes de la IA incluso con solicitudes concurr
       completed.map((result) => result.status),
       [503, 503, 503, 503],
     );
+
+    // A separate worker may fill the persisted allowance after the preliminary
+    // count but before evaluation finishes. Reject before creating any rows.
+    const db = require("../src/lib/db");
+    let transactionCounts = 0;
+    db.$transaction = async (work) =>
+      work({
+        user: {
+          findUnique: async () => ({
+            id: 4,
+            correoVerificado: true,
+            bloqueado: false,
+          }),
+        },
+        report: {
+          count: async ({ where }) => {
+            transactionCounts++;
+            assert.equal(where.usuarioId, 4);
+            assert.ok(where.fechaCreacion.gte instanceof Date);
+            return 3;
+          },
+        },
+        incident: {
+          create: async () =>
+            assert.fail("No debe persistir un cuarto reporte"),
+        },
+      });
+    providerShouldFail = false;
+    const concurrentLimit = await submit(4);
+    assert.equal(
+      concurrentLimit.status,
+      429,
+      JSON.stringify(concurrentLimit.body),
+    );
+    assert.equal(transactionCounts, 1);
   } finally {
     releaseProvider?.();
     await Promise.allSettled(requests);

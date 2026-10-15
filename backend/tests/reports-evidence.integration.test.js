@@ -550,6 +550,24 @@ test(
         },
       );
       await t.test(
+        "Una evaluación sin justificación no publica ni valida un reporte ordinario",
+        async () => {
+          const author = await actor("empty_reason");
+          const selected = await type("sin justificación");
+          const file = await upload(author);
+          simulated([file], { motivo: " \u0000\t " });
+          const result = await submit(author, selected, [file]);
+          assert.equal(result.reporte.estado, "EN_REVISION");
+          assert.equal(result.incidente.publicado, false);
+          assert.equal(result.incidente.evaluacion, "PENDIENTE");
+          assert.equal(result.incidente.nivelRiesgo, null);
+          assert.equal(result.revision.motivo, "IA_NO_DISPONIBLE");
+          await assertNoSanction(author);
+          await assertNoRewards(author);
+          await assertReviewAlert(result.incidente.id, admin);
+        },
+      );
+      await t.test(
         "Una foto no relacionada no publica un incidente ordinario ni castiga al autor",
         async () => {
           const author = await actor("irrelevant");

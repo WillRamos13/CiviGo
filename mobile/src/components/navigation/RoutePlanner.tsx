@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Footprints, Bike, Car, MapPin, Navigation, Bookmark, RotateCw, AlertTriangle, Check, Volume2, VolumeX } from 'lucide-react';
-import { NavigationService, AutoRerouteGuard, formatDistance, formatDuration, getRouteProgress, isPosition, isUsableFix, routeWarnings, type SavedRoute, type NavigationPlace } from '../../services/navigation';
+import { NavigationService, AutoRerouteGuard, formatDistance, formatDuration, getRouteProgress, isPosition, isUsableFix, routeWarnings, onFavoritesChanged, type SavedRoute, type NavigationPlace } from '../../services/navigation';
 import { useAuth } from '../../hooks/useAuth';
 import { errorMessage } from '../../services/api';
 import { triggerHaptic } from '../../services/native';
@@ -71,18 +71,24 @@ export const RoutePlanner: React.FC<RoutePlannerProps> = ({
   }, []);
 
   useEffect(() => {
-    const controller = new AbortController();
+    let controller: AbortController | null = null;
     request.current?.abort();
     setBusy(false);
     setSavedRoute('');
     setRoutes([]);
     setFavorites([]);
-    if (usuario) {
-      void NavigationService.getFavorites(controller.signal)
-        .then((values) => { if (!controller.signal.aborted) setFavorites(values); })
-        .catch((err) => { if (!controller.signal.aborted) setError(`Favoritos: ${errorMessage(err)}`); });
-    }
-    return () => controller.abort();
+    if (!usuario || usuario.bloqueado) return;
+    const loadFavorites = () => {
+      controller?.abort();
+      const current = new AbortController();
+      controller = current;
+      void NavigationService.getFavorites(current.signal)
+        .then((values) => { if (!current.signal.aborted) setFavorites(values); })
+        .catch((err) => { if (!current.signal.aborted) setError(`Favoritos: ${errorMessage(err)}`); });
+    };
+    loadFavorites();
+    const unsubscribe = onFavoritesChanged(loadFavorites);
+    return () => { controller?.abort(); unsubscribe(); };
   }, [usuario?.id, usuario?.bloqueado]);
 
   useEffect(() => {

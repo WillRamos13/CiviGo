@@ -10,6 +10,19 @@ export function expandMapBounds(current: MapBounds, viewport: MapBounds): MapBou
   return expanded.every((value, index) => value === current[index]) ? current : expanded;
 }
 
+/** DOM markers follow the visible area; the full snapshot still drives the heatmap. */
+export function isInMarkerViewport(position: Posicion, bounds: MapBounds): boolean {
+  if (!isPosition(position)) return false;
+  const [west, south, east, north] = bounds;
+  const width = east >= west ? east - west : east - west + 360;
+  const height = north - south;
+  const bufferedWest = west - width * 0.25;
+  const longitudeOffset = ((position.longitud - bufferedWest) % 360 + 360) % 360;
+  return position.latitud >= Math.max(-90, south - height * 0.25) &&
+    position.latitud <= Math.min(90, north + height * 0.25) &&
+    (width * 1.5 >= 360 || longitudeOffset <= width * 1.5);
+}
+
 function validateIncidents(value: unknown): Incidente[] {
   if (!Array.isArray(value) || !value.every((incident) => incident && Number.isSafeInteger(incident.id) && incident.id > 0 && typeof incident.tipo === 'string' && isPosition(incident))) {
     throw new Error('No se recibieron alertas válidas del mapa.');

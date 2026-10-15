@@ -2,10 +2,23 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { updateIncidentMarker } from '../src/components/map/incidentMarker';
 import { applyRoadRisk, type RoadGeometry } from '../src/services/roadMap';
-import { getMapIncidents, getRecentIncidents, DEFAULT_ICA_BOUNDS, expandMapBounds } from '../src/services/mapData';
+import { getMapIncidents, getRecentIncidents, DEFAULT_ICA_BOUNDS, expandMapBounds, isInMarkerViewport } from '../src/services/mapData';
 import type { Incidente } from '../src/types';
 
 const incident: Incidente = { id: 7, tipo: 'Robo', tipoSlug: 'robo', descripcion: 'Aviso inicial', latitud: -14, longitud: -75, estado: 'ACTIVO', nivelRiesgo: 1, totalReportes: 1 };
+
+test('marker viewport includes a pan buffer and handles wrapped longitude without dropping data', () => {
+  const viewport: [number, number, number, number] = [-75.8, -14.1, -75.7, -14];
+  assert.equal(isInMarkerViewport({ latitud: -14.05, longitud: -75.75 }, viewport), true);
+  assert.equal(isInMarkerViewport({ latitud: -14.05, longitud: -75.82 }, viewport), true, 'buffer avoids churn at the visible edge');
+  assert.equal(isInMarkerViewport({ latitud: -14.05, longitud: -75.84 }, viewport), false);
+  assert.equal(isInMarkerViewport({ latitud: -14.14, longitud: -75.75 }, viewport), false);
+  assert.equal(isInMarkerViewport({ latitud: 0, longitud: -179 }, [170, -10, 190, 10]), true);
+  assert.equal(isInMarkerViewport({ latitud: 0, longitud: -179 }, [170, -10, -170, 10]), true);
+  assert.equal(isInMarkerViewport({ latitud: 0, longitud: 179 }, [-190, -10, -170, 10]), true);
+  assert.equal(isInMarkerViewport({ latitud: 0, longitud: 20 }, [-200, -10, 200, 10]), true);
+  assert.equal(isInMarkerViewport({ latitud: NaN, longitud: -75.75 }, viewport), false);
+});
 
 test('existing marker updates position, icon, severity and click payload without HTML injection', () => {
   const image: any = { src: '', alt: '', onerror: null };

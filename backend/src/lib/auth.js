@@ -33,12 +33,13 @@ const optionalAuth = asyncRoute(async (req, res, next) => {
 const auth = asyncRoute(async (req, res, next) => {
   req.user = await loadUser(req);
   if (!req.user) throw new HttpError(401, "Inicia sesión para continuar.");
-  if (
-    req.user.bloqueado &&
-    !/^\/api\/(users\/(me|logout)|reports(\/mine|\/\d+\/appeal)?)$/.test(
-      req.originalUrl.split("?")[0],
-    )
-  )
+  const path = req.originalUrl.split("?")[0].replace(/\/$/, "");
+  const blockedAccess =
+    (["GET", "HEAD"].includes(req.method) &&
+      /^\/api\/(users\/me|reports(\/mine)?)$/.test(path)) ||
+    (req.method === "POST" &&
+      /^\/api\/(users\/logout|reports\/\d+\/appeal)$/.test(path));
+  if (req.user.bloqueado && !blockedAccess)
     throw new HttpError(
       403,
       "Tu cuenta está bloqueada; puedes consultar tus reportes y solicitar revisión.",
@@ -63,6 +64,27 @@ function requireEmail(req, res, next) {
       ),
     );
   next();
+}
+// Participation can outlive authentication while another request revokes the
+// account. Read these fields in the transaction that commits the contribution.
+async function currentParticipant(db, usuarioId) {
+  const user = await db.user.findUnique({
+    where: { id: usuarioId },
+    select: { id: true, bloqueado: true, correoVerificado: true },
+  });
+  if (!user || user.bloqueado)
+    throw new HttpError(
+      403,
+      "Tu cuenta ya no puede participar.",
+      "ACCOUNT_BLOCKED",
+    );
+  if (!user.correoVerificado)
+    throw new HttpError(
+      403,
+      "Verifica tu correo con Google para participar.",
+      "EMAIL_REQUIRED",
+    );
+  return user;
 }
 function hasPermission(user, permission) {
   return (
@@ -123,6 +145,7 @@ module.exports = {
   auth,
   optionalAuth,
   requireEmail,
+  currentParticipant,
   requirePermission,
   hasPermission,
   canReview,

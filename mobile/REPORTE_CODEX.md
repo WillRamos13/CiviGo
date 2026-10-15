@@ -4,17 +4,17 @@ Fecha: 15 de octubre de 2026. Repositorio: `WillRamos13/CiviGo`.
 
 ## Estado al corte
 
-Se corrigieron los contratos, los flujos y los controles indicados en la misión dentro de `mobile/`. La corrida final aprobó **118 pruebas automatizadas y 16 comprobaciones de interfaz**. También pasaron TypeScript/Vite, la sincronización de Capacitor con ocho plugins nativos y la compilación Gradle de una APK de depuración. `npm audit --omit=dev` informó **cero vulnerabilidades en dependencias de producción**.
+Se corrigieron los contratos, los flujos y los controles indicados en la misión dentro de `mobile/`. La corrida final aprobó **142 pruebas automatizadas y 25 comprobaciones de interfaz** (20 generales y 5 de navegación). También pasaron TypeScript/Vite, la sincronización de Capacitor con ocho plugins nativos y la compilación Gradle de una APK de depuración. `npm audit --omit=dev` informó **cero vulnerabilidades en dependencias de producción**.
 
-La aplicación no está validada completamente en Android ni contra proveedores reales. **Google sigue BLOQUEADO por configuración externa.** Spotify presenta un acceso opcional y honesto, sin reproducción simulada ni OAuth. Durante las pruebas de una compilación intermedia se comprobó la interfaz sin conexión, incluyendo Perfil y retorno al mapa. La APK definitiva se instaló y Android aceptó su lanzamiento, pero sus últimos intentos terminaron por falta de memoria en WebView. No se acredita estabilidad ni funcionamiento completo en un dispositivo.
+La aplicación no está validada completamente en Android ni contra proveedores reales. **Google sigue BLOQUEADO por configuración externa.** Spotify presenta un acceso opcional y honesto, sin reproducción simulada ni OAuth. En la primera revisión se observó la interfaz sin conexión de una compilación intermedia. La APK de esta segunda auditoría se instaló y Android aceptó su lanzamiento, pero el emulador, esta vez con 3 GB comprobados, volvió a cerrar WebView por memoria y mostró «System UI isn't responding». No se acredita estabilidad ni funcionamiento completo en un dispositivo. El detalle de esta revisión está en el apartado 9.
 
-La repetición final incluye el ajuste que libera Mapbox cuando el mapa no es visible. Se comprobó en navegador la retirada del canvas y su reconstrucción, conservando el recorrido. El apartado 8 registra la APK definitiva y el límite de la comprobación nativa.
+La repetición final incluye la liberación del mapa oculto y las correcciones de la segunda auditoría. Se comprobó en navegador la retirada del canvas y su reconstrucción, conservando el recorrido. El apartado 8 registra la APK vigente y el límite de la comprobación nativa.
 
 ## 1. Alcance y protección del repositorio
 
 - Raíz verificada: `C:/Users/wills/OneDrive/Documentos/Proyectos importantes/CiviGo`.
 - Rama inicial y actual: `main`.
-- Commit base: `370ae1081862ad7ea05ede00c93bee4d37fbb1e3`.
+- Commit de referencia de la primera auditoría: `370ae1081862ad7ea05ede00c93bee4d37fbb1e3`. Al iniciar la segunda revisión se observó el commit `bd6907ea609e7c001fa7f2c05f3fff05e98e8751` (`ejemplo`), que incorporó el trabajo anterior. Se conservó ese estado; este agente no ejecutó commits ni push.
 - Estado inicial registrado por el coordinador: árbol de trabajo limpio; no había cambios ajenos que sobrescribir.
 - Los cambios de esta misión están dentro de `mobile/`. La inspección de Git al preparar este informe no encontró cambios fuera de ese directorio.
 - Se consultaron contratos de backend y referencias del frontend en modo de lectura. No se modificaron backend, frontend, desktop, raíz, `.github/`, esquemas, migraciones ni infraestructura.
@@ -128,7 +128,7 @@ El runner descubre los archivos de prueba, transpila el código TypeScript real 
 
 El transporte de red está bloqueado por defecto. Los casos sustituyen únicamente los límites externos necesarios y comprueban lógica, servicios, solicitudes, recursos y efectos observables. Se retiraron comprobaciones que sólo afirmaban datos ficticios sin ejecutar la implementación.
 
-La corrida final posterior al último ajuste de MapView aprobó **118 pruebas**, sin fallos, cancelaciones ni omisiones. La prueba de interfaz aprobó **16 comprobaciones**, incluida la liberación y reconstrucción del mapa entre pestañas.
+La corrida final posterior al último ajuste de MapView aprobó **142 pruebas**, sin fallos, cancelaciones ni omisiones. La prueba de interfaz aprobó **20 comprobaciones**, incluida la liberación y reconstrucción del mapa entre pestañas.
 
 ### 13. Compilación Android — CORREGIDO Y VERIFICADO; ejecución funcional PENDIENTE
 
@@ -158,12 +158,13 @@ La APK es de **depuración**, no una versión publicada ni firmada para distribu
 
 | Comprobación | Último resultado completado | Alcance y límite |
 | --- | --- | --- |
-| `npm test` | 118 pruebas aprobadas; 0 fallos, cancelaciones u omisiones | Código real con dependencias externas aisladas; corrida posterior al último cambio. |
-| `node tests/ui-smoke.mjs` | 16 comprobaciones aprobadas, sin errores de navegador | Navegador local con API y proveedores simulados/bloqueados. |
+| `npm test` | 142 pruebas aprobadas; 0 fallos, cancelaciones u omisiones | Código real con dependencias externas aisladas; corrida posterior al último cambio. |
+| `node tests/ui-smoke.mjs` | 20 comprobaciones aprobadas, sin errores de navegador | Navegador local con API y proveedores simulados/bloqueados. |
+| `node tests/navigation-ui-smoke.mjs` | 5 comprobaciones aprobadas | Componentes reales con adaptadores aislados; sin llamadas externas. |
 | TypeScript y Vite | Compilación aprobada | Verifica tipos y genera distribución; no acredita funcionamiento de proveedores. |
 | `npx cap sync android` | Aprobado, ocho plugins nativos | Firebase excluido al faltar `google-services.json`. |
-| Gradle `assembleDebug` | Aprobado en 36 s | APK final posterior al último ajuste; 203 tareas, 20 ejecutadas y 183 al día. |
-| `npm audit --omit=dev` | Cero vulnerabilidades reportadas | Dependencias de producción al momento de la consulta. |
+| Gradle `assembleDebug` | Aprobado en 1 min 21 s | APK final posterior al último ajuste; 203 tareas, 20 ejecutadas y 183 al día. |
+| `npm audit --json` | Cero vulnerabilidades reportadas | Consulta de la segunda auditoría, incluidas dependencias de desarrollo. |
 | Instalación y lanzamiento Android | APK definitiva instalada e inicio aceptado; interfaz capturada en build intermedio | La última prueba nativa terminó por `LOW_MEMORY` de WebView. Estabilidad y flujos autenticados pendientes. |
 | Inspección de Git | Cambios sólo en `mobile/` | Baseline limpio en `main`; sin commits ni push. |
 | Producción y cuentas reales | Cero mutaciones de prueba | No se hicieron operaciones de proveedores con identidades reales. |
@@ -219,115 +220,52 @@ Inventario obtenido de `git status --porcelain=v1 --untracked-files=all` y contr
 
 ### Código, configuración, recursos y pruebas
 
-- `mobile/.env.example` — modificado.
-- `mobile/.gitignore` — nuevo.
-- `mobile/REPORTE_CODEX.md` — nuevo.
-- `mobile/android/.gitignore` — modificado.
-- `mobile/android/app/src/main/AndroidManifest.xml` — modificado.
-- `mobile/android/app/src/main/res/xml/backup_rules.xml` — nuevo.
-- `mobile/android/app/src/main/res/xml/data_extraction_rules.xml` — nuevo.
-- `mobile/android/app/src/main/res/xml/file_paths.xml` — modificado.
-- `mobile/android/gradle.properties` — modificado.
-- `mobile/android/variables.gradle` — modificado.
-- `mobile/capacitor.config.ts` — modificado.
-- `mobile/index.html` — modificado.
-- `mobile/package-lock.json` — modificado.
-- `mobile/package.json` — modificado.
-- `mobile/public/iconos/alerta.svg` — nuevo.
+- `mobile/REPORTE_CODEX.md` — modificado.
 - `mobile/src/App.tsx` — modificado.
-- `mobile/src/components/chat/AssistantReply.tsx` — nuevo.
 - `mobile/src/components/chat/ChatBotModal.tsx` — modificado.
-- `mobile/src/components/incident/AuthenticatedMedia.tsx` — nuevo.
 - `mobile/src/components/incident/IncidentDetailModal.tsx` — modificado.
-- `mobile/src/components/layout/AuthGate.tsx` — modificado.
+- `mobile/src/components/incident/IncidentFromAlert.tsx` — nuevo.
 - `mobile/src/components/map/MapView.tsx` — modificado.
-- `mobile/src/components/map/incidentMarker.ts` — nuevo.
 - `mobile/src/components/navigation/RoutePlanner.tsx` — modificado.
-- `mobile/src/components/navigation/SpotifyNavPlayer.tsx` — modificado.
-- `mobile/src/hooks/useAuth.tsx` — modificado.
-- `mobile/src/hooks/useGeolocation.ts` — modificado.
-- `mobile/src/hooks/useOperationScope.ts` — nuevo.
-- `mobile/src/index.css` — modificado.
+- `mobile/src/hooks/useDialog.ts` — nuevo.
+- `mobile/src/hooks/useTheme.tsx` — modificado.
 - `mobile/src/pages/AgentPage.tsx` — modificado.
-- `mobile/src/pages/AlertsPage.tsx` — modificado.
-- `mobile/src/pages/CommunityPage.tsx` — modificado.
-- `mobile/src/pages/ForgotPasswordPage.tsx` — modificado.
 - `mobile/src/pages/LoginPage.tsx` — modificado.
-- `mobile/src/pages/MapPage.tsx` — modificado.
-- `mobile/src/pages/MyReportsPage.tsx` — modificado.
 - `mobile/src/pages/ProfilePage.tsx` — modificado.
 - `mobile/src/pages/RegisterPage.tsx` — modificado.
-- `mobile/src/pages/ReportPage.tsx` — modificado.
-- `mobile/src/pages/VerifyEmailPage.tsx` — modificado.
 - `mobile/src/services/agent.ts` — modificado.
-- `mobile/src/services/api.ts` — modificado.
-- `mobile/src/services/assistant.ts` — nuevo.
 - `mobile/src/services/auth.ts` — modificado.
-- `mobile/src/services/authenticatedMedia.ts` — nuevo.
-- `mobile/src/services/community.ts` — nuevo.
-- `mobile/src/services/firebase-email.ts` — nuevo.
-- `mobile/src/services/geolocation-consent.ts` — nuevo.
-- `mobile/src/services/incidentIcons.ts` — modificado.
-- `mobile/src/services/incidentParticipation.ts` — nuevo.
-- `mobile/src/services/mapData.ts` — nuevo.
-- `mobile/src/services/media.ts` — nuevo.
-- `mobile/src/services/native-lifecycle.ts` — nuevo.
+- `mobile/src/services/backNavigation.ts` — nuevo.
+- `mobile/src/services/firebase-email.ts` — modificado.
+- `mobile/src/services/geolocation-consent.ts` — modificado.
+- `mobile/src/services/incidentDetails.ts` — nuevo.
+- `mobile/src/services/incidentMessages.ts` — nuevo.
+- `mobile/src/services/incidentParticipation.ts` — modificado.
+- `mobile/src/services/mapData.ts` — modificado.
 - `mobile/src/services/native.ts` — modificado.
 - `mobile/src/services/navigation.ts` — modificado.
-- `mobile/src/services/operationScope.ts` — nuevo.
-- `mobile/src/services/password-recovery.ts` — nuevo.
-- `mobile/src/services/profileOperations.ts` — nuevo.
-- `mobile/src/services/reportDraft.ts` — nuevo.
-- `mobile/src/services/reportEvidence.ts` — nuevo.
-- `mobile/src/services/roadMap.ts` — modificado.
-- `mobile/src/services/spotify.ts` — modificado.
-- `mobile/src/types/index.ts` — modificado.
-- `mobile/tests/android-config.test.ts` — nuevo.
-- `mobile/tests/assistant.test.tsx` — nuevo.
-- `mobile/tests/auth.test.ts` — nuevo.
-- `mobile/tests/contracts-media.test.ts` — nuevo.
-- `mobile/tests/contracts-operation.test.ts` — nuevo.
-- `mobile/tests/contracts.test.ts` — nuevo.
-- `mobile/tests/fixtures/delayed.fixture.ts` — nuevo.
-- `mobile/tests/fixtures/failed.fixture.ts` — nuevo.
-- `mobile/tests/fixtures/incomplete.fixture.ts` — nuevo.
-- `mobile/tests/map.test.ts` — nuevo.
-- `mobile/tests/native-lifecycle.test.ts` — nuevo.
-- `mobile/tests/navigation-geolocation.test.ts` — nuevo.
-- `mobile/tests/navigation-profile.test.ts` — nuevo.
-- `mobile/tests/navigation.test.ts` — nuevo.
-- `mobile/tests/network-guard.js` — nuevo.
-- `mobile/tests/report-draft.test.ts` — nuevo.
-- `mobile/tests/report.test.ts` — nuevo.
-- `mobile/tests/run.js` — modificado.
-- `mobile/tests/runner.test.ts` — nuevo.
-- `mobile/tests/services.test.ts` — modificado.
-- `mobile/tests/spotify.test.ts` — nuevo.
-- `mobile/tests/ui-smoke.mjs` — nuevo.
-- `mobile/vite.config.ts` — modificado.
+- `mobile/src/services/theme.ts` — nuevo.
+- `mobile/tests/auth-pages.test.ts` — nuevo.
+- `mobile/tests/auth.test.ts` — modificado.
+- `mobile/tests/back-theme-details.test.ts` — nuevo.
+- `mobile/tests/contracts-operation.test.ts` — modificado.
+- `mobile/tests/contracts.test.ts` — modificado.
+- `mobile/tests/incident-messages.test.ts` — nuevo.
+- `mobile/tests/map.test.ts` — modificado.
+- `mobile/tests/navigation-geolocation.test.ts` — modificado.
+- `mobile/tests/navigation-ui-smoke.mjs` — nuevo.
+- `mobile/tests/navigation.test.ts` — modificado.
+- `mobile/tests/ui-smoke.mjs` — modificado.
 
 ### Distribución generada
 
-La compilación reemplaza los bundles anteriores de `mobile/dist/`, elimina sourcemaps y genera nombres con hash. La lista corresponde a la compilación final.
+Recursos generados por la compilación final; los bundles anteriores y sus sourcemaps se sustituyeron por esta distribución.
 
-- `mobile/dist/assets/capacitor-vendor-oARWIe41.js` — retirado/regenerado.
-- `mobile/dist/assets/capacitor-vendor-oARWIe41.js.map` — retirado/regenerado.
-- `mobile/dist/assets/index-BOnNVWfZ.css` — retirado/regenerado.
-- `mobile/dist/assets/index-fVQ9Eny6.js` — retirado/regenerado.
-- `mobile/dist/assets/index-fVQ9Eny6.js.map` — retirado/regenerado.
-- `mobile/dist/assets/lucide-vendor-DsnZY9hl.js` — retirado/regenerado.
-- `mobile/dist/assets/lucide-vendor-DsnZY9hl.js.map` — retirado/regenerado.
-- `mobile/dist/assets/mapbox-gl-CXtZNT3Z.js` — modificado.
-- `mobile/dist/assets/mapbox-gl-CXtZNT3Z.js.map` — retirado/regenerado.
-- `mobile/dist/assets/react-vendor-LulYhd5F.js` — modificado.
-- `mobile/dist/assets/react-vendor-LulYhd5F.js.map` — retirado/regenerado.
+- `mobile/dist/assets/index-BTcGYmyn.js` — nuevo.
+- `mobile/dist/assets/index-DHGhlNs3.js` — retirado/regenerado.
+- `mobile/dist/assets/lucide-vendor-BX3kr-sO.js` — nuevo.
+- `mobile/dist/assets/lucide-vendor-CPu6F1LZ.js` — retirado/regenerado.
 - `mobile/dist/index.html` — modificado.
-- `mobile/dist/assets/capacitor-vendor-BXCAKq_G.js` — nuevo.
-- `mobile/dist/assets/index-CG-tP-Yw.css` — nuevo.
-- `mobile/dist/assets/index-DHGhlNs3.js` — nuevo.
-- `mobile/dist/assets/index.esm-FAfbWhto.js` — nuevo.
-- `mobile/dist/assets/lucide-vendor-CPu6F1LZ.js` — nuevo.
-- `mobile/dist/iconos/alerta.svg` — nuevo.
 
 ### Artefactos locales ignorados por Git
 
@@ -341,12 +279,47 @@ No se versionaron cookies, contraseñas, tokens privados, archivos de configurac
 
 ## 8. Cierre de la última validación
 
-- **CORREGIDO Y VERIFICADO:** 118 pruebas aprobadas; 16 comprobaciones de interfaz aprobadas, 0 errores de navegador y 0 solicitudes externas permitidas por esa prueba.
+- **CORREGIDO Y VERIFICADO:** 142 pruebas aprobadas; 25 comprobaciones de interfaz aprobadas (20 generales y 5 de navegación), 0 errores de navegador y 0 solicitudes externas permitidas por esas pruebas.
 - **CORREGIDO Y VERIFICADO:** TypeScript/Vite, sincronización Capacitor y Gradle después del último ajuste de Mapbox.
 - **CORREGIDO Y VERIFICADO:** APK final `mobile/android/app/build/outputs/apk/debug/app-debug.apk`, **31.172.367 bytes**.
-- SHA-256: `043340CB586E0DA7B52A1E84EC14FBCC44229E39F6E2F6A6051AE16ECDC78215`.
-- **CORREGIDO SIN PRUEBA COMPLETA:** APK definitiva instalada en un emulador aislado Android 17/API 37, sin red ni identidades reales; Android aceptó su inicio. La última prueba terminó con `LOW_MEMORY` del renderer y cierre de la aplicación. Una compilación intermedia permitió comprobar interfaz offline, Perfil de visitante y retorno al mapa. El cambio final de GPS pasó los ensayos de lógica y navegador, pero no una comprobación nativa completa. Se requiere repetirla en un dispositivo o emulador con recursos suficientes. No se declara la aplicación estable por haber compilado.
+- SHA-256: `3563926D2BF9C289C68CAFFF4BEB972E42AF48C7E583E7182D6C781DB175D227`.
+- **CORREGIDO SIN PRUEBA COMPLETA:** APK vigente instalada en un emulador aislado Android 17/API 37 con 3 GB (3.043.484 kB en `/proc/meminfo`), sin red ni identidades reales; Android aceptó su inicio. La prueba terminó con `LOW_MEMORY` del renderer, cierre de la aplicación y un aviso de que System UI no respondía. En la primera auditoría una compilación intermedia permitió comprobar interfaz offline, Perfil de visitante y retorno al mapa. Los cambios actuales pasaron pruebas de lógica y navegador, pero no una comprobación nativa completa. Se requiere repetirla en otro dispositivo o emulador estable. No se declara la aplicación estable por haber compilado.
 - Se inspeccionó el contenido de la APK: sin archivos `.env`, cachés de pruebas, claves privadas ni almacenes de firma empaquetados. Se verificaron los permisos finales sin acceso amplio a la galería, permiso de cámara ni ubicación en segundo plano.
-- Aislamiento final: cambios sólo en `mobile/`, sin modificación del commit base ni commits/push. Backend, frontend, desktop, base de datos e infraestructura permanecen intactos.
+- Aislamiento final: cambios sólo en `mobile/`, sin commits/push ejecutados por este agente. Se conserva el commit observado `bd6907e` y el trabajo previo. Backend, frontend, desktop, base de datos e infraestructura no fueron modificados por esta revisión.
 
 La compilación exitosa y las pruebas locales son evidencia del alcance descrito. No sustituyen una validación funcional completa en Android ni autorizan afirmar que todos los proveedores funcionan.
+
+## 9. Segunda auditoría y correcciones aplicadas — 15 de octubre de 2026
+
+Esta revisión partió del trabajo de la primera auditoría, sin revertirlo. Antes de editar se inspeccionó Git y se guardaron hashes de los archivos en `.local/audit-2026-10-15-v2/baseline-hashes.json`. El commit `bd6907e`, observado en esta revisión e incorporado fuera de las acciones del agente, contiene el trabajo anterior. Las 118 pruebas existentes pasaron como referencia inicial. Se revisaron los contratos actuales del backend en modo de lectura y se reprodujeron los fallos antes de aplicar las correcciones.
+
+| Hallazgo o mejora | Corrección aplicada | Evidencia y estado |
+| --- | --- | --- |
+| Un reset de contraseña tardío cerraba una sesión iniciada posteriormente | Reset, cambio de contraseña, login y logout comparten la cola que ordena respuestas que cambian la cookie | Carreras y cancelaciones diferidas: CORREGIDO Y VERIFICADO localmente |
+| Volver durante login o registro dejaba la cookie y la interfaz con cuentas distintas | Se sincroniza el proveedor de sesión aunque la pantalla haya salido; sólo se cancela su navegación y mensajes | Páginas y proveedor reales con respuestas retrasadas, incluidos usuarios bloqueados: CORREGIDO Y VERIFICADO |
+| Una verificación Google cancelada podía abrir el proveedor después de esperar en cola | Se invalida la adquisición y se comprueba su generación antes de abrir Google o leer su token | Puente nativo sustituido en la prueba, sin acceder a Google: CORREGIDO Y VERIFICADO en lógica; configuración real sigue BLOQUEADA |
+| El primer voto ciudadano se anunciaba como resolución definitiva | Mensaje, estado, contadores y disponibilidad del chat respetan la respuesta del mismo incidente | Respuestas ACTIVO y RESUELTO, ID ajeno y campos inválidos: CORREGIDO Y VERIFICADO |
+| Un GET tardío borraba comentarios recién enviados | Se fusionan por ID y fecha, conservando los mensajes reconocidos por el servidor | Carga tardía y duplicados: CORREGIDO Y VERIFICADO |
+| Una respuesta tardía podía reemplazar el texto de moderación por el mensaje original | El snapshot canónico del servidor y su texto de retirada tienen prioridad sobre un reconocimiento antiguo | Ambos órdenes de llegada: CORREGIDO Y VERIFICADO |
+| El agente sólo podía consultar los primeros 250 incidentes | Se usan página, límite, búsqueda y total del servidor; controles Anterior/Siguiente y cancelación de lecturas obsoletas | Conjunto de 251 incidentes y búsqueda del último: CORREGIDO Y VERIFICADO con transporte aislado |
+| Los avisos no tenían acceso a su incidente | Se conectó Ver incidente al endpoint existente, con carga, cancelación, cierre al cambiar de cuenta y reintento | Flujo completo de aviso a detalle en navegador: CORREGIDO Y VERIFICADO |
+| El mapa retenido conservaba favoritos borrados en Perfil y bloqueaba el cupo | Guardar y borrar notifican a ambas vistas, que recargan con cancelación de la petición anterior | Borrar con mapa oculto, volver y guardar otra ruta: CORREGIDO Y VERIFICADO |
+| Ubicar centraba antes de recibir el GPS y requería otra pulsación | Se espera el fix nuevo; un fallo o un mapa destruido no mueve la cámara con datos anteriores | Una pulsación, fallo y respuesta tardía: CORREGIDO Y VERIFICADO |
+| Atrás de Android no hacía nada en el mapa ni cerraba primero un diálogo | Orden de atención: diálogo superior, pantalla previa, mapa y minimización de la aplicación | Política real y registro de diálogos probados; confirmación física nativa pendiente |
+| Los diálogos dejaban escapar el foco y el detalle no respondía a Escape | Foco inicial, ciclo Tab/Shift+Tab, Escape, semántica de diálogo y devolución del foco al control de apertura | Prueba de interacción y apertura desde avisos: CORREGIDO Y VERIFICADO |
+| La lectura tardía del tema revertía una elección reciente; el almacenamiento podía fallar sin manejarse | Intención del usuario tiene prioridad; escrituras ordenadas y fallos de preferencias contenidos | Lecturas y escrituras diferidas, almacenamiento bloqueado y desmontaje: CORREGIDO Y VERIFICADO |
+| Se mantenían marcadores gráficos de toda la provincia aunque estuvieran fuera de la vista | Se crean sólo en el viewport con un margen del 25 %; se conservan todos los datos y el mapa de calor | Visibilidad, paneo, actualización y selección de marcadores; heatmap íntegro: CORREGIDO Y VERIFICADO |
+| Algunos errores GPS aparecían en inglés | Mensajes claros en español para espera agotada, señal ausente y ubicación desactivada, conservando sus códigos y reintentos | Pruebas de traducción y comportamiento de reintento: CORREGIDO Y VERIFICADO |
+
+Validación de esta segunda auditoría:
+
+- `npm test`: **142 pruebas aprobadas**, sin fallos, cancelaciones ni omisiones en este equipo. Las regresiones de páginas de autenticación usan un Chromium local si está disponible; no deben confundirse con acceso real a proveedores.
+- `tests/ui-smoke.mjs`: **20 comprobaciones aprobadas**, sin errores del navegador. Las llamadas externas se bloquean o sustituyen por datos locales.
+- `tests/navigation-ui-smoke.mjs`: **5 comprobaciones aprobadas** sobre componentes reales y adaptadores aislados de mapa, GPS y transporte.
+- TypeScript y compilación Vite aprobados; sincronización Android aprobada con ocho plugins. Los requisitos Firebase nativos siguen pendientes.
+- `npm audit --json`: **0 vulnerabilidades reportadas**, incluidas las dependencias de desarrollo en la consulta de esta revisión. No es una certificación general de seguridad.
+- Registros y estado inicial: `.local/audit-2026-10-15-v2/`. Las capturas de interfaz vigentes siguen en `.local/ui-smoke/`.
+- Gradle `assembleDebug`: **BUILD SUCCESSFUL en 1 min 21 s**. APK y SHA-256 vigentes en el apartado 8.
+- Android nativo: **CORREGIDO SIN PRUEBA COMPLETA**. La APK se instaló y se aceptó su inicio, pero el renderer fue cerrado por memoria en el emulador de 3 GB; también se observó un bloqueo de System UI. La nueva comprobación física de Atrás, GPS y los flujos autenticados continúa pendiente. Evidencia en `native/environment.json`, `native/start.xml`, `native/exit-info.txt` y `native/errors.txt` dentro de la carpeta de esta auditoría. El emulador y su servidor de prueba se cerraron al terminar.
+
+La optimización de marcadores reduce trabajo gráfico medido en las pruebas; no demuestra por sí sola que se haya resuelto el cierre de WebView registrado anteriormente. La verificación nativa y los proveedores reales conservan los límites descritos en este informe. No hubo cambios fuera de `mobile/`, mutaciones en producción, migraciones, despliegues, commits ni push.

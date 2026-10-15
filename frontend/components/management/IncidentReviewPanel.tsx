@@ -801,7 +801,7 @@ export default function IncidentReviewPanel({
           incident={selected}
           close={() => setSelected(null)}
           done={() => {
-            setSelected(null);
+            setSelected(current => current?.id === selected.id ? null : current);
             setSuccess(
               "La decisión quedó registrada y el incidente se actualizó.",
             );

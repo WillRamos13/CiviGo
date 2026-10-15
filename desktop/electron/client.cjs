@@ -44,11 +44,13 @@ class ApiClient {
     if (requestId) this.#reads.set(requestId, controller);
     const timer = setTimeout(() => controller.abort(), 30000);
     const epoch = this.#epoch;
+    let deniedStatus;
     try {
       const response = await this.fetch(this.baseUrl + '/api' + route, {
         method, body, redirect: 'error', signal: controller.signal,
         headers: { Accept: binary ? '*/*' : 'application/json', Origin: this.origin, ...(cookie ? { Cookie: cookie } : {}), ...(typeof body === 'string' ? { 'Content-Type': 'application/json' } : {}) },
       });
+      if (response.status === 401 || response.status === 403) deniedStatus = response.status;
       const bytes = await boundedBytes(response, binary ? MAX_FILE_BYTES : 10 * 1024 * 1024);
       if (epoch !== this.#epoch) throw new DesktopError('La sesión cambió. Inicia sesión nuevamente.', 401);
       if (binary && response.ok) return { response, bytes };
@@ -65,6 +67,12 @@ class ApiClient {
       }
       return { data, response };
     } catch (error) {
+      // A proxy or interrupted response may omit JSON. Its access denial still
+      // revokes this session, but must never clear a newer login's cookie.
+      if (deniedStatus && epoch === this.#epoch) {
+        this.clear();
+        throw new DesktopError(deniedStatus === 401 ? 'La sesión terminó. Inicia sesión nuevamente.' : 'Tu cuenta ya no tiene acceso a esta operación.', deniedStatus, 'DESKTOP_SESSION_DENIED');
+      }
       if (error instanceof DesktopError) throw error;
       throw new DesktopError('No se pudo conectar con CiviGo. Comprueba tu conexión.', 0, 'DESKTOP_NETWORK');
     } finally { clearTimeout(timer); this.#controllers.delete(controller); if (this.#reads.get(requestId) === controller) this.#reads.delete(requestId); }
