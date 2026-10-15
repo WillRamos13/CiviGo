@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">CiviGo</string>
+    <string name="title_activity_main">CiviGo</string>
+    <string name="package_name">com.civigo.app</string>
+    <string name="custom_url_scheme">com.civigo.app</string>
+</resources>

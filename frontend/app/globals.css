@@ -725,12 +725,12 @@ textarea::placeholder {
   bottom: 25px;
   left: 15px;
   z-index: 2;
-  background: transparent;
-  color: #1554d8;
+  background: #08213a;
+  color: #fff;
   border: 0;
   border-radius: 10px;
   box-shadow: none;
-  text-shadow: 0 1px 2px var(--surface), 0 0 4px var(--surface);
+  text-shadow: none;
   font-size: 10px;
   width: 245px;
   max-width: calc(100% - 85px);
@@ -825,7 +825,7 @@ button.announcement-content { cursor: pointer; }
 .map-experience .map-controls { width: 218px; left: 22px; top: 20px; }
 .map-experience .map-controls .panel-toggle { padding: 13px 15px; font-size: 12px; }
 .map-experience .map-controls .collapsible-panel-body { max-height: min(390px, 65vh); }
-.map-experience .risk-legend { left: 20px; bottom: 31px; width: 210px; padding: 11px 12px; border-radius: 0; border: 0; background: transparent; }
+.map-experience .risk-legend { left: 20px; bottom: 31px; width: 210px; padding: 11px 12px; }
 .map-experience .risk-legend strong { font-size: 11px; }
 .map-experience .map-route-panel .collapsible-panel-body { flex: 1 1 auto; min-height: 0; max-height: none; overflow-y: auto; overscroll-behavior: contain; padding: 0 14px 13px; scrollbar-width: thin; scroll-padding-block: 8px 60px; }
 .map-experience .map-route-panel .card > p:first-of-type { line-height: 1.35; margin: 3px 0 6px; }
