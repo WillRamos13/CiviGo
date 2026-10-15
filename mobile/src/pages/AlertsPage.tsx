@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { AuthGate } from '../components/layout/AuthGate';
+import { useAuth } from '../hooks/useAuth';
 import { api, put, formatDate, errorMessage } from '../services/api';
 import { triggerHaptic } from '../services/native';
 import { Bell, Check, RefreshCw } from 'lucide-react';
@@ -16,37 +17,46 @@ export const AlertsPage: React.FC<AlertsPageProps> = ({
   onGoRegister,
   onSelectIncidentId,
 }) => {
+  const { usuario } = useAuth();
+  const requestId = React.useRef(0);
   const [alerts, setAlerts] = useState<NotificationItem[]>([]);
   const [unreadOnly, setUnreadOnly] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
   const loadAlerts = useCallback(async () => {
+    const request = ++requestId.current;
+    if (!usuario) { setAlerts([]); setLoading(false); setError(''); return; }
     setLoading(true);
     setError('');
     try {
       const data = await api<NotificationItem[]>('/notifications');
-      setAlerts(data || []);
+      if (request === requestId.current) setAlerts(data || []);
     } catch (err) {
-      setError(errorMessage(err));
+      if (request === requestId.current) setError(errorMessage(err));
     } finally {
-      setLoading(false);
+      if (request === requestId.current) setLoading(false);
     }
-  }, []);
+  }, [usuario?.id]);
 
   useEffect(() => {
+    setAlerts([]);
     void loadAlerts();
+    return () => { ++requestId.current; };
   }, [loadAlerts]);
 
   const handleMarkAsRead = async (id: number) => {
+    const request = requestId.current;
+    setError('');
     void triggerHaptic('light');
     try {
       await put(`/notifications/${id}/read`);
+      if (request !== requestId.current) return;
       setAlerts((prev) =>
         prev.map((a) => (a.id === id ? { ...a, leida: true } : a))
       );
-    } catch {
-      //
+    } catch (err) {
+      if (request === requestId.current) setError(errorMessage(err));
     }
   };
 

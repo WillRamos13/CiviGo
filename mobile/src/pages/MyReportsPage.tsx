@@ -1,6 +1,9 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { AuthGate } from '../components/layout/AuthGate';
+import { useAuth } from '../hooks/useAuth';
+import { useOperationScope } from '../hooks/useOperationScope';
 import { IncidentIcon } from '../components/map/IncidentIcon';
+import { AuthenticatedMedia } from '../components/incident/AuthenticatedMedia';
 import { api, post, upload, formatDate, errorMessage } from '../services/api';
 import { triggerHaptic } from '../services/native';
 import { RefreshCw, FileText, AlertCircle, Upload, MessageSquare } from 'lucide-react';
@@ -17,6 +20,8 @@ export const MyReportsPage: React.FC<MyReportsPageProps> = ({
   onGoRegister,
   onGoReport,
 }) => {
+  const { usuario } = useAuth();
+  const requestId = React.useRef(0);
   const [reports, setReports] = useState<Reporte[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -24,44 +29,61 @@ export const MyReportsPage: React.FC<MyReportsPageProps> = ({
   const [appealReason, setAppealReason] = useState('');
   const [busyAppeal, setBusyAppeal] = useState(false);
   const [message, setMessage] = useState('');
+  const operations = useOperationScope(`${usuario?.id ?? 'guest'}:${activeReport?.id ?? 'list'}`);
 
   const loadReports = useCallback(async () => {
+    const request = ++requestId.current;
+    if (!usuario) { setReports([]); setLoading(false); setError(''); return; }
     setLoading(true);
     setError('');
     try {
       const data = await api<Reporte[]>('/reports/mine');
-      setReports(data || []);
+      if (request === requestId.current) setReports(data || []);
     } catch (err) {
-      setError(errorMessage(err));
+      if (request === requestId.current) setError(errorMessage(err));
     } finally {
-      setLoading(false);
+      if (request === requestId.current) setLoading(false);
     }
-  }, []);
+  }, [usuario?.id]);
 
   useEffect(() => {
+    setReports([]);
+    setActiveReport(null);
     void loadReports();
+    return () => { ++requestId.current; };
   }, [loadReports]);
+
+  useEffect(() => {
+    setBusyAppeal(false);
+    setAppealReason('');
+  }, [usuario?.id, activeReport?.id]);
+
+  useEffect(() => { setMessage(''); }, [usuario?.id]);
 
   const handleSendAppeal = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!activeReport || !appealReason.trim()) return;
+    if (!activeReport || !appealReason.trim() || busyAppeal) return;
+    const operation = operations.begin();
     void triggerHaptic('medium');
     setBusyAppeal(true);
     setError('');
     setMessage('');
 
     try {
+      operation.assertActive();
       await post(`/reports/${activeReport.id}/appeal`, {
         motivo: appealReason.trim(),
-      });
+      }, { signal: operation.signal });
+      operation.assertActive();
       setMessage('Solicitud de revisión enviada. Un administrador la revisará.');
       setActiveReport(null);
       setAppealReason('');
       void loadReports();
     } catch (err) {
-      setError(errorMessage(err));
+      if (operation.isActive()) setError(errorMessage(err));
     } finally {
-      setBusyAppeal(false);
+      if (operation.isActive()) setBusyAppeal(false);
+      operation.finish();
     }
   };
 
@@ -87,7 +109,7 @@ export const MyReportsPage: React.FC<MyReportsPageProps> = ({
           </button>
         </div>
 
-        {error && <div className="notice notice-error">{error}</div>}
+        {error && !activeReport && <div className="notice notice-error">{error}</div>}
         {message && <div className="notice notice-success">{message}</div>}
 
         {loading ? (
@@ -151,6 +173,12 @@ export const MyReportsPage: React.FC<MyReportsPageProps> = ({
                       <span className="muted" style={{ fontSize: 11, display: 'block', marginBottom: 8 }}>
                         {formatDate(r.fechaEvento || r.fechaCreacion || r.creadoEn)}
                       </span>
+                      {!!r.adjuntos?.length && <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
+                        {r.adjuntos.filter((attachment) => attachment.url).map((attachment) => <div key={attachment.id} style={{ width: 100, height: 100, overflow: 'hidden', borderRadius: 8 }}>
+                          <AuthenticatedMedia url={attachment.url!} mimeType={attachment.mimeType} privado={attachment.privado}
+                            controls alt="Evidencia de tu reporte" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+                        </div>)}
+                      </div>}
 
                       {/* Appeal notices if present */}
                       {r.apelaciones && r.apelaciones.length > 0 && (
@@ -201,6 +229,7 @@ export const MyReportsPage: React.FC<MyReportsPageProps> = ({
               <div className="card-header">
                 <h3>Solicitar revisión de Reporte #{activeReport.id}</h3>
               </div>
+              {error && <div className="notice notice-error">{error}</div>}
               <p className="muted" style={{ fontSize: 12, marginBottom: 12 }}>
                 Explica las razones por las cuales consideras que el reporte debe ser reevaluado por el equipo de administración.
               </p>

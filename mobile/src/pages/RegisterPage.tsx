@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useAuth } from '../hooks/useAuth';
 import { AuthService } from '../services/auth';
 import { triggerHaptic } from '../services/native';
@@ -27,15 +27,22 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({
   const [acceptTerms, setAcceptTerms] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const active = useRef(false);
+  useEffect(() => { active.current = true; return () => { active.current = false; }; }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!correo.toLowerCase().endsWith('@gmail.com')) {
+    if (busy) return;
+    if (!correo.trim().toLowerCase().endsWith('@gmail.com')) {
       setError('Debes registrarte con una dirección @gmail.com para verificarla con Google.');
       return;
     }
     if (!acceptTerms) {
       setError('Debes aceptar los términos sobre la veracidad de los reportes.');
+      return;
+    }
+    if (!/^[\p{L}\p{N}_ .-]{3,30}$/u.test(nickname.trim())) {
+      setError('Usa un nickname de 3 a 30 caracteres con letras, números, espacios, puntos o guiones.');
       return;
     }
 
@@ -54,14 +61,17 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({
         password,
       });
 
+      if (!active.current) return;
       await refresh();
+      if (!active.current) return;
       void triggerHaptic('success');
       onSuccess();
     } catch (err) {
+      if (!active.current) return;
       setError(errorMessage(err));
       void triggerHaptic('error');
     } finally {
-      setBusy(false);
+      if (active.current) setBusy(false);
     }
   };
 
@@ -84,7 +94,7 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({
           Crea tu cuenta y empieza a recorrer Ica con más información y seguridad.
         </p>
 
-        {error && <div className="notice notice-error">{error}</div>}
+        {error && <div className="notice notice-error" role="alert">{error}</div>}
 
         <form onSubmit={handleSubmit}>
           <div className="grid-2">
@@ -92,21 +102,25 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({
               <label htmlFor="reg-nombre">Nombres</label>
               <input
                 id="reg-nombre"
+                autoComplete="given-name"
                 type="text"
                 value={nombre}
                 onChange={(e) => setNombre(e.target.value)}
                 required
-                maxLength={80}
+                disabled={busy}
+                maxLength={100}
               />
             </div>
             <div className="field">
               <label htmlFor="reg-apellidos">Apellidos</label>
               <input
                 id="reg-apellidos"
+                autoComplete="family-name"
                 type="text"
                 value={apellidos}
                 onChange={(e) => setApellidos(e.target.value)}
                 required
+                disabled={busy}
                 maxLength={100}
               />
             </div>
@@ -121,21 +135,23 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({
               onChange={(e) => setNickname(e.target.value)}
               minLength={3}
               maxLength={30}
-              pattern="[A-Za-z0-9_]+"
               required
+              disabled={busy}
             />
-            <small>La comunidad verá este nombre. Usa letras, números y guion bajo.</small>
+            <small>La comunidad verá este nombre. Usa letras, números, espacios, puntos o guiones.</small>
           </div>
 
           <div className="field">
             <label htmlFor="reg-correo">Correo Gmail (@gmail.com)</label>
             <input
               id="reg-correo"
+              autoComplete="email"
               type="email"
               value={correo}
               onChange={(e) => setCorreo(e.target.value)}
               placeholder="tu.usuario@gmail.com"
               required
+              disabled={busy}
               maxLength={254}
             />
             <small>Usa tu dirección @gmail.com para comprobarla con Google.</small>
@@ -145,11 +161,14 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({
             <label htmlFor="reg-tel">Teléfono de contacto privado</label>
             <input
               id="reg-tel"
+              autoComplete="tel"
+              maxLength={25}
               type="tel"
               value={telefono}
               onChange={(e) => setTelefono(e.target.value)}
               placeholder="+51987654321"
               required
+              disabled={busy}
             />
             <small>Dato privado. Incluye código de país.</small>
           </div>
@@ -158,10 +177,12 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({
             <label htmlFor="reg-birth">Fecha de nacimiento</label>
             <input
               id="reg-birth"
+              autoComplete="bday"
               type="date"
               value={fechaNacimiento}
               onChange={(e) => setFechaNacimiento(e.target.value)}
               required
+              disabled={busy}
             />
             <small>Edad mínima para registrarse: 12 años.</small>
           </div>
@@ -170,12 +191,14 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({
             <label htmlFor="reg-pass">Contraseña (mínimo 10 caracteres)</label>
             <input
               id="reg-pass"
+              autoComplete="new-password"
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               minLength={10}
               maxLength={128}
               required
+              disabled={busy}
             />
           </div>
 
@@ -185,6 +208,7 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({
               checked={acceptTerms}
               onChange={(e) => setAcceptTerms(e.target.checked)}
               required
+              disabled={busy}
             />
             <span>
               Entiendo que mis datos personales son privados y que los reportes deben describir hechos reales.

@@ -2,13 +2,15 @@ import React, { useEffect, useRef, useState, useCallback } from 'react';
 import mapboxgl from 'mapbox-gl';
 import 'mapbox-gl/dist/mapbox-gl.css';
 import { Locate, Compass, Layers } from 'lucide-react';
-import { triggerHaptic } from '../../services/native';
-import { getIncidentIconPath } from '../../services/incidentIcons';
+import { triggerHaptic, onNetworkChange } from '../../services/native';
+import { errorMessage } from '../../services/api';
+import { updateIncidentMarker } from './incidentMarker';
 import { RISK_COLORS } from '../../types';
 import type { Incidente, Ruta, Posicion, LocationFix } from '../../types';
 import { RiskLegend } from './RiskLegend';
-import { NavigationService } from '../../services/navigation';
-import { applyRoadRisk, type RoadGeometry, type RoadRisk } from '../../services/roadMap';
+import { NavigationService, isPosition } from '../../services/navigation';
+import { applyRoadRisk, type RoadGeometry } from '../../services/roadMap';
+import type { MapBounds } from '../../services/mapData';
 
 // Official CiviGo Mapbox Token
 const MAPBOX_TOKEN =
@@ -25,7 +27,10 @@ interface MapViewProps {
   onSelectCoordinates?: (pos: Posicion) => void;
   onLocateMe?: () => void;
   locating?: boolean;
+  onBoundsChange?: (bounds: MapBounds) => void;
+  refreshEnabled?: boolean;
 }
+
 
 export const MapView: React.FC<MapViewProps> = ({
   incidentes = [],
@@ -36,6 +41,8 @@ export const MapView: React.FC<MapViewProps> = ({
   onSelectCoordinates,
   onLocateMe,
   locating = false,
+  onBoundsChange,
+  refreshEnabled = true,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<mapboxgl.Map | null>(null);
@@ -44,6 +51,15 @@ export const MapView: React.FC<MapViewProps> = ({
   const editorMarkerRef = useRef<mapboxgl.Marker | null>(null);
   const [mapLoaded, setMapLoaded] = useState(false);
   const [showRisks, setShowRisks] = useState(true);
+  const [mapError, setMapError] = useState('');
+  const [roadError, setRoadError] = useState('');
+  const [loadingRoads, setLoadingRoads] = useState(false);
+  const [reload, setReload] = useState(0);
+  const [roadReload, setRoadReload] = useState(0);
+  const coordinatesCallback = useRef(onSelectCoordinates);
+  coordinatesCallback.current = onSelectCoordinates;
+  const boundsCallback = useRef(onBoundsChange);
+  boundsCallback.current = onBoundsChange;
   const [roadFeatures, setRoadFeatures] = useState<GeoJSON.FeatureCollection>({
     type: 'FeatureCollection',
     features: [],
@@ -53,57 +69,101 @@ export const MapView: React.FC<MapViewProps> = ({
 
   // Fetch live road risk data for Ica
   useEffect(() => {
-    if (editor) return;
+    if (editor || !refreshEnabled) return;
     let active = true;
+    let pending: AbortController | null = null;
 
     const loadRoads = async () => {
+      pending?.abort();
+      const controller = new AbortController();
+      pending = controller;
+      setLoadingRoads(true);
       try {
-        const riskData = await NavigationService.getRoadRisks();
+        const riskData = await NavigationService.getRoadRisks(controller.signal);
         let geometry = roadCache.current;
         if (!geometry || geometry.version !== riskData.version) {
-          geometry = await NavigationService.getRoadGeometry(riskData.version);
-          roadCache.current = geometry;
-          roadRevision.current = '';
+          geometry = await NavigationService.getRoadGeometry(riskData.version, controller.signal);
         }
-        if (active && geometry && roadRevision.current !== riskData.revision) {
-          roadRevision.current = riskData.revision;
+        if (!active || controller.signal.aborted || pending !== controller) return;
+        if (geometry && (roadCache.current !== geometry || roadRevision.current !== riskData.revision)) {
           const styled = applyRoadRisk(geometry, riskData);
+          roadCache.current = geometry;
+          roadRevision.current = riskData.revision;
           setRoadFeatures(styled);
         }
-      } catch {
-        // Fallback or offline: preserve cached features
+        setRoadError('');
+      } catch (error) {
+        if (active && !controller.signal.aborted && pending === controller) setRoadError(errorMessage(error));
+      } finally {
+        if (active && pending === controller) setLoadingRoads(false);
       }
     };
 
     void loadRoads();
     const interval = setInterval(loadRoads, 30000);
+    const unsubscribe = onNetworkChange((status) => { if (active && status.connected) void loadRoads(); });
     return () => {
       active = false;
+      pending?.abort();
       clearInterval(interval);
+      unsubscribe();
     };
-  }, [editor]);
+  }, [editor, roadReload, refreshEnabled]);
 
   // Initialize Map
   useEffect(() => {
     if (!containerRef.current) return;
+    let active = true;
+    setMapLoaded(false);
+    setMapError('');
     mapboxgl.accessToken = MAPBOX_TOKEN;
 
-    const initialCenter: [number, number] = posicion
+    const initialCenter: [number, number] = isPosition(posicion)
       ? [posicion.longitud, posicion.latitud]
       : [-75.7286, -14.0678]; // Ica, Perú
 
-    const map = new mapboxgl.Map({
+    let map: mapboxgl.Map;
+    try { map = new mapboxgl.Map({
       container: containerRef.current,
       style: 'mapbox://styles/mapbox/streets-v12',
       center: initialCenter,
       zoom: editor ? 16 : 13.5,
       attributionControl: false,
+    }); } catch {
+      setMapError('No se pudo iniciar el mapa en este dispositivo.');
+      return;
+    }
+    const loadingTimer = setTimeout(() => {
+      if (active && !map.loaded()) setMapError('El mapa tarda en cargar. Comprueba tu conexión.');
+    }, 15000);
+    map.on('error', () => { if (active) setMapError('No se pudo cargar parte del mapa. Se conserva la información disponible.'); });
+    map.on('idle', () => { if (active && map.loaded() && map.areTilesLoaded()) setMapError(''); });
+    const publishBounds = () => {
+      const bounds = map.getBounds();
+      if (!active || !bounds || editor) return;
+      const west = Math.max(-180, bounds.getWest()), east = Math.min(180, bounds.getEast());
+      const south = Math.max(-90, bounds.getSouth()), north = Math.min(90, bounds.getNorth());
+      if (west < east && south < north) boundsCallback.current?.([west, south, east, north]);
+    };
+    map.on('moveend', publishBounds);
+    const unsubscribe = onNetworkChange((status) => {
+      if (!active || !status.connected) return;
+      if (!map.isStyleLoaded()) setReload((value) => value + 1);
+      else map.triggerRepaint();
     });
+    const resizeObserver = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(() => {
+      if (active && containerRef.current && containerRef.current.clientWidth > 0) map.resize();
+    });
+    resizeObserver?.observe(containerRef.current);
 
     map.addControl(new mapboxgl.AttributionControl({ compact: true }), 'bottom-left');
 
     map.on('load', () => {
+      if (!active) return;
+      clearTimeout(loadingTimer);
+      setMapError('');
       setMapLoaded(true);
+      publishBounds();
 
       // Add Road Risk Source and Layer
       map.addSource('civigo-roads', {
@@ -228,21 +288,27 @@ export const MapView: React.FC<MapViewProps> = ({
     if (editor) {
       map.on('click', (e) => {
         void triggerHaptic('light');
-        onSelectCoordinates?.({ latitud: e.lngLat.lat, longitud: e.lngLat.lng });
+        coordinatesCallback.current?.({ latitud: e.lngLat.lat, longitud: e.lngLat.lng });
       });
     }
 
     mapRef.current = map;
 
     return () => {
+      active = false;
+      clearTimeout(loadingTimer);
+      unsubscribe();
+      resizeObserver?.disconnect();
       markersRef.current.forEach((m) => m.remove());
       markersRef.current.clear();
       userMarkerRef.current?.remove();
       editorMarkerRef.current?.remove();
+      userMarkerRef.current = null;
+      editorMarkerRef.current = null;
       map.remove();
       mapRef.current = null;
     };
-  }, [editor]);
+  }, [editor, reload]);
 
   // Sync Route Geometry
   useEffect(() => {
@@ -276,7 +342,7 @@ export const MapView: React.FC<MapViewProps> = ({
   // Sync User Position Marker
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || !posicion) return;
+    if (!map || !isPosition(posicion)) return;
 
     if (!userMarkerRef.current) {
       const el = document.createElement('div');
@@ -294,12 +360,12 @@ export const MapView: React.FC<MapViewProps> = ({
     } else {
       userMarkerRef.current.setLngLat([posicion.longitud, posicion.latitud]);
     }
-  }, [posicion]);
+  }, [posicion, mapLoaded]);
 
   // Sync Editor Marker
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || !editor || !posicion) return;
+    if (!map || !editor || !isPosition(posicion)) return;
 
     if (!editorMarkerRef.current) {
       const el = document.createElement('div');
@@ -317,13 +383,13 @@ export const MapView: React.FC<MapViewProps> = ({
       editorMarkerRef.current.on('dragend', () => {
         const lngLat = editorMarkerRef.current?.getLngLat();
         if (lngLat) {
-          onSelectCoordinates?.({ latitud: lngLat.lat, longitud: lngLat.lng });
+          coordinatesCallback.current?.({ latitud: lngLat.lat, longitud: lngLat.lng });
         }
       });
     } else {
       editorMarkerRef.current.setLngLat([posicion.longitud, posicion.latitud]);
     }
-  }, [editor, posicion]);
+  }, [editor, posicion, mapLoaded]);
 
   // Sync Incident Markers
   useEffect(() => {
@@ -334,48 +400,35 @@ export const MapView: React.FC<MapViewProps> = ({
     const seenIds = new Set<number>();
 
     incidentes.forEach((inc) => {
-      if (!Number.isFinite(inc.longitud) || !Number.isFinite(inc.latitud)) return;
+      if (!isPosition(inc)) return;
       seenIds.add(inc.id);
 
       if (currentMarkers.has(inc.id)) {
-        return; // already rendered
+        updateIncidentMarker(currentMarkers.get(inc.id)!, inc, onSelectIncident);
+        return;
       }
 
-      const riskLevel = inc.gravedad ?? inc.nivelRiesgo ?? 0;
-      const riskColor = RISK_COLORS[Math.min(Math.max(riskLevel, 0), RISK_COLORS.length - 1)];
-      const iconPath = getIncidentIconPath(inc.tipoSlug, inc.tipoNombre, inc.tipo);
-
-      const el = document.createElement('div');
+      const el = document.createElement('button');
+      el.type = 'button';
       el.className = 'incident-marker';
       const inner = document.createElement('div');
       inner.className = 'marker-inner';
 
       const img = document.createElement('img');
-      img.src = iconPath;
-      img.alt = inc.tipoNombre || inc.tipo || 'Incidente';
-      img.addEventListener('error', () => {
-        img.src = '/iconos/robo.png';
-      });
 
       const pill = document.createElement('span');
       pill.className = 'marker-risk-pill';
-      pill.style.backgroundColor = riskColor;
 
       inner.appendChild(img);
       inner.appendChild(pill);
       el.appendChild(inner);
-
-      el.addEventListener('click', (e) => {
-        e.stopPropagation();
-        void triggerHaptic('light');
-        onSelectIncident?.(inc);
-      });
 
       const marker = new mapboxgl.Marker({ element: el })
         .setLngLat([inc.longitud, inc.latitud])
         .addTo(map);
 
       currentMarkers.set(inc.id, marker);
+      updateIncidentMarker(marker, inc, onSelectIncident);
     });
 
     // Remove obsolete markers
@@ -409,7 +462,7 @@ export const MapView: React.FC<MapViewProps> = ({
       const points: GeoJSON.FeatureCollection<GeoJSON.Point> = {
         type: 'FeatureCollection',
         features: incidentes
-          .filter((inc) => Number.isFinite(inc.longitud) && Number.isFinite(inc.latitud))
+          .filter(isPosition)
           .map((inc) => ({
             type: 'Feature',
             id: inc.id,
@@ -446,6 +499,12 @@ export const MapView: React.FC<MapViewProps> = ({
   return (
     <div className="map-view-container">
       <div ref={containerRef} className="map-mapbox-root" />
+      <div className="map-render-status" aria-live="polite">
+        {!mapLoaded && !mapError && <p role="status">Cargando mapa…</p>}
+        {!editor && loadingRoads && !roadFeatures.features.length && <p role="status">Cargando riesgo de las calles…</p>}
+        {mapError && <p role="alert">{mapError}<button type="button" className="btn btn-secondary btn-small" onClick={() => setReload((value) => value + 1)}>Reintentar mapa</button></p>}
+        {roadError && <p role="alert">Calles: {roadError} {roadFeatures.features.length ? 'Se conserva la última capa de riesgo.' : 'Riesgo vial aún no disponible.'}<button type="button" className="btn btn-secondary btn-small" disabled={loadingRoads} onClick={() => setRoadReload((value) => value + 1)}>Reintentar calles</button></p>}
+      </div>
 
       {/* Floating Controls for Mobile */}
       <div className="map-floating-controls">

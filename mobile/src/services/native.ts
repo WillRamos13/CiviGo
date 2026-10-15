@@ -6,6 +6,8 @@ import { Haptics, ImpactStyle, NotificationType } from '@capacitor/haptics';
 import { Network, type ConnectionStatus } from '@capacitor/network';
 import { App } from '@capacitor/app';
 import type { Posicion, LocationFix } from '../types';
+import { subscribeAsync } from './native-lifecycle';
+import { normalizeGeolocationError } from './geolocation-consent';
 
 export const isNative = Capacitor.isNativePlatform();
 
@@ -32,7 +34,7 @@ export async function getCurrentDevicePosition(): Promise<LocationFix> {
       if (permission.location !== 'granted') {
         const req = await Geolocation.requestPermissions();
         if (req.location !== 'granted') {
-          throw new Error('Permiso de GPS denegado. Habilita la ubicación en los ajustes.');
+          throw normalizeGeolocationError({ code: 'OS-PLUG-GLOC-0003', message: 'Location permission request was denied.' });
         }
       }
       const pos: Position = await Geolocation.getCurrentPosition({
@@ -49,8 +51,7 @@ export async function getCurrentDevicePosition(): Promise<LocationFix> {
         timestamp: pos.timestamp,
       };
     } catch (err) {
-      if (err instanceof Error) throw err;
-      throw new Error('No se pudo obtener la ubicación GPS.');
+      throw normalizeGeolocationError(err);
     }
   }
 
@@ -69,7 +70,7 @@ export async function getCurrentDevicePosition(): Promise<LocationFix> {
           speed: p.coords.speed ?? undefined,
           timestamp: p.timestamp,
         }),
-      () => reject(new Error('No se pudo obtener la ubicación GPS.')),
+      (err) => reject(normalizeGeolocationError(err)),
       { enableHighAccuracy: true, timeout: 15000, maximumAge: 5000 }
     );
   });
@@ -81,16 +82,16 @@ export function watchDevicePosition(
   onSuccess: (pos: LocationFix) => void,
   onError?: (err: Error) => void
 ): () => void {
-  let watchId: string | number | null = null;
   let active = true;
 
   if (isNative) {
-    Geolocation.watchPosition(
+    const stop = subscribeAsync(async isActive => {
+      const id = await Geolocation.watchPosition(
       { enableHighAccuracy: true },
       (pos, err) => {
-        if (!active) return;
+        if (!isActive()) return;
         if (err) {
-          onError?.(new Error(err.message));
+          onError?.(normalizeGeolocationError(err));
           return;
         }
         if (pos) {
@@ -104,18 +105,14 @@ export function watchDevicePosition(
           });
         }
       }
-    ).then((id) => {
-      watchId = id;
-    });
-
-    return () => {
-      active = false;
-      if (watchId !== null) Geolocation.clearWatch({ id: watchId as string });
-    };
+      );
+      return () => Geolocation.clearWatch({ id });
+    }, err => onError?.(normalizeGeolocationError(err)));
+    return stop;
   }
 
   // Browser fallback
-  if (navigator.geolocation) {
+  if (typeof navigator !== 'undefined' && navigator.geolocation) {
     const id = navigator.geolocation.watchPosition(
       (p) => {
         if (!active) return;
@@ -128,7 +125,7 @@ export function watchDevicePosition(
           timestamp: p.timestamp,
         });
       },
-      (err) => onError?.(new Error(err.message)),
+      (err) => { if (active) onError?.(normalizeGeolocationError(err)); },
       { enableHighAccuracy: true, timeout: 10000, maximumAge: 3000 }
     );
     return () => {
@@ -137,7 +134,8 @@ export function watchDevicePosition(
     };
   }
 
-  return () => {};
+  onError?.(new Error('Este dispositivo no soporta geolocalización.'));
+  return () => { active = false; };
 }
 
 /* --- CAMERA / GALLERY --- */
@@ -220,30 +218,26 @@ export async function getNetworkStatus(): Promise<ConnectionStatus> {
   try {
     return await Network.getStatus();
   } catch {
-    return { connected: navigator.onLine, connectionType: 'unknown' };
+    return { connected: typeof navigator !== 'undefined' ? navigator.onLine : true, connectionType: 'unknown' };
   }
 }
 
 export function onNetworkChange(callback: (status: ConnectionStatus) => void): () => void {
-  let removeListener: (() => void) | null = null;
-  Network.addListener('networkStatusChange', callback).then((handle) => {
-    removeListener = () => handle.remove();
+  return subscribeAsync(async isActive => {
+    const handle = await Network.addListener('networkStatusChange', status => {
+      if (isActive()) callback(status);
+    });
+    return () => handle.remove();
   });
-  return () => {
-    if (removeListener) removeListener();
-  };
 }
 
 /* --- ANDROID HARDWARE BACK BUTTON --- */
 export function onHardwareBackButton(callback: () => void): () => void {
   if (!isNative) return () => {};
-  let removeListener: (() => void) | null = null;
-  App.addListener('backButton', () => {
-    callback();
-  }).then((handle) => {
-    removeListener = () => handle.remove();
+  return subscribeAsync(async isActive => {
+    const handle = await App.addListener('backButton', () => {
+      if (isActive()) callback();
+    });
+    return () => handle.remove();
   });
-  return () => {
-    if (removeListener) removeListener();
-  };
 }

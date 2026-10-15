@@ -231,23 +231,21 @@ export interface ParticipationSummaryData {
 }
 
 export interface RankingEntry {
-  posicion: number;
-  id: number;
+  position: number;
   nickname: string;
-  puntosMensuales: number;
-  reportesValidados: number;
-  insigniaPrincipal?: string;
+  puntos: number;
+  credibilidad: number | null;
+  monedasEstimadas: number;
 }
 
 export interface RewardItem {
   id: number;
-  titulo: string;
+  nombre: string;
   descripcion: string;
   costoMonedas: number;
-  categoria: string;
-  stock?: number;
-  imagen?: string;
-  canjeado?: boolean;
+  stock: number;
+  activo: boolean;
+  demo: boolean;
 }
 
 export const RISK_COLORS = [

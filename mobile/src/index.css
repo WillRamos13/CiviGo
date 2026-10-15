@@ -769,3 +769,59 @@ small {
 .pulse {
   animation: pulse 2s infinite ease-in-out;
 }
+
+/* Route controls remain visible during compact navigation. */
+.map-sheet-toggle { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 36px; background: transparent; color: var(--ink); padding: 0 0 8px; border: 0; }
+.map-sheet-toggle .eyebrow { flex: 1; text-align: left; }
+.map-bottom-sheet-navigating { max-height: min(62dvh, 520px); padding-top: 8px; }
+.navigation-guidance-heading { display: flex; gap: 10px; justify-content: space-between; align-items: flex-start; }
+.navigation-guidance-heading > div { flex: 1; min-width: 0; }
+.navigation-guidance-heading strong, .navigation-guidance-heading small { display: block; }
+.navigation-guidance-heading strong { font-size: 15px; line-height: 1.35; margin: 4px 0; }
+.navigation-guidance-heading .btn { flex-shrink: 0; min-height: 44px; }
+.navigation-guidance .eyebrow { font-size: 10px; }
+.navigation-summary { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 12px; margin: 10px 0; }
+.navigation-alerts { display: grid; gap: 4px; max-height: 130px; overflow-y: auto; }
+.navigation-alert { font-size: 12px; line-height: 1.4; color: var(--warning-ink); margin: 4px 0; overflow-wrap: anywhere; }
+.navigation-alert svg { display: inline; vertical-align: middle; }
+.navigation-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.navigation-actions .btn { min-height: 40px; }
+.navigation-guidance-compact .navigation-alerts { max-height: 64px; }
+.navigation-guidance-compact .navigation-guidance-heading strong { font-size: 14px; }
+.route-mode-switch { display: flex; gap: 6px; margin-bottom: 10px; }
+.route-mode-switch .btn { flex: 1; padding-inline: 6px; }
+.route-destinations { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 8px; }
+.route-destinations .btn { flex-shrink: 0; }
+.route-results { display: grid; gap: 8px; margin-top: 8px; }
+.route-result { margin: 0; padding: 10px; }
+.route-result.selected { border-color: var(--brand); background: var(--brand-soft); }
+.route-select { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; background: transparent; border: 0; color: var(--ink); text-align: left; width: 100%; padding: 0; }
+.route-select > span:last-child { flex-basis: 100%; font-size: 12px; }
+.map-data-status, .map-render-status { position: absolute; left: 10px; right: 66px; z-index: 25; pointer-events: none; font-size: 12px; max-height: 26%; overflow-y: auto; }
+.map-data-status { top: 6px; }
+.map-render-status { top: 28%; }
+.map-data-status p, .map-render-status p, .map-data-status small { display: block; background: var(--surface); color: var(--ink); border: 1px solid var(--line); border-radius: 8px; padding: 8px; margin: 4px 0; pointer-events: auto; }
+.map-data-status button, .map-render-status button { margin: 4px; }
+.chatbot-fab-navigating { top: 12px; bottom: auto; right: 66px; width: 42px; height: 42px; }
+.spotify-shortcut { padding: 10px; margin-top: 8px; border: 1px solid var(--line); border-radius: 10px; font-size: 12px; }
+.spotify-shortcut > div { display: flex; gap: 8px; align-items: center; }
+.spotify-shortcut p { margin: 6px 0; color: var(--muted); }
+.incident-marker { background: transparent; border: 0; padding: 4px; }
+@media (max-height: 550px) {
+  .map-bottom-sheet-navigating { max-height: 75dvh; }
+  .navigation-guidance-compact .navigation-alerts { max-height: 44px; }
+}
+.nearby-incidents { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--line); }
+.nearby-incidents summary { padding: 8px 0; font-size: 13px; font-weight: 600; cursor: pointer; }
+.nearby-incident { display: flex; flex-direction: column; gap: 4px; width: 100%; padding: 10px; margin-top: 6px; text-align: left; background: var(--surface-subtle); color: var(--ink); border: 1px solid var(--line); border-radius: 8px; }
+.nearby-incident span { font-size: 12px; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.route-place-results { list-style: none; padding: 0; margin: 0; border: 1px solid var(--line); border-radius: 8px; max-height: 220px; overflow-y: auto; }
+.route-place-results li[aria-selected="true"] { background: var(--brand-soft); }
+.route-place-results button { display: flex; flex-direction: column; gap: 4px; width: 100%; padding: 10px; text-align: left; border: 0; background: transparent; color: var(--ink); }
+.route-place-results span, .route-place-results small { font-size: 12px; color: var(--muted); }
+.route-coordinate-input summary { cursor: pointer; font-size: 13px; padding: 6px 0; }
+.route-coordinate-input form { margin-top: 8px; }
+.navigation-guidance-compact .spotify-shortcut { padding: 6px 8px; }
+.navigation-guidance-compact .spotify-shortcut p { font-size: 11px; margin: 3px 0; }
+.retained-map-view { flex: 1; min-height: 0; width: 100%; }
+.retained-map-view[hidden], .other-app-view[hidden] { display: none; }

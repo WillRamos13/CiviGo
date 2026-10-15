@@ -1,6 +1,9 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { MessageCircle, X, Send, RotateCcw, Bot } from 'lucide-react';
-import { post, errorMessage } from '../../services/api';
+import { errorMessage } from '../../services/api';
+import { askAssistant } from '../../services/assistant';
+import { useAuth } from '../../hooks/useAuth';
+import { AssistantReply } from './AssistantReply';
 import { triggerHaptic } from '../../services/native';
 
 const PREGUNTAS = [
@@ -28,12 +31,28 @@ export const ChatBotModal: React.FC<ChatBotModalProps> = ({ isOpen, onClose }) =
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const listRef = useRef<HTMLDivElement>(null);
+  const request = useRef<AbortController | null>(null);
+  const { usuario } = useAuth();
+
+  useEffect(() => {
+    request.current?.abort(); request.current = null;
+    setMessages([]); setInput(''); setError(''); setBusy(false);
+    return () => { request.current?.abort(); request.current = null; };
+  }, [usuario?.id]);
+
+  useEffect(() => {
+    if (!isOpen) { request.current?.abort(); request.current = null; setBusy(false); return; }
+    const escape = (event: KeyboardEvent) => { if (event.key === 'Escape') onClose(); };
+    document.addEventListener('keydown', escape);
+    return () => document.removeEventListener('keydown', escape);
+  }, [isOpen, onClose]);
 
   useEffect(() => {
     if (isOpen) {
-      setTimeout(() => {
+      const timer = setTimeout(() => {
         listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: 'smooth' });
       }, 100);
+      return () => clearTimeout(timer);
     }
   }, [messages, isOpen]);
 
@@ -41,7 +60,9 @@ export const ChatBotModal: React.FC<ChatBotModalProps> = ({ isOpen, onClose }) =
 
   const ask = async (question: string) => {
     const query = question.trim();
-    if (!query || busy) return;
+    if (!query || busy || request.current) return;
+    const controller = new AbortController();
+    request.current = controller;
     void triggerHaptic('light');
     setBusy(true);
     setError('');
@@ -52,14 +73,8 @@ export const ChatBotModal: React.FC<ChatBotModalProps> = ({ isOpen, onClose }) =
     }));
 
     try {
-      const res = await post<{
-        respuesta: string;
-        ia?: boolean;
-        aviso?: string;
-      }>('/chatbot', {
-        mensaje: query,
-        historial: historyPayload,
-      });
+      const res = await askAssistant(query, historyPayload, controller.signal);
+      if (controller.signal.aborted || request.current !== controller) return;
 
       setMessages((prev) => [
         ...prev,
@@ -69,12 +84,12 @@ export const ChatBotModal: React.FC<ChatBotModalProps> = ({ isOpen, onClose }) =
           ia: res.ia,
           aviso: res.aviso,
         },
-      ]);
+      ].slice(-5));
       setInput('');
     } catch (err) {
-      setError(errorMessage(err));
+      if (!controller.signal.aborted && request.current === controller) setError(errorMessage(err));
     } finally {
-      setBusy(false);
+      if (request.current === controller) { request.current = null; setBusy(false); }
     }
   };
 
@@ -87,7 +102,7 @@ export const ChatBotModal: React.FC<ChatBotModalProps> = ({ isOpen, onClose }) =
 
   return (
     <div className="chatbot-modal" onClick={onClose}>
-      <div className="chatbot-sheet" onClick={(e) => e.stopPropagation()}>
+      <div className="chatbot-sheet" role="dialog" aria-modal="true" aria-label="Asistente CiviGo" onClick={(e) => e.stopPropagation()}>
         <div className="bottom-sheet-handle" />
 
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -178,9 +193,7 @@ export const ChatBotModal: React.FC<ChatBotModalProps> = ({ isOpen, onClose }) =
                       {m.ia ? 'Respuesta asistida por IA' : 'Guía CiviGo'}
                     </span>
                   </div>
-                  <div style={{ whiteSpace: 'pre-wrap', fontSize: 13, lineHeight: 1.5 }}>
-                    {m.respuesta}
-                  </div>
+                  <AssistantReply text={m.respuesta} />
                   {m.aviso && (
                     <small className="muted" style={{ display: 'block', marginTop: 6, fontSize: 10 }}>
                       {m.aviso}
@@ -215,12 +228,14 @@ export const ChatBotModal: React.FC<ChatBotModalProps> = ({ isOpen, onClose }) =
             value={input}
             onChange={(e) => setInput(e.target.value)}
             disabled={busy}
-            maxLength={500}
+            maxLength={1000}
+            aria-label="Pregunta al asistente de CiviGo"
           />
           <button
             type="submit"
             className="btn btn-primary"
             disabled={busy || !input.trim()}
+            aria-label="Enviar pregunta"
             style={{ minWidth: 44, padding: '0 14px' }}
           >
             <Send size={16} />

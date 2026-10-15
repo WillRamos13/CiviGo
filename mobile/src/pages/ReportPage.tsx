@@ -1,9 +1,12 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Camera, Image as ImageIcon, MapPin, Check, AlertCircle, FileCheck, ArrowRight } from 'lucide-react';
 import { AuthGate } from '../components/layout/AuthGate';
+import { useAuth } from '../hooks/useAuth';
 import { MapView } from '../components/map/MapView';
 import { IncidentIcon } from '../components/map/IncidentIcon';
-import { api, crearReporte, upload, distance, errorMessage } from '../services/api';
+import { api, crearReporte, distance, errorMessage } from '../services/api';
+import { REPORT_FILE_ACCEPT, reportVideoLimit, submitReportWithEvidence, validateEvidenceFile } from '../services/reportEvidence';
+import { clearReportDraft, readReportDraft, reportDraftKey, saveReportDraft } from '../services/reportDraft';
 import { getCurrentDevicePosition, capturePhotoOrVideo, triggerHaptic, isNative, StorageService } from '../services/native';
 import type { Catalogo, Posicion, TipoIncidente } from '../types';
 
@@ -22,6 +25,13 @@ export const ReportPage: React.FC<ReportPageProps> = ({
   onGoMyReports,
   onGoMap,
 }) => {
+  const { usuario } = useAuth();
+  const draftKey = reportDraftKey(usuario?.id);
+  const [draftReadyFor, setDraftReadyFor] = useState<string | null>(null);
+  const sessionKeyRef = useRef(draftKey);
+  const previousUserId = useRef<number | undefined>(usuario?.id);
+  const mountedRef = useRef(true);
+  sessionKeyRef.current = draftKey;
   const [catalog, setCatalog] = useState<Catalogo | null>(null);
   const [selectedSlug, setSelectedSlug] = useState('');
   const [description, setDescription] = useState('');
@@ -33,7 +43,24 @@ export const ReportPage: React.FC<ReportPageProps> = ({
   const [busy, setBusy] = useState(false);
   const [locating, setLocating] = useState(false);
   const [error, setError] = useState('');
-  const [result, setResult] = useState<any | null>(null);
+  const [result, setResult] = useState<Awaited<ReturnType<typeof crearReporte>> | null>(null);
+  const [selectingMedia, setSelectingMedia] = useState(false);
+  const filesRef = useRef(files);
+  const pickingRef = useRef(false);
+  const submittingRef = useRef(false);
+  const submissionController = useRef<AbortController | null>(null);
+  filesRef.current = files;
+
+  useEffect(() => {
+    mountedRef.current = true;
+    // The old unscoped draft has no verified owner and is never restored.
+    void StorageService.remove('civigo:report-draft').catch(() => {});
+    return () => {
+      mountedRef.current = false;
+      submissionController.current?.abort();
+      for (const item of filesRef.current) if (item.preview) URL.revokeObjectURL(item.preview);
+    };
+  }, []);
 
   // Load incident categories
   useEffect(() => {
@@ -50,54 +77,52 @@ export const ReportPage: React.FC<ReportPageProps> = ({
     };
   }, []);
 
-  // Restore draft on mount
+  // Restore only the current account's draft and clear transient state on account changes.
   useEffect(() => {
-    StorageService.get('civigo:report-draft')
-      .then((raw) => {
-        if (!raw) return;
-        try {
-          const draft = JSON.parse(raw);
-          if (draft.slug) setSelectedSlug(draft.slug);
-          if (draft.description) setDescription(draft.description);
-          if (draft.eventDate) setEventDate(draft.eventDate);
-        } catch {
-          // ignore corrupted draft
-        }
-      })
-      .catch(() => {});
-  }, []);
+    let active = true;
+    const userId = usuario?.id;
+    const previousId = previousUserId.current;
+    previousUserId.current = userId;
+    submissionController.current?.abort();
+    if (!userId && previousId) void clearReportDraft(previousId, StorageService).catch(() => {});
+    setDraftReadyFor(null);
+    setSelectedSlug(''); setDescription(''); setEventDate('');
+    setGps(null); setPosition(null); setCorrectLocation(false); setResult(null); setError('');
+    for (const item of filesRef.current) if (item.preview) URL.revokeObjectURL(item.preview);
+    filesRef.current = [];
+    setFiles([]);
+    if (!draftKey) return;
+    readReportDraft(userId, StorageService).then((draft) => {
+      if (!active || !draft) return;
+      setSelectedSlug(draft.slug); setDescription(draft.description); setEventDate(draft.eventDate);
+    }).catch(() => {}).finally(() => { if (active) setDraftReadyFor(draftKey); });
+    return () => { active = false; };
+  }, [usuario?.id, draftKey]);
 
   // Auto-save draft when fields change
   useEffect(() => {
-    if (result) return;
-    if (selectedSlug || description || eventDate) {
-      void StorageService.set(
-        'civigo:report-draft',
-        JSON.stringify({
-          slug: selectedSlug,
-          description,
-          eventDate,
-        })
-      );
-    }
-  }, [selectedSlug, description, eventDate, result]);
+    if (result || !draftKey || draftReadyFor !== draftKey) return;
+    void saveReportDraft(usuario?.id, { slug: selectedSlug, description, eventDate }, StorageService).catch(() => {});
+  }, [selectedSlug, description, eventDate, result, draftKey, draftReadyFor, usuario?.id]);
 
   const selectedTipo = catalog?.categorias
     .flatMap((c) => c.tipos)
     .find((t) => t.slug === selectedSlug);
 
   const handleLocate = async () => {
+    const session = draftKey;
     setLocating(true);
     setError('');
     void triggerHaptic('light');
     try {
       const pos = await getCurrentDevicePosition();
+      if (!mountedRef.current || session !== sessionKeyRef.current) return;
       const coords = { latitud: pos.latitud, longitud: pos.longitud };
       setGps(coords);
       setPosition(coords);
       setCorrectLocation(false);
     } catch (err: any) {
-      setError(err?.message || 'No se pudo obtener la ubicación GPS.');
+      if (mountedRef.current && session === sessionKeyRef.current) setError(err?.message || 'No se pudo obtener la ubicación GPS.');
     } finally {
       setLocating(false);
     }
@@ -118,100 +143,101 @@ export const ReportPage: React.FC<ReportPageProps> = ({
     setError('');
   };
 
-  const handleCaptureCamera = async () => {
-    if (files.length >= 3) {
-      setError('Solo se permiten hasta 3 archivos adjuntos.');
-      return;
-    }
-    void triggerHaptic('medium');
-    try {
-      const media = await capturePhotoOrVideo('camera');
-      if (media) {
-        setFiles((prev) => [...prev, { file: media.file, preview: media.previewUrl }]);
-        setError('');
-      }
-    } catch (err: any) {
-      setError(err?.message || 'Error al usar la cámara.');
-    }
-  };
-
-  const handlePickPhotos = async () => {
-    if (files.length >= 3) {
-      setError('Solo se permiten hasta 3 archivos adjuntos.');
-      return;
-    }
-    void triggerHaptic('light');
-    try {
-      const media = await capturePhotoOrVideo('photos');
-      if (media) {
-        setFiles((prev) => [...prev, { file: media.file, preview: media.previewUrl }]);
-        setError('');
-      }
-    } catch (err: any) {
-      setError(err?.message || 'Error al abrir la galería.');
-    }
-  };
-
-  const handleWebFileInput = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const list = e.target.files;
-    if (!list) return;
-    const added = Array.from(list).map((file) => ({
-      file,
-      preview: file.type.startsWith('image/') ? URL.createObjectURL(file) : undefined,
-    }));
-    if (files.length + added.length > 3) {
-      setError('Máximo 3 archivos en total.');
-      return;
-    }
-    setFiles((prev) => [...prev, ...added]);
+  const addMedia = async (picked: File[]) => {
+    const session = draftKey;
+    if (filesRef.current.length + picked.length > 3) throw new Error('Máximo 3 archivos en total.');
+    for (const file of picked) await validateEvidenceFile(file, reportVideoLimit(catalog?.config?.maxVideoBytes));
+    if (!mountedRef.current || session !== sessionKeyRef.current) return;
+    const added = picked.map((file) => ({ file, preview: file.type.startsWith('image/') ? URL.createObjectURL(file) : undefined }));
+    const next = [...filesRef.current, ...added];
+    filesRef.current = next;
+    setFiles(next);
     setError('');
+  };
+
+  const pickMedia = async (source: 'camera' | 'photos') => {
+    const session = draftKey;
+    if (pickingRef.current || submittingRef.current) return;
+    if (files.length >= 3) {
+      setError('Solo se permiten hasta 3 archivos adjuntos.');
+      return;
+    }
+    pickingRef.current = true;
+    setSelectingMedia(true);
+    void triggerHaptic(source === 'camera' ? 'medium' : 'light');
+    try {
+      const media = await capturePhotoOrVideo(source);
+      if (media && session === sessionKeyRef.current) await addMedia([media.file]);
+    } catch (err) {
+      if (mountedRef.current && session === sessionKeyRef.current) setError(errorMessage(err));
+    } finally {
+      pickingRef.current = false;
+      setSelectingMedia(false);
+    }
+  };
+
+  const handleWebFileInput = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const session = draftKey;
+    const picked = Array.from(e.target.files ?? []);
+    e.target.value = '';
+    if (!picked.length || pickingRef.current || submittingRef.current) return;
+    pickingRef.current = true;
+    setSelectingMedia(true);
+    try { await addMedia(picked); }
+    catch (err) { if (mountedRef.current && session === sessionKeyRef.current) setError(errorMessage(err)); }
+    finally { pickingRef.current = false; setSelectingMedia(false); }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (submittingRef.current || pickingRef.current) return;
+    const session = draftKey;
+    const userId = usuario?.id;
+    if (!userId || !session || draftReadyFor !== session) return;
     setError('');
 
     if (!selectedTipo) return setError('Selecciona el tipo de incidente.');
     if (!position || !correctLocation) return setError('Confirma que la ubicación es correcta.');
     if (!selectedTipo.ubicacionRemota && !gps) return setError('Obtén tu ubicación GPS antes de enviar.');
-    if (selectedTipo.fotoObligatoria && files.length === 0) return setError('Este tipo de incidente requiere al menos una fotografía.');
     if (gps && !selectedTipo.ubicacionRemota && distance(gps, position) > 50) {
       return setError('La ubicación supera los 50 metros desde el GPS.');
     }
+    const occurredAt = selectedTipo.ubicacionRemota && eventDate ? new Date(eventDate) : new Date();
+    if (!Number.isFinite(occurredAt.getTime()) || occurredAt.getTime() > Date.now() + 60000
+      || occurredAt.getTime() < Date.now() - 7 * 86400000) {
+      return setError('La fecha debe estar dentro de la última semana y no puede ser futura.');
+    }
 
     void triggerHaptic('heavy');
+    const controller = new AbortController();
+    submissionController.current = controller;
+    submittingRef.current = true;
     setBusy(true);
 
-    const uploadedIds: string[] = [];
     try {
-      for (const item of files) {
-        const res = await upload(item.file, selectedTipo.individual);
-        uploadedIds.push(res.id);
-      }
-
       const reportData = {
         tipo: selectedSlug,
         descripcion: description.trim(),
         ...position,
         gpsLatitud: gps?.latitud,
         gpsLongitud: gps?.longitud,
-        fechaEvento: eventDate ? new Date(eventDate).toISOString() : new Date().toISOString(),
-        adjuntosIds: uploadedIds,
+        fechaEvento: occurredAt.toISOString(),
       };
 
-      const res = await crearReporte(reportData);
+      const res = await submitReportWithEvidence(reportData, files.map((item) => item.file), {
+        ...selectedTipo, maxVideoBytes: reportVideoLimit(catalog?.config?.maxVideoBytes),
+      }, undefined, { signal: controller.signal, isCurrent: () => mountedRef.current && session === sessionKeyRef.current });
+      if (!mountedRef.current || session !== sessionKeyRef.current) return;
       setResult(res);
-      await StorageService.remove('civigo:report-draft');
+      await clearReportDraft(userId, StorageService).catch(() => {});
       void triggerHaptic('success');
     } catch (err) {
-      // Cleanup uploaded files on failure
-      for (const id of uploadedIds) {
-        void api(`/uploads/${id}`, { method: 'DELETE' }).catch(() => {});
-      }
-      setError(errorMessage(err));
+      if (mountedRef.current && session === sessionKeyRef.current) setError(errorMessage(err));
       void triggerHaptic('error');
     } finally {
+      if (submissionController.current === controller) submissionController.current = null;
       setBusy(false);
+      submittingRef.current = false;
     }
   };
 
@@ -229,7 +255,7 @@ export const ReportPage: React.FC<ReportPageProps> = ({
         onGoRegister={onGoRegister}
         onGoVerify={onGoVerify}
       >
-        {result ? (
+        {draftKey && draftReadyFor !== draftKey ? <div className="card"><p className="muted">Cargando tu borrador…</p></div> : result ? (
           <div className="card" style={{ textAlign: 'center', padding: '28px 16px' }}>
             <div
               style={{
@@ -296,6 +322,7 @@ export const ReportPage: React.FC<ReportPageProps> = ({
                   value={selectedSlug}
                   onChange={(e) => {
                     setSelectedSlug(e.target.value);
+                    setEventDate('');
                     setPosition(gps);
                     setCorrectLocation(false);
                   }}
@@ -368,6 +395,9 @@ export const ReportPage: React.FC<ReportPageProps> = ({
                   ? 'Este incidente requiere al menos una fotografía como evidencia.'
                   : 'Adjunta fotos claras para facilitar la validación por IA o agentes.'}
               </p>
+              <small className="muted" style={{ display: 'block', marginBottom: 12 }}>
+                Fotos JPEG, PNG, WebP o GIF: hasta 15 MB. Videos MP4, MOV o WebM cortos: hasta {Math.round(reportVideoLimit(catalog?.config?.maxVideoBytes) / 1048576)} MB.
+              </small>
 
               {/* Native Mobile Camera Buttons */}
               <div style={{ display: 'flex', gap: 10, marginBottom: 12 }}>
@@ -375,8 +405,8 @@ export const ReportPage: React.FC<ReportPageProps> = ({
                   type="button"
                   className="btn btn-primary"
                   style={{ flex: 1 }}
-                  onClick={handleCaptureCamera}
-                  disabled={files.length >= 3 || busy}
+                  onClick={() => pickMedia('camera')}
+                  disabled={files.length >= 3 || busy || selectingMedia}
                 >
                   <Camera size={18} />
                   <span>Tomar foto</span>
@@ -386,8 +416,8 @@ export const ReportPage: React.FC<ReportPageProps> = ({
                   type="button"
                   className="btn btn-secondary"
                   style={{ flex: 1 }}
-                  onClick={handlePickPhotos}
-                  disabled={files.length >= 3 || busy}
+                  onClick={() => pickMedia('photos')}
+                  disabled={files.length >= 3 || busy || selectingMedia}
                 >
                   <ImageIcon size={18} />
                   <span>Galería</span>
@@ -401,11 +431,11 @@ export const ReportPage: React.FC<ReportPageProps> = ({
                     <span>O seleccionar archivos locales</span>
                     <input
                       type="file"
-                      accept="image/*,video/*"
+                      accept={REPORT_FILE_ACCEPT}
                       multiple
                       className="sr-only"
                       onChange={handleWebFileInput}
-                      disabled={files.length >= 3 || busy}
+                      disabled={files.length >= 3 || busy || selectingMedia}
                     />
                   </label>
                 </div>
@@ -448,7 +478,13 @@ export const ReportPage: React.FC<ReportPageProps> = ({
                       )}
                       <button
                         type="button"
-                        onClick={() => setFiles(files.filter((_, i) => i !== index))}
+                        disabled={busy || selectingMedia}
+                        onClick={() => {
+                          if (item.preview) URL.revokeObjectURL(item.preview);
+                          const next = files.filter((_, i) => i !== index);
+                          filesRef.current = next;
+                          setFiles(next);
+                        }}
                         style={{
                           position: 'absolute',
                           top: 2,
@@ -491,7 +527,7 @@ export const ReportPage: React.FC<ReportPageProps> = ({
                 <span>{locating ? 'Obteniendo GPS…' : 'Usar mi ubicación GPS actual'}</span>
               </button>
 
-              {position && (
+              {(position || selectedTipo?.ubicacionRemota) && (
                 <div style={{ height: 220, borderRadius: 12, overflow: 'hidden', marginBottom: 12 }}>
                   <MapView
                     editor
@@ -522,7 +558,7 @@ export const ReportPage: React.FC<ReportPageProps> = ({
               <button
                 type="submit"
                 className="btn btn-primary btn-full"
-                disabled={busy || !selectedTipo}
+                disabled={busy || selectingMedia || !selectedTipo}
               >
                 {busy ? 'Enviando reporte…' : 'Publicar reporte ciudadano'}
               </button>

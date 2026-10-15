@@ -1,8 +1,8 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useAuth } from '../hooks/useAuth';
 import { AuthService } from '../services/auth';
 import { triggerHaptic } from '../services/native';
-import { errorMessage } from '../services/api';
+import { ApiError, errorMessage } from '../services/api';
 import { LogIn, ArrowLeft } from 'lucide-react';
 
 interface LoginPageProps {
@@ -23,23 +23,31 @@ export const LoginPage: React.FC<LoginPageProps> = ({
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const active = useRef(false);
+  useEffect(() => { active.current = true; return () => { active.current = false; }; }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (busy) return;
     void triggerHaptic('medium');
     setBusy(true);
     setError('');
 
     try {
       await AuthService.login(correo.trim(), password);
+      if (!active.current) return;
       await refresh();
+      if (!active.current) return;
       void triggerHaptic('success');
       onSuccess();
     } catch (err) {
+      if (!active.current) return;
+      if (err instanceof ApiError && err.code === 'ACCOUNT_BLOCKED') await refresh();
+      if (!active.current) return;
       setError(errorMessage(err));
       void triggerHaptic('error');
     } finally {
-      setBusy(false);
+      if (active.current) setBusy(false);
     }
   };
 
@@ -62,7 +70,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
           Ingresa a tu cuenta para ver tus reportes ciudadanos y recorridos en Ica.
         </p>
 
-        {error && <div className="notice notice-error">{error}</div>}
+        {error && <div className="notice notice-error" role="alert">{error}</div>}
 
         <form onSubmit={handleSubmit}>
           <div className="field">
@@ -74,6 +82,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
               onChange={(e) => setCorreo(e.target.value)}
               placeholder="ejemplo@gmail.com"
               required
+              disabled={busy}
               autoComplete="email"
             />
           </div>
@@ -86,7 +95,9 @@ export const LoginPage: React.FC<LoginPageProps> = ({
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               required
+              disabled={busy}
               autoComplete="current-password"
+              maxLength={128}
             />
           </div>
 

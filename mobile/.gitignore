@@ -1,0 +1,11 @@
+node_modules/
+.test-build/
+.npm-cache/
+.cache/
+.local/
+*.tsbuildinfo
+.env
+.env.local
+.env.*.local
+*.keystore
+*.jks

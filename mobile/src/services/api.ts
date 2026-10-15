@@ -25,7 +25,46 @@ export class ApiError extends Error {
 
 export type ApiOptions = RequestInit & { timeoutMs?: number };
 
+let sessionRevision = 0;
+const unauthorizedListeners = new Set<() => void>();
+
+/** Ignore responses belonging to a session that has since changed. */
+export function advanceApiSession() { sessionRevision++; }
+
+export function onUnauthorized(listener: () => void): () => void {
+  unauthorizedListeners.add(listener);
+  return () => unauthorizedListeners.delete(listener);
+}
+
+export function invalidateAuthenticatedSession() {
+  advanceApiSession();
+  for (const listener of unauthorizedListeners) listener();
+}
+
+export function resolveApiUrl(path: string): string {
+  const origin = typeof location === 'undefined' ? 'http://localhost' : location.origin;
+  let base: URL;
+  let target: URL;
+  try {
+    base = new URL(BASE_API_URL, origin);
+    if (!/^https?:$/.test(base.protocol) || base.username || base.password || base.hash || base.search)
+      throw new Error();
+    if (base.protocol === 'http:' && (isNative || !['localhost', '127.0.0.1', '[::1]'].includes(base.hostname)))
+      throw new Error();
+    if (typeof path !== 'string' || !path || /[\s\\\u0000-\u001f]/.test(path) || path.startsWith('//') ||
+        (/^[a-z][a-z0-9+.-]*:/i.test(path) && !/^https?:\/\//.test(path))) throw new Error();
+    target = new URL(/^https?:\/\//.test(path) ? path : `${base.href.replace(/\/$/, '')}${path.startsWith('/') ? '' : '/'}${path}`);
+    const prefix = base.pathname.replace(/\/$/, '');
+    if (target.origin !== base.origin || target.username || target.password || target.hash ||
+        !target.pathname.startsWith(`${prefix}/`)) throw new Error();
+  } catch {
+    throw new ApiError('La dirección del servicio de CiviGo no es válida.', 0, 'INVALID_API_URL');
+  }
+  return target.href;
+}
+
 export async function api<T>(path: string, options: ApiOptions = {}): Promise<T> {
+  const requestSession = sessionRevision;
   const {
     timeoutMs = options.method && options.method !== 'GET' ? 90000 : 25000,
     ...requestOptions
@@ -52,7 +91,7 @@ export async function api<T>(path: string, options: ApiOptions = {}): Promise<T>
     }
 
     let response: Response;
-    const url = path.startsWith('http') ? path : `${BASE_API_URL}${path}`;
+    const url = resolveApiUrl(path);
 
     try {
       response = await fetch(url, {
@@ -92,6 +131,11 @@ export async function api<T>(path: string, options: ApiOptions = {}): Promise<T>
     }
 
     if (!response.ok) {
+      // Invalid login credentials are not an expiry of the current session.
+      if (response.status === 401 && requestSession === sessionRevision &&
+          !/^\/users\/(login|register|logout|password\/(forgot|reset))$/.test(path)) {
+        for (const listener of unauthorizedListeners) listener();
+      }
       let message = 'No se pudo completar la solicitud.';
       if (response.status >= 500) {
         message = 'El servicio de CiviGo no está disponible en este momento. Inténtalo de nuevo.';
@@ -140,13 +184,14 @@ export const del = <T>(path: string, options: RequestInit = {}) =>
 export async function upload(
   file: File,
   privado = false,
-  tipo: 'PUBLICO' | 'EVIDENCIA' | 'IDENTIDAD' = 'PUBLICO'
+  tipo: 'PUBLICO' | 'EVIDENCIA' | 'IDENTIDAD' = 'PUBLICO',
+  options: Pick<RequestInit, 'signal'> = {}
 ): Promise<Adjunto> {
   const form = new FormData();
   form.append('archivo', file);
   form.append('privado', String(privado));
   form.append('tipo', tipo);
-  return api<Adjunto>('/uploads', { method: 'POST', body: form });
+  return api<Adjunto>('/uploads', { method: 'POST', body: form, signal: options.signal });
 }
 
 export function distance(a: Posicion, b: Posicion): number {

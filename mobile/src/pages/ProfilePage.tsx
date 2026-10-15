@@ -1,9 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { AuthGate } from '../components/layout/AuthGate';
 import { useAuth } from '../hooks/useAuth';
 import { AuthService } from '../services/auth';
 import { NavigationService, type SavedRoute } from '../services/navigation';
-import { api, upload, formatDate, errorMessage } from '../services/api';
+import { api, formatDate, errorMessage } from '../services/api';
+import { ProfileOperationScope, submitProfileRecovery } from '../services/profileOperations';
 import { triggerHaptic } from '../services/native';
 import { SpotifyService } from '../services/spotify';
 import { User, ShieldCheck, Mail, Phone, Bookmark, Trash2, Medal, LogOut, KeyRound, Music, Settings } from 'lucide-react';
@@ -43,88 +44,114 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
 
   // Spotify integration state
   const [spotifyEnabled, setSpotifyEnabled] = useState(false);
+  const [spotifyBusy, setSpotifyBusy] = useState(false);
+  const [deletingFavorite, setDeletingFavorite] = useState<number | null>(null);
+  const account = useRef(usuario?.id);
+  account.current = usuario?.id;
+  const operations = useRef(new ProfileOperationScope(() => account.current));
 
   useEffect(() => {
-    if (!usuario) return;
+    const controller = new AbortController();
+    operations.current.activate(usuario?.id);
+    setFavorites([]);
+    setParticipation(null);
+    setError(''); setMessage('');
+    setOldPassword(''); setNewPassword('');
+    setNewPhone(''); setRecoveryReason(''); setIdFile(null);
+    setShowPasswordChange(false); setShowPhoneRecovery(false);
+    setBusy(false);
+    setDeletingFavorite(null); setSpotifyBusy(false);
+    if (!usuario) return () => { controller.abort(); operations.current.invalidate(); };
+    const owner = usuario.id;
     setNicknameInput(usuario.nickname);
 
-    NavigationService.getFavorites()
-      .then(setFavorites)
-      .catch(() => {});
+    NavigationService.getFavorites(controller.signal)
+      .then((items) => { if (!controller.signal.aborted && account.current === owner) setFavorites(items); })
+      .catch((err) => { if (!controller.signal.aborted && account.current === owner) setError(`Favoritos: ${errorMessage(err)}`); });
 
-    api<ParticipationSummaryData>('/participation')
-      .then(setParticipation)
-      .catch(() => {});
+    api<ParticipationSummaryData>('/participation', { signal: controller.signal })
+      .then((data) => { if (!controller.signal.aborted && account.current === owner) setParticipation(data); })
+      .catch((err) => { if (!controller.signal.aborted && account.current === owner) setError(`Participación: ${errorMessage(err)}`); });
 
     SpotifyService.isEnabled()
-      .then(setSpotifyEnabled)
-      .catch(() => {});
-  }, [usuario]);
+      .then((enabled) => { if (!controller.signal.aborted && account.current === owner) setSpotifyEnabled(enabled); });
+    return () => { controller.abort(); operations.current.invalidate(); };
+  }, [usuario?.id]);
+
+  useEffect(() => { setNicknameInput(usuario?.nickname || ''); }, [usuario?.nickname]);
 
   const handleToggleSpotify = async (checked: boolean) => {
     void triggerHaptic('light');
-    setSpotifyEnabled(checked);
-    await SpotifyService.setEnabled(checked);
+    if (spotifyBusy) return;
+    const operation = operations.current.start();
+    if (!operation.isCurrent()) return;
+    setSpotifyBusy(true);
+    try {
+      await SpotifyService.setEnabled(checked);
+      if (operation.isCurrent()) setSpotifyEnabled(checked);
+    } catch (err) { if (operation.isCurrent()) setError(`No se pudo guardar la preferencia: ${errorMessage(err)}`); }
+    finally { if (operation.isCurrent()) setSpotifyBusy(false); operation.finish(); }
   };
 
   const handleUpdateNickname = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!nicknameInput.trim() || nicknameInput === usuario?.nickname) return;
+    const operation = operations.current.start();
+    if (!operation.isCurrent()) return;
     void triggerHaptic('light');
     setBusy(true);
     setError('');
     setMessage('');
 
     try {
-      await AuthService.updateNickname(nicknameInput.trim());
+      await AuthService.updateNickname(nicknameInput.trim(), operation.signal);
+      if (!operation.isCurrent()) return;
       await refresh();
-      setMessage('Nickname actualizado correctamente.');
+      if (operation.isCurrent()) setMessage('Nickname actualizado correctamente.');
     } catch (err) {
-      setError(errorMessage(err));
+      if (operation.isCurrent()) setError(errorMessage(err));
     } finally {
-      setBusy(false);
+      if (operation.isCurrent()) setBusy(false);
+      operation.finish();
     }
   };
 
   const handleChangePassword = async (e: React.FormEvent) => {
     e.preventDefault();
+    const operation = operations.current.start();
+    if (!operation.isCurrent()) return;
     void triggerHaptic('medium');
     setBusy(true);
     setError('');
     setMessage('');
 
     try {
-      const res = await AuthService.changePassword(oldPassword, newPassword);
+      const res = await AuthService.changePassword(oldPassword, newPassword, operation.signal);
+      if (!operation.isCurrent()) return;
       setMessage(res.mensaje || 'Contraseña actualizada.');
       setShowPasswordChange(false);
       setOldPassword('');
       setNewPassword('');
     } catch (err) {
-      setError(errorMessage(err));
+      if (operation.isCurrent()) setError(errorMessage(err));
     } finally {
-      setBusy(false);
+      if (operation.isCurrent()) setBusy(false);
+      operation.finish();
     }
   };
 
   const handlePhoneRecovery = async (e: React.FormEvent) => {
     e.preventDefault();
+    const operation = operations.current.start();
+    if (!operation.isCurrent()) return;
     void triggerHaptic('medium');
     setBusy(true);
     setError('');
     setMessage('');
 
     try {
-      let adjuntoId: string | undefined;
-      if (idFile) {
-        const uploaded = await upload(idFile, true, 'IDENTIDAD');
-        adjuntoId = uploaded.id;
-      }
-
-      await AuthService.requestPhoneRecovery({
-        telefonoNuevo: newPhone.trim(),
-        motivo: recoveryReason.trim(),
-        adjuntoId,
-      });
+      const submitted = await submitProfileRecovery(operation, { telefonoNuevo: newPhone.trim(), motivo: recoveryReason.trim() }, idFile);
+      if (!submitted || !operation.isCurrent()) return;
 
       setMessage('Solicitud enviada al administrador.');
       setShowPhoneRecovery(false);
@@ -132,25 +159,36 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
       setRecoveryReason('');
       setIdFile(null);
     } catch (err) {
-      setError(errorMessage(err));
+      if (operation.isCurrent()) setError(errorMessage(err));
     } finally {
-      setBusy(false);
+      if (operation.isCurrent()) setBusy(false);
+      operation.finish();
     }
   };
 
   const handleDeleteFavorite = async (id: number) => {
+    if (deletingFavorite !== null) return;
+    const operation = operations.current.start();
+    if (!operation.isCurrent()) return;
+    setDeletingFavorite(id);
+    setError('');
     void triggerHaptic('light');
     try {
-      await NavigationService.removeFavorite(id);
-      setFavorites((prev) => prev.filter((f) => f.id !== id));
-    } catch {
-      //
-    }
+      await NavigationService.removeFavorite(id, operation.signal);
+      if (operation.isCurrent()) setFavorites((prev) => prev.filter((f) => f.id !== id));
+    } catch (err) {
+      if (operation.isCurrent()) setError(`No se pudo eliminar el favorito: ${errorMessage(err)}`);
+    } finally { if (operation.isCurrent()) setDeletingFavorite(null); operation.finish(); }
   };
 
   const handleLogout = async () => {
+    const operation = operations.current.start();
+    if (!operation.isCurrent()) return;
     void triggerHaptic('heavy');
-    await logout();
+    setBusy(true);
+    try { await logout(); }
+    catch (err) { if (operation.isCurrent()) setError(errorMessage(err)); }
+    finally { if (operation.isCurrent()) setBusy(false); operation.finish(); }
   };
 
   return (
@@ -421,7 +459,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
           <div className="card-header">
             <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
               <Bookmark size={18} color="var(--brand)" />
-              <h2 style={{ fontSize: 15 }}>Rutas favoritas ({favorites.length})</h2>
+              <h2 style={{ fontSize: 15 }}>Rutas favoritas ({favorites.length}/{usuario?.premium ? 20 : 3})</h2>
             </div>
           </div>
 
@@ -455,6 +493,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                     className="icon-btn"
                     style={{ width: 30, height: 30 }}
                     onClick={() => handleDeleteFavorite(fav.id)}
+                    disabled={deletingFavorite !== null}
                     aria-label="Eliminar favorito"
                   >
                     <Trash2 size={15} color="var(--error-ink)" />
@@ -515,12 +554,13 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                     Spotify durante la navegación
                   </strong>
                   <span className="muted" style={{ fontSize: 11, display: 'block', marginTop: 2 }}>
-                    Muestra un reproductor compacto con pistas recomendadas y controles rápidos al iniciar una ruta. Desactivado por defecto.
+                    Muestra un acceso para abrir Spotify. No hay una cuenta conectada ni controles de reproducción dentro de CiviGo. Desactivado por defecto.
                   </span>
                 </div>
                 <input
                   type="checkbox"
                   checked={spotifyEnabled}
+                  disabled={spotifyBusy}
                   onChange={(e) => void handleToggleSpotify(e.target.checked)}
                   style={{ marginLeft: 12, width: 18, height: 18, cursor: 'pointer' }}
                 />
@@ -535,6 +575,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
             type="button"
             className="btn btn-danger btn-full"
             onClick={handleLogout}
+            disabled={busy}
           >
             <LogOut size={16} />
             <span>Cerrar sesión</span>

@@ -1,11 +1,22 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useAuth } from '../hooks/useAuth';
-import { AgentService, hasAgentPermission, type IncidentReviewSummary, type ReviewActionPayload } from '../services/agent';
+import { useOperationScope } from '../hooks/useOperationScope';
+import { AgentService, hasAgentPermission, type IncidentReviewSummary, type ReviewActionPayload, type AgentMessage } from '../services/agent';
 import { IncidentIcon } from '../components/map/IncidentIcon';
-import { formatDate, errorMessage } from '../services/api';
+import { AuthenticatedMedia } from '../components/incident/AuthenticatedMedia';
+import { api, formatDate, errorMessage } from '../services/api';
 import { triggerHaptic } from '../services/native';
+import { resolveMediaUrl } from '../services/media';
 import { Shield, Check, X, AlertTriangle, RefreshCw, FileText, ChevronRight, Lock, Unlock } from 'lucide-react';
 import { RISK_COLORS, RISK_NAMES } from '../types';
+import type { Catalogo } from '../types';
+
+type OperationalAction = ReviewActionPayload['accion'] | 'RECLASIFICAR' | 'REVISAR_AVISO' | 'RETIRAR_MENSAJE' | 'RESTAURAR_MENSAJE' | 'VALIDAR_APORTE' | 'FALSO_APORTE';
+const ACTION_NAMES: Record<OperationalAction, string> = {
+  VALIDAR: 'Validar incidente', GRAVEDAD: 'Ajustar gravedad', FALSO: 'Declarar incidente falso', RESOLVER: 'Resolver incidente',
+  REABRIR: 'Reabrir incidente', RECLASIFICAR: 'Reclasificar incidente', REVISAR_AVISO: 'Atender aviso',
+  RETIRAR_MENSAJE: 'Retirar mensaje', RESTAURAR_MENSAJE: 'Restaurar mensaje', VALIDAR_APORTE: 'Validar aporte', FALSO_APORTE: 'Declarar aporte falso',
+};
 
 interface AgentPageProps {
   onBack: () => void;
@@ -21,36 +32,51 @@ export const AgentPage: React.FC<AgentPageProps> = ({ onBack }) => {
   const canResolve = hasAgentPermission(usuario, 'resolver');
   const canReopen = hasAgentPermission(usuario, 'reabrir');
   const canEvidence = hasAgentPermission(usuario, 'evidencia');
+  const canFlags = hasAgentPermission(usuario, 'avisos');
+  const canModerate = hasAgentPermission(usuario, 'moderar');
 
   const [incidents, setIncidents] = useState<IncidentReviewSummary[]>([]);
   const [selectedIncident, setSelectedIncident] = useState<IncidentReviewSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
-  const [detailLoading, setDetailLoading] = useState(false);
-  const [activeEvidenceUrl, setActiveEvidenceUrl] = useState<string | null>(null);
+  const [activeEvidence, setActiveEvidence] = useState<{ url: string; mimeType: string; privado?: boolean } | null>(null);
   const [busyAction, setBusyAction] = useState(false);
   const [actionReason, setActionReason] = useState('');
   const [actionGravity, setActionGravity] = useState<number>(3);
-  const [currentAction, setCurrentAction] = useState<ReviewActionPayload['accion'] | null>(null);
+  const [currentAction, setCurrentAction] = useState<OperationalAction | null>(null);
+  const [actionTargetId, setActionTargetId] = useState<number | null>(null);
+  const [actionTypeId, setActionTypeId] = useState(0);
+  const [catalog, setCatalog] = useState<Catalogo | null>(null);
+  const [catalogError, setCatalogError] = useState('');
+  const [messages, setMessages] = useState<AgentMessage[]>([]);
+  const [messagesLoading, setMessagesLoading] = useState(false);
+  const [messagesError, setMessagesError] = useState('');
+  const queueRequest = useRef(0);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
+  const operations = useOperationScope(`${usuario?.id ?? 'guest'}:${selectedIncident?.id ?? 'queue'}`);
 
-  const handleSelectIncident = async (inc: IncidentReviewSummary) => {
+  const beginAction = (action: OperationalAction, targetId: number | null = null) => {
+    setCurrentAction(action);
+    setActionTargetId(targetId);
+    setActionReason('');
+    setError('');
+    setActionTypeId(0);
+    const gravity = selectedIncident?.gravedad ?? selectedIncident?.nivelRiesgo;
+    setActionGravity(typeof gravity === 'number' && gravity >= 1 && gravity <= 5 ? gravity : 3);
+  };
+
+  const handleSelectIncident = (inc: IncidentReviewSummary) => {
     void triggerHaptic('light');
+    // The authorized admin queue already includes the complete reports and evidence.
     setSelectedIncident(inc);
-    setDetailLoading(true);
-    try {
-      const detailed = await AgentService.getIncidentDetail(inc.id);
-      setSelectedIncident(detailed);
-    } catch {
-      // Keep basic summary
-    } finally {
-      setDetailLoading(false);
-    }
+    setCurrentAction(null);
+    setActionReason('');
   };
 
   const loadIncidents = useCallback(async () => {
+    const request = ++queueRequest.current;
     if (!canConsult) return;
     setLoading(true);
     setError('');
@@ -59,17 +85,54 @@ export const AgentPage: React.FC<AgentPageProps> = ({ onBack }) => {
         distrito: usuario?.distrito || undefined,
         estado: statusFilter || undefined,
       });
-      setIncidents(res.incidentes || []);
+      if (request === queueRequest.current) setIncidents(res.items);
     } catch (err) {
-      setError(errorMessage(err));
+      if (request === queueRequest.current) setError(errorMessage(err));
     } finally {
-      setLoading(false);
+      if (request === queueRequest.current) setLoading(false);
     }
-  }, [canConsult, usuario?.distrito, statusFilter]);
+  }, [canConsult, usuario?.id, usuario?.distrito, statusFilter]);
 
   useEffect(() => {
     void loadIncidents();
+    return () => { ++queueRequest.current; };
   }, [loadIncidents]);
+
+  useEffect(() => {
+    setSelectedIncident(null);
+    setActiveEvidence(null);
+    setCurrentAction(null);
+    setIncidents([]);
+    setError(''); setMessage('');
+  }, [usuario?.id]);
+
+  useEffect(() => {
+    setBusyAction(false);
+    setCurrentAction(null);
+    setActionReason('');
+    setMessagesError('');
+  }, [usuario?.id, selectedIncident?.id]);
+
+  useEffect(() => {
+    if (!canClassify) return;
+    let active = true;
+    api<Catalogo>('/catalog').then((data) => { if (active) { setCatalog(data); setCatalogError(''); } })
+      .catch((err) => { if (active) setCatalogError(errorMessage(err)); });
+    return () => { active = false; };
+  }, [canClassify]);
+
+  useEffect(() => {
+    setMessages([]);
+    setMessagesError('');
+    if (!selectedIncident || !canModerate) return;
+    let active = true;
+    setMessagesLoading(true);
+    AgentService.getMessages(selectedIncident.id)
+      .then((data) => { if (active) setMessages(data); })
+      .catch((err) => { if (active) setMessagesError(errorMessage(err)); })
+      .finally(() => { if (active) setMessagesLoading(false); });
+    return () => { active = false; };
+  }, [selectedIncident?.id, canModerate, usuario?.id]);
 
   if (!canConsult) {
     return (
@@ -90,28 +153,49 @@ export const AgentPage: React.FC<AgentPageProps> = ({ onBack }) => {
 
   const handleApplyAction = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedIncident || !currentAction || !actionReason.trim()) return;
+    if (!selectedIncident || !currentAction || actionReason.trim().length < 5 || busyAction) return;
+    const operation = operations.begin();
     void triggerHaptic('heavy');
     setBusyAction(true);
     setError('');
     setMessage('');
 
     try {
-      await AgentService.applyIncidentReview(selectedIncident.id, {
-        accion: currentAction,
-        motivo: actionReason.trim(),
-        nivelRiesgo: currentAction === 'GRAVEDAD' ? actionGravity : undefined,
-      });
+      operation.assertActive();
+      const motivo = actionReason.trim();
+      const options = { signal: operation.signal };
+      if (currentAction === 'RECLASIFICAR') {
+        const type = catalog?.categorias.flatMap((category) => category.tipos).find((item) => item.id === actionTypeId);
+        if (!type) throw new Error('Selecciona un tipo del catálogo.');
+        await AgentService.classifyIncident(selectedIncident.id, { tipoId: type.id, motivo }, options);
+      } else if (currentAction === 'REVISAR_AVISO') {
+        if (!actionTargetId) return;
+        await AgentService.reviewFlag(selectedIncident.id, actionTargetId, motivo, options);
+      } else if (currentAction === 'RETIRAR_MENSAJE' || currentAction === 'RESTAURAR_MENSAJE') {
+        if (!actionTargetId) return;
+        await AgentService.moderateMessage(selectedIncident.id, actionTargetId, { accion: currentAction === 'RETIRAR_MENSAJE' ? 'RETIRAR' : 'RESTAURAR', motivo }, options);
+      } else if (currentAction === 'VALIDAR_APORTE' || currentAction === 'FALSO_APORTE') {
+        if (!actionTargetId) return;
+        await AgentService.applyReportReview(actionTargetId, { accion: currentAction === 'VALIDAR_APORTE' ? 'VALIDAR' : 'FALSO', motivo,
+          nivelRiesgo: currentAction === 'VALIDAR_APORTE' ? actionGravity : undefined }, options);
+      } else {
+        await AgentService.applyIncidentReview(selectedIncident.id, {
+          accion: currentAction, motivo,
+          nivelRiesgo: currentAction === 'GRAVEDAD' || currentAction === 'VALIDAR' ? actionGravity : undefined,
+        }, options);
+      }
+      operation.assertActive();
 
-      setMessage(`Acción ${currentAction} aplicada con éxito al incidente #${selectedIncident.id}.`);
+      setMessage(`${ACTION_NAMES[currentAction]}: operación registrada en el incidente #${selectedIncident.id}.`);
       setCurrentAction(null);
       setActionReason('');
       setSelectedIncident(null);
       void loadIncidents();
     } catch (err) {
-      setError(errorMessage(err));
+      if (operation.isActive()) setError(errorMessage(err));
     } finally {
-      setBusyAction(false);
+      if (operation.isActive()) setBusyAction(false);
+      operation.finish();
     }
   };
 
@@ -128,7 +212,7 @@ export const AgentPage: React.FC<AgentPageProps> = ({ onBack }) => {
         </p>
       </div>
 
-      {error && <div className="notice notice-error">{error}</div>}
+      {error && !selectedIncident && <div className="notice notice-error">{error}</div>}
       {message && <div className="notice notice-success">{message}</div>}
 
       {/* Search and Filter bar */}
@@ -195,8 +279,10 @@ export const AgentPage: React.FC<AgentPageProps> = ({ onBack }) => {
               );
             })
             .map((inc) => {
-              const riskLevel = inc.gravedad ?? inc.nivelRiesgo ?? 0;
-              const riskColor = RISK_COLORS[Math.min(riskLevel, RISK_COLORS.length - 1)];
+              const riskLevel = inc.gravedad ?? inc.nivelRiesgo;
+              const knownRisk = inc.evaluacion !== 'PENDIENTE' && typeof riskLevel === 'number'
+                && Number.isInteger(riskLevel) && riskLevel >= 0 && riskLevel < RISK_COLORS.length;
+              const riskColor = knownRisk ? RISK_COLORS[riskLevel!] : 'var(--muted)';
 
               return (
                 <div
@@ -217,7 +303,7 @@ export const AgentPage: React.FC<AgentPageProps> = ({ onBack }) => {
                         className="badge"
                         style={{ backgroundColor: riskColor, color: '#fff', fontSize: 10 }}
                       >
-                        Nivel {riskLevel}
+                        {knownRisk ? `Nivel ${riskLevel}` : 'Por evaluar'}
                       </span>
                     </div>
 
@@ -291,19 +377,14 @@ export const AgentPage: React.FC<AgentPageProps> = ({ onBack }) => {
               </button>
             </div>
 
+            {error && <div className="notice notice-error">{error}</div>}
             <div style={{ marginBottom: 14 }}>
               <p style={{ fontSize: 13, lineHeight: 1.5, margin: '0 0 10px' }}>
                 {selectedIncident.descripcion || 'Sin descripción.'}
               </p>
 
               {/* Citizen reports and evidence attachments */}
-              {detailLoading ? (
-                <div style={{ padding: '12px 0', textAlign: 'center' }}>
-                  <p className="muted" style={{ fontSize: 12 }}>
-                    Cargando expediente completo y evidencias…
-                  </p>
-                </div>
-              ) : selectedIncident.reportes && selectedIncident.reportes.length > 0 ? (
+              {selectedIncident.reportes && selectedIncident.reportes.length > 0 ? (
                 <div style={{ marginTop: 10, marginBottom: 14 }}>
                   <span className="eyebrow" style={{ fontSize: 10, marginBottom: 6, display: 'block' }}>
                     REPORTES CIUDADANOS ASOCIADOS ({selectedIncident.reportes.length})
@@ -329,16 +410,17 @@ export const AgentPage: React.FC<AgentPageProps> = ({ onBack }) => {
                         </p>
 
                         {/* Evidence Thumbnails */}
-                        {canEvidence && rep.adjuntos && rep.adjuntos.length > 0 && (
+                        {rep.adjuntos && rep.adjuntos.some((adj) => canEvidence || !adj.privado) && (
                           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 6 }}>
-                            {rep.adjuntos.map((adj) => (
+                            {rep.adjuntos.filter((adj) => canEvidence || !adj.privado).map((adj) => (
                               <button
                                 key={adj.id}
                                 type="button"
                                 onClick={() => {
-                                  if (adj.url) {
+                                  const url = resolveMediaUrl(adj.url);
+                                  if (url) {
                                     void triggerHaptic('light');
-                                    setActiveEvidenceUrl(adj.url);
+                                    setActiveEvidence({ url, mimeType: adj.mimeType, privado: adj.privado });
                                   }
                                 }}
                                 style={{
@@ -353,9 +435,11 @@ export const AgentPage: React.FC<AgentPageProps> = ({ onBack }) => {
                                   cursor: 'pointer',
                                 }}
                               >
-                                {adj.url ? (
-                                  <img
-                                    src={adj.url}
+                                {resolveMediaUrl(adj.url) && adj.mimeType.startsWith('image/') ? (
+                                  <AuthenticatedMedia
+                                    url={adj.url!}
+                                    mimeType={adj.mimeType}
+                                    privado={adj.privado}
                                     alt="Evidencia"
                                     style={{ width: '100%', height: '100%', objectFit: 'cover' }}
                                   />
@@ -385,6 +469,15 @@ export const AgentPage: React.FC<AgentPageProps> = ({ onBack }) => {
                             ))}
                           </div>
                         )}
+                        <small className="muted">Estado: {rep.estado}</small>
+                        {rep.evidenciaPrivada && !canEvidence && <p className="muted">Este aporte requiere permiso para revisar pruebas privadas.</p>}
+                        {!['FALSO', 'RETIRADO'].includes(rep.estado)
+                          && (canEvidence || (!selectedIncident.individual && !rep.evidenciaPrivada)) && <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                          {canValidate && <button type="button" className="btn btn-secondary btn-small" disabled={busyAction}
+                            onClick={() => beginAction('VALIDAR_APORTE', rep.id)}>Validar aporte #{rep.id}</button>}
+                          {canFalsify && <button type="button" className="btn btn-quiet btn-small" disabled={busyAction}
+                            onClick={() => beginAction('FALSO_APORTE', rep.id)}>Declarar aporte falso</button>}
+                        </div>}
                       </div>
                     ))}
                   </div>
@@ -392,57 +485,92 @@ export const AgentPage: React.FC<AgentPageProps> = ({ onBack }) => {
               ) : null}
             </div>
 
+            {!!selectedIncident.flags?.length && <div className="card" style={{ padding: 12 }}>
+              <h4>Avisos ciudadanos</h4>
+              {selectedIncident.flags.map((flag) => <div key={flag.id} style={{ marginTop: 10 }}>
+                <strong style={{ fontSize: 12 }}>Aviso #{flag.id} · {flag.tipo} · {flag.estado}</strong>
+                <p className="muted" style={{ fontSize: 12 }}>{flag.motivo}</p>
+                {canFlags && flag.estado === 'PENDIENTE' && <button type="button" className="btn btn-secondary btn-small"
+                  disabled={busyAction} onClick={() => beginAction('REVISAR_AVISO', flag.id)}>Registrar revisión del aviso</button>}
+              </div>)}
+            </div>}
+
+            {canModerate && <div className="card" style={{ padding: 12 }}>
+              <h4>Moderación del chat</h4>
+              {messagesLoading ? <p className="muted">Cargando mensajes…</p> : messagesError ? <div className="notice notice-error">{messagesError}</div>
+                : messages.length === 0 ? <p className="muted">No hay mensajes en este incidente.</p>
+                : messages.map((item) => <div key={item.id} style={{ marginTop: 10 }}>
+                  <strong style={{ fontSize: 12 }}>#{item.id} · {item.usuario?.nickname || 'Ciudadano'} · {formatDate(item.creadoEn)}</strong>
+                  <p style={{ fontSize: 12 }}>{item.mensaje}</p>
+                  <button type="button" className="btn btn-secondary btn-small" disabled={busyAction}
+                    onClick={() => beginAction(item.retirado ? 'RESTAURAR_MENSAJE' : 'RETIRAR_MENSAJE', item.id)}>
+                    {item.retirado ? 'Restaurar mensaje' : 'Retirar mensaje'}
+                  </button>
+                </div>)}
+            </div>}
+
             {/* Operative Action Buttons */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 12 }}>
-              {canValidate && (
+              {canValidate && selectedIncident.estado !== 'FALSO' && (canEvidence || (!selectedIncident.individual && !selectedIncident.reportes?.some((rep) => rep.evidenciaPrivada))) && (
                 <button
                   type="button"
                   className="btn btn-primary btn-small"
-                  onClick={() => setCurrentAction('VALIDAR')}
+                  disabled={busyAction}
+                  onClick={() => beginAction('VALIDAR')}
                 >
                   <Check size={16} />
                   <span>Validar autenticidad del incidente</span>
                 </button>
               )}
 
-              {canGravity && (
+              {canGravity && selectedIncident.estado !== 'FALSO' && (
                 <button
                   type="button"
                   className="btn btn-secondary btn-small"
-                  onClick={() => setCurrentAction('GRAVEDAD')}
+                  disabled={busyAction}
+                  onClick={() => beginAction('GRAVEDAD')}
                 >
                   <AlertTriangle size={16} />
                   <span>Ajustar nivel de gravedad</span>
                 </button>
               )}
 
-              {canResolve && selectedIncident.estado !== 'RESUELTO' && (
+              {canClassify && selectedIncident.estado !== 'FALSO' && (canEvidence || !selectedIncident.individual) && (
+                <button type="button" className="btn btn-secondary btn-small" disabled={busyAction}
+                  onClick={() => beginAction('RECLASIFICAR')}>Reclasificar tipo de incidente</button>
+              )}
+
+              {canResolve && !['RESUELTO', 'FALSO'].includes(selectedIncident.estado) && (
                 <button
                   type="button"
                   className="btn btn-secondary btn-small"
-                  onClick={() => setCurrentAction('RESOLVER')}
+                  disabled={busyAction}
+                  onClick={() => beginAction('RESOLVER')}
                 >
                   <Lock size={16} />
                   <span>Marcar incidente como resuelto</span>
                 </button>
               )}
 
-              {canReopen && selectedIncident.estado === 'RESUELTO' && (
+              {canReopen && ['RESUELTO', 'RETIRADO'].includes(selectedIncident.estado) && (
                 <button
                   type="button"
                   className="btn btn-secondary btn-small"
-                  onClick={() => setCurrentAction('REABRIR')}
+                  disabled={busyAction}
+                  onClick={() => beginAction('REABRIR')}
                 >
                   <Unlock size={16} />
                   <span>Reabrir incidente activo</span>
                 </button>
               )}
 
-              {canFalsify && (
+              {canFalsify && selectedIncident.estado !== 'FALSO' && (selectedIncident.reportes?.length ?? selectedIncident.totalReportes) <= 1
+                && (canEvidence || (!selectedIncident.individual && !selectedIncident.reportes?.some((rep) => rep.evidenciaPrivada))) && (
                 <button
                   type="button"
                   className="btn btn-danger btn-small"
-                  onClick={() => setCurrentAction('FALSO')}
+                  disabled={busyAction}
+                  onClick={() => beginAction('FALSO')}
                 >
                   <X size={16} />
                   <span>Declarar falso / spam</span>
@@ -463,24 +591,39 @@ export const AgentPage: React.FC<AgentPageProps> = ({ onBack }) => {
                 }}
               >
                 <h4 style={{ fontSize: 13, marginBottom: 8 }}>
-                  Confirmar acción: {currentAction}
+                  {ACTION_NAMES[currentAction]}{actionTargetId ? ` #${actionTargetId}` : ''}
                 </h4>
 
-                {currentAction === 'GRAVEDAD' && (
+                {['GRAVEDAD', 'VALIDAR', 'VALIDAR_APORTE'].includes(currentAction) && (
                   <div className="field">
-                    <label>Nuevo nivel de gravedad (0 - 5)</label>
+                    <label>Nivel de gravedad (1 - 5)</label>
                     <select
                       value={actionGravity}
                       onChange={(e) => setActionGravity(Number(e.target.value))}
                     >
-                      {RISK_NAMES.map((name, i) => (
-                        <option key={i} value={i}>
-                          Nivel {i} - {name}
+                      {RISK_NAMES.slice(1).map((name, i) => (
+                        <option key={i + 1} value={i + 1}>
+                          Nivel {i + 1} - {name}
                         </option>
                       ))}
                     </select>
                   </div>
                 )}
+
+                {currentAction === 'RECLASIFICAR' && <div className="field">
+                  <label htmlFor="agent-new-type">Nuevo tipo del catálogo</label>
+                  {catalogError && <div className="notice notice-error">{catalogError}</div>}
+                  {!catalog && !catalogError && <p className="muted">Cargando tipos…</p>}
+                  <select id="agent-new-type" value={actionTypeId} required disabled={!catalog || busyAction}
+                    onChange={(event) => setActionTypeId(Number(event.target.value))}>
+                    <option value={0}>Selecciona el nuevo tipo</option>
+                    {catalog?.categorias.map((category) => <optgroup key={category.id} label={category.nombre}>
+                      {category.tipos.filter((type) => !type.individual || (canEvidence && (selectedIncident.reportes?.length ?? selectedIncident.totalReportes) <= 1))
+                        .map((type) => <option key={type.id} value={type.id}>{type.nombre}</option>)}
+                    </optgroup>)}
+                  </select>
+                  <small>Al clasificar como delito individual, las pruebas pasan a ser privadas y requieren una nueva revisión.</small>
+                </div>}
 
                 <div className="field">
                   <label>Motivo y justificación oficial (obligatorio)</label>
@@ -488,8 +631,8 @@ export const AgentPage: React.FC<AgentPageProps> = ({ onBack }) => {
                     value={actionReason}
                     onChange={(e) => setActionReason(e.target.value)}
                     required
-                    minLength={6}
-                    maxLength={1000}
+                    minLength={5}
+                    maxLength={2000}
                     placeholder="Explica la causa técnica o inspección del hecho..."
                   />
                 </div>
@@ -508,7 +651,7 @@ export const AgentPage: React.FC<AgentPageProps> = ({ onBack }) => {
                     type="submit"
                     className="btn btn-primary btn-small"
                     style={{ flex: 1 }}
-                    disabled={busyAction || !actionReason.trim()}
+                    disabled={busyAction || actionReason.trim().length < 5 || (currentAction === 'RECLASIFICAR' && !actionTypeId)}
                   >
                     {busyAction ? 'Procesando…' : 'Confirmar y aplicar'}
                   </button>
@@ -520,7 +663,7 @@ export const AgentPage: React.FC<AgentPageProps> = ({ onBack }) => {
       )}
 
       {/* Fullscreen Evidence Viewer Modal */}
-      {activeEvidenceUrl && (
+      {activeEvidence && (
         <div
           style={{
             position: 'fixed',
@@ -533,7 +676,7 @@ export const AgentPage: React.FC<AgentPageProps> = ({ onBack }) => {
             justifyContent: 'center',
             padding: 16,
           }}
-          onClick={() => setActiveEvidenceUrl(null)}
+          onClick={() => setActiveEvidence(null)}
         >
           <button
             type="button"
@@ -545,14 +688,17 @@ export const AgentPage: React.FC<AgentPageProps> = ({ onBack }) => {
               color: '#fff',
               backgroundColor: 'rgba(255,255,255,0.15)',
             }}
-            onClick={() => setActiveEvidenceUrl(null)}
+            onClick={() => setActiveEvidence(null)}
             aria-label="Cerrar vista previa"
           >
             <X size={22} />
           </button>
 
-          <img
-            src={activeEvidenceUrl}
+          <AuthenticatedMedia
+            url={activeEvidence.url}
+            mimeType={activeEvidence.mimeType}
+            privado={activeEvidence.privado}
+            controls
             alt="Evidencia en resolución completa"
             style={{
               maxWidth: '100%',

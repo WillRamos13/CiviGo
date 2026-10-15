@@ -1,14 +1,7 @@
 import { StorageService } from './native';
 
 const SPOTIFY_NAV_KEY = 'civigo:spotify_nav_enabled';
-
-export interface SpotifyTrackInfo {
-  title: string;
-  artist: string;
-  album: string;
-  coverUrl?: string;
-  isPlaying: boolean;
-}
+const preferenceListeners = new Set<(enabled: boolean) => void>();
 
 export const SpotifyService = {
   /**
@@ -29,21 +22,18 @@ export const SpotifyService = {
    */
   async setEnabled(enabled: boolean): Promise<void> {
     await StorageService.set(SPOTIFY_NAV_KEY, enabled ? 'true' : 'false');
+    preferenceListeners.forEach(listener => listener(enabled));
+  },
+
+  subscribe(listener: (enabled: boolean) => void): () => void {
+    preferenceListeners.add(listener);
+    return () => preferenceListeners.delete(listener);
   },
 
   /**
    * Open the native Spotify app or web player fallback.
    */
-  openSpotify(uri?: string): void {
-    const target = uri || 'spotify:';
-    try {
-      window.location.href = target;
-      // Fallback if app doesn't open
-      setTimeout(() => {
-        window.open('https://open.spotify.com', '_blank');
-      }, 800);
-    } catch {
-      window.open('https://open.spotify.com', '_blank');
-    }
+  openSpotify(): void {
+    window.open('https://open.spotify.com', '_blank', 'noopener,noreferrer');
   },
 };

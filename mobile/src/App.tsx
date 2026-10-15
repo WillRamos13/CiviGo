@@ -1,9 +1,10 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { AuthProvider } from './hooks/useAuth';
 import { ThemeProvider } from './hooks/useTheme';
 import { MobileHeader } from './components/layout/MobileHeader';
 import { BottomNavigation, type TabId } from './components/layout/BottomNavigation';
 import { onHardwareBackButton, triggerHaptic } from './services/native';
+import { isPasswordResetLocation } from './services/password-recovery';
 
 // Pages
 import { MapPage } from './pages/MapPage';
@@ -29,8 +30,19 @@ type ViewMode =
 
 export const AppContent: React.FC = () => {
   const [activeTab, setActiveTab] = useState<TabId>('map');
-  const [viewMode, setViewMode] = useState<ViewMode>('tab');
+  const [viewMode, setViewMode] = useState<ViewMode>(() => isPasswordResetLocation(window.location.href) ? 'forgot' : 'tab');
   const [viewHistory, setViewHistory] = useState<ViewMode[]>([]);
+  const mapVisible = viewMode === 'tab' && activeTab === 'map';
+  const [mapVisited, setMapVisited] = useState(mapVisible);
+  const mainRef = useRef<HTMLElement>(null);
+
+  useEffect(() => {
+    if (!mapVisible) return;
+    setMapVisited(true);
+    if (mainRef.current) mainRef.current.scrollTop = 0;
+    const frame = requestAnimationFrame(() => window.dispatchEvent(new Event('resize')));
+    return () => cancelAnimationFrame(frame);
+  }, [mapVisible]);
 
   const navigateTo = useCallback((mode: ViewMode) => {
     void triggerHaptic('light');
@@ -105,7 +117,7 @@ export const AppContent: React.FC = () => {
       default:
         switch (activeTab) {
           case 'map':
-            return <MapPage onGoReport={() => setActiveTab('report')} />;
+            return null; // The map retains its navigation state in a stable sibling below.
           case 'reports':
             return (
               <MyReportsPage
@@ -184,7 +196,10 @@ export const AppContent: React.FC = () => {
         onOpenAgent={() => navigateTo('agent')}
       />
 
-      <main className="app-main">{renderContent()}</main>
+      <main className="app-main" ref={mainRef}>
+        {(mapVisited || mapVisible) && <div className="retained-map-view" hidden={!mapVisible} style={{ height: '100%' }}><MapPage visible={mapVisible} onGoReport={() => setActiveTab('report')} /></div>}
+        <div className="other-app-view" hidden={mapVisible}>{renderContent()}</div>
+      </main>
 
       {viewMode === 'tab' && (
         <BottomNavigation

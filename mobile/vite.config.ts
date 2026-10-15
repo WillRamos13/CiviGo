@@ -12,23 +12,23 @@ export default defineConfig({
   },
   server: {
     port: 5173,
-    host: true,
+    host: '127.0.0.1',
     proxy: {
       '/api': {
-        target: process.env.VITE_BACKEND_URL || 'https://civigo-production.up.railway.app',
+        target: process.env.VITE_BACKEND_URL || 'http://127.0.0.1:4000',
         changeOrigin: true,
-        secure: false,
+        secure: true,
       },
       '/uploads': {
-        target: process.env.VITE_BACKEND_URL || 'https://civigo-production.up.railway.app',
+        target: process.env.VITE_BACKEND_URL || 'http://127.0.0.1:4000',
         changeOrigin: true,
-        secure: false,
+        secure: true,
       },
     },
   },
   build: {
     outDir: 'dist',
-    sourcemap: true,
+    sourcemap: false,
     rollupOptions: {
       output: {
         manualChunks(id) {

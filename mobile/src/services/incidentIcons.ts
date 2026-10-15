@@ -38,7 +38,7 @@ export function getIncidentIconPath(...candidates: (string | undefined | null)[]
       return ICON_MAP[slug];
     }
   }
-  return '/iconos/alerta.png'; // fallback
+  return '/iconos/alerta.svg';
 }
 
 export function getIncidentScale(slug?: string | null): number {

@@ -69,6 +69,15 @@ export const AuthGate: React.FC<AuthGateProps> = ({
     );
   }
 
+  if (participation && (offline || usuario.bloqueado)) {
+    return <div className="card" role="status">
+      <h2>{usuario.bloqueado ? 'Tu cuenta tiene restricciones' : 'Necesitas conexión para participar'}</h2>
+      <p>{usuario.bloqueado
+        ? 'Puedes consultar tus reportes y solicitar revisión. No puedes publicar nuevos aportes con la cuenta bloqueada.'
+        : 'La información guardada no confirma una sesión vigente. Reconecta para publicar y participar con tu cuenta.'}</p>
+    </div>;
+  }
+
   if (participation && !usuario.correoVerificado) {
     return (
       <div className="card" style={{ textAlign: 'center', padding: '32px 20px' }}>
