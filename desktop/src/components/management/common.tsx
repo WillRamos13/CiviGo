@@ -63,9 +63,8 @@ export function usePagedRemote<T>(path: string, options: { q?: string; estado?: 
   // Older backends can still return their legacy list while deployments roll over.
   const result = Array.isArray(remote.data) ? { items: remote.data, total: remote.data.length, page: 1, pageSize: limit, pages: 1 } : remote.data;
   const lastPage = result ? Math.max(1, result.pages) : null;
-  useEffect(() => {
-    if (lastPage !== null && page > lastPage) select({ key: filterKey, page: lastPage });
-  }, [filterKey, lastPage, page]);
+  // Adjust this hook's own selection before rendering a page that disappeared.
+  if (lastPage !== null && page > lastPage) select({ key: filterKey, page: lastPage });
   return { ...remote, data: result?.items ?? null, total: result?.total ?? 0, page, pages: result?.pages ?? 1, setPage };
 }
 export function Pagination({ page, pages, total, onPage, disabled = false }: { page: number; pages: number; total: number; onPage: (page: number) => void; disabled?: boolean }) {

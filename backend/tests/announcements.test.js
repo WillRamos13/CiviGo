@@ -25,6 +25,7 @@ test("anuncios validan texto, enlaces, orden y programación inequívoca", () =>
   });
   assert.equal(result.inicio.toISOString(), "2026-10-08T13:00:00.000Z");
   assert.equal(result.enlace, "/mapa");
+  assert.equal(safeLink('/comunidad'), '/ranking');
   assert.equal(result.negocioId, null);
   assert.equal(result.ubicacion, 'CABECERA');
   assert.equal(announcementData({ ...fixture, ubicacion: 'REPORTAR' }).ubicacion, 'REPORTAR');

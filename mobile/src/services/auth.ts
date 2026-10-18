@@ -1,5 +1,5 @@
 import { api, post, patch, ApiError, advanceApiSession, invalidateAuthenticatedSession } from './api';
-import { StorageService } from './native';
+import { StorageService, discardRecoveredReportPhotos } from './native';
 import { clearReportDraft } from './reportDraft';
 import type { Usuario } from '../types';
 
@@ -143,6 +143,7 @@ export class SessionController {
       try { cachedId = JSON.parse((await storage.get(ACCOUNT_KEY)) || 'null')?.id; } catch {}
       await storage.remove(ACCOUNT_KEY);
       await clearReportDraft(accountId ?? cachedId, storage);
+      await discardRecoveredReportPhotos(accountId ?? cachedId);
     }).catch(() => {});
   }
 
@@ -204,9 +205,10 @@ export class SessionController {
     this.invalidate();
     const persisted = this.revocation.markLogout();
     const clearedDraft = this.revocation.store(storage => clearReportDraft(accountId, storage));
+    const clearedPhoto = discardRecoveredReportPhotos(accountId);
     // This is synchronous: even a slow or unreachable server closes the UI now.
     this.update({ usuario: null, loading: false, offline: !this.networkAvailable() });
-    try { await Promise.all([persisted, clearedDraft]); }
+    try { await Promise.all([persisted, clearedDraft, clearedPhoto]); }
     catch { throw new Error('La sesión local se cerró. Reconecta antes de cerrar la app para revocar la sesión del servidor.'); }
     if (!this.networkAvailable()) return;
     try { await this.revocation.flush(); }

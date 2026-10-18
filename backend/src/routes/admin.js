@@ -34,6 +34,7 @@ const { ranking, currentMonth, monthRange } = require("../lib/ranking");
 const { processLifecycle } = require("../lib/lifecycle");
 const { hashPassword } = require("../lib/password");
 const { pagination, searchText, pageResult } = require("../lib/pagination");
+const { assertManagedUserUnchanged } = require("../lib/managed-user-state");
 const {
   reviewReport,
   refreshVerificationEffects,
@@ -677,6 +678,7 @@ router.patch(
         );
       const existing = await db.user.findUnique({ where: { id: target } });
       if (!existing) throw new HttpError(404, "Usuario no encontrado.");
+      assertManagedUserUnchanged(existing, b.estadoAnterior);
       const verificationChanged =
         data.correoVerificado !== undefined &&
         data.correoVerificado !== existing.correoVerificado;

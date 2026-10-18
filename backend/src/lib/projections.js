@@ -94,9 +94,19 @@ function incident(i, privateView = false, staffView = false) {
     (r) => !["EN_REVISION", "FALSO", "RETIRADO"].includes(r.estado),
   );
   const visibleReports = privateView || staffView ? allReports : publicReports;
-  const votes = (i.votos || []).filter(
-    (v) => v.usuario?.correoVerificado === true,
-  );
+  const votes = (i.votos || []).filter((v) => {
+    if (v.usuario?.correoVerificado !== true) return false;
+    if (v.tipo !== "CONFIRMAR") return true;
+    const ownReports = allReports.filter(
+      (report) => report.usuarioId === v.usuarioId,
+    );
+    return (
+      !ownReports.length ||
+      ownReports.some(
+        (report) => !["FALSO", "RETIRADO"].includes(report.estado),
+      )
+    );
+  });
   const risk = require("./risk").incidentRisk({
     ...i,
     pruebasRecibidas: Array.isArray(i.reportes)

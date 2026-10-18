@@ -1,7 +1,15 @@
 import { Capacitor } from '@capacitor/core';
-export type FirebaseEmailConfig = { apiKey: string; authDomain: string; projectId: string; appId: string };
+export type FirebaseEmailConfig =
+    | { apiKey: string; authDomain: string; projectId: string; appId: string; native?: false }
+    | { projectId: string; native: true };
 
-export function firebaseEmailConfig(env: Record<string, string | undefined> = import.meta.env): FirebaseEmailConfig | null {
+export function firebaseEmailConfig(env: Record<string, string | undefined> = import.meta.env, platform = Capacitor.getPlatform()): FirebaseEmailConfig | null {
+    // Vite copies only the project ID from the validated Android config. The
+    // native SDK uses its own resources, never the web app's Firebase options.
+    if (platform === 'android') {
+        const projectId = (env.CIVIGO_ANDROID_FIREBASE_PROJECT_ID || '').trim();
+        return /^[a-z][a-z0-9-]{4,28}[a-z0-9]$/.test(projectId) ? { projectId, native: true } : null;
+    }
     const config = {
         apiKey: (env.VITE_FIREBASE_API_KEY || '').trim(),
         authDomain: (env.VITE_FIREBASE_AUTH_DOMAIN || '').trim(),
@@ -123,6 +131,8 @@ async function loadGoogleEmailSdk(config: FirebaseEmailConfig): Promise<GoogleEm
         // project/issuer and the Gmail; a Google OAuth credential is not proof.
         return createNativeGoogleEmailSdk(FirebaseAuthentication);
     }
+    if (config.native)
+        throw new GoogleEmailError('configuration', 'La configuración de Android no puede usarse para verificar el correo en el navegador.');
     const [appModule, authModule] = await Promise.all([import('firebase/app'), import('firebase/auth')]);
     if (!webAuth) {
         const app = appModule.getApps().find(item => item.name === 'civigo-mobile-email') || appModule.initializeApp(config, 'civigo-mobile-email');

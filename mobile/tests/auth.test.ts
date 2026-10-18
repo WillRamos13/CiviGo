@@ -269,6 +269,31 @@ describe('Google email verification with mocked SDK and backend only', () => {
     assert.equal(firebaseEmailConfig({}), null);
     assert.deepEqual(firebaseEmailConfig({ VITE_FIREBASE_API_KEY: config.apiKey, VITE_FIREBASE_AUTH_DOMAIN: config.authDomain, VITE_FIREBASE_PROJECT_ID: config.projectId, VITE_FIREBASE_APP_ID: config.appId }), config);
   });
+  test('Android uses its validated native project without requiring web Firebase options', () => {
+    assert.deepEqual(firebaseEmailConfig({ CIVIGO_ANDROID_FIREBASE_PROJECT_ID: config.projectId, VITE_FIREBASE_PROJECT_ID: 'different-web-project' }, 'android'), { projectId: config.projectId, native: true });
+    for (const projectId of ['', 'bad/project', '123456', 'a'.repeat(31)])
+      assert.equal(firebaseEmailConfig({ CIVIGO_ANDROID_FIREBASE_PROJECT_ID: projectId, VITE_FIREBASE_PROJECT_ID: config.projectId }, 'android'), null);
+    assert.equal(firebaseEmailConfig({ CIVIGO_ANDROID_FIREBASE_PROJECT_ID: config.projectId }, 'web'), null);
+  });
+  test('native-only configuration still verifies the challenge and Firebase proof project', async () => {
+    const nativeConfig = firebaseEmailConfig({ CIVIGO_ANDROID_FIREBASE_PROJECT_ID: config.projectId }, 'android');
+    let proof = token(), opened = 0, committed = 0;
+    const flow = new GoogleEmailFlow(nativeConfig, async () => ({
+      open: async () => { opened++; return { email, emailVerified: true, getIdToken: async () => proof }; },
+      signOut: async () => {},
+    }));
+    await assert.rejects(flow.prepare(async () => ({ ...challenge(), projectId: 'different-project' })), GoogleEmailError);
+    assert.equal(opened, 0);
+    await flow.prepare(async () => challenge());
+    proof = token({ aud: 'different-project' });
+    await assert.rejects(flow.verify(email, async () => { committed++; }), GoogleEmailError);
+    assert.equal(committed, 0);
+    await flow.prepare(async () => challenge());
+    proof = token();
+    await flow.verify(email, async payload => { assert.equal(payload.idToken, proof); committed++; });
+    assert.equal(committed, 1);
+    flow.dispose();
+  });
   test('prepares challenge before Google sign-in and sends Firebase proof automatically', async () => {
     const f = googleFixture();
     await f.flow.prepare(async () => challenge());

@@ -30,6 +30,7 @@ const {
 const {
   transaction,
   rewardValidated,
+  eligibleConfirmationWhere,
   chatOpen,
   alertAgents,
 } = require("../lib/workflows");
@@ -171,6 +172,22 @@ for (const action of ["confirmar", "resolver"]) {
             409,
             "El autor inicial no puede confirmar su propio reporte.",
           );
+        if (action === "confirmar") {
+          const ownReports = row.reportes.filter(
+            (report) => report.usuarioId === req.user.id,
+          );
+          if (
+            ownReports.length &&
+            !ownReports.some(
+              (report) => !["FALSO", "RETIRADO"].includes(report.estado),
+            )
+          )
+            throw new HttpError(
+              409,
+              "Tu aporte necesita una revisión aceptada antes de confirmar este incidente.",
+              "REPORT_CONFIRMATION_INELIGIBLE",
+            );
+        }
         const tipo = action === "confirmar" ? "CONFIRMAR" : "RESOLVER";
         if (
           await db.vote.findUnique({
@@ -191,11 +208,14 @@ for (const action of ["confirmar", "resolver"]) {
           data: { usuarioId: req.user.id, incidenteId: row.id, tipo, ...p },
         });
         const count = await db.vote.count({
-          where: {
-            incidenteId: row.id,
-            tipo,
-            usuario: { correoVerificado: true },
-          },
+          where:
+            action === "confirmar"
+              ? eligibleConfirmationWhere(row.id)
+              : {
+                  incidenteId: row.id,
+                  tipo,
+                  usuario: { correoVerificado: true },
+                },
         });
         if (action === "confirmar") {
           if (staff) {

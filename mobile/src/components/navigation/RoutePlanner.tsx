@@ -131,13 +131,21 @@ export const RoutePlanner: React.FC<RoutePlannerProps> = ({
     return () => speech.cancel();
   }, [voice, isNavigating, activeRoute?.id, progress?.step?.id, progress?.hasFix, progress?.offRoute]);
 
-  const handlePlan = async (destination = destCoords, selectedMode = mode, navigating = false) => {
+  const handlePlan = async (destination = destCoords, selectedMode = mode, navigating = false, name = destinationName) => {
+    // A changed destination invalidates even a request whose replacement cannot start.
+    request.current?.abort();
+    request.current = null;
+    setBusy(false);
+    if (!navigating) {
+      setRoutes([]);
+      setSavedRoute('');
+      onSelectRoute(null);
+    }
     if (!isUsableFix(currentPosition)) {
       setError('Se necesita una ubicación GPS reciente y precisa. Pulsa Ubicar mi posición.');
       return;
     }
     if (!isPosition(destination)) { setError('Elige un destino en Ica.'); return; }
-    request.current?.abort();
     if (navigating) rerouteGuard.current.recordAttempt();
     const controller = new AbortController();
     request.current = controller;
@@ -146,8 +154,8 @@ export const RoutePlanner: React.FC<RoutePlannerProps> = ({
     try {
       const results = await NavigationService.planRoute(currentPosition, destination, selectedMode, controller.signal);
       if (!mounted.current || controller.signal.aborted || request.current !== controller) return;
-      const prepared = results.map((route) => ({ ...route, origen: currentPosition, destino: destination, modo: selectedMode }));
-      if (!prepared.length) { setError('No se encontraron rutas. Se conserva el último recorrido.'); return; }
+      const prepared = results.map((route) => ({ ...route, origen: currentPosition, destino: destination, destinoNombre: name, modo: selectedMode }));
+      if (!prepared.length) { setError(navigating ? 'No se encontraron rutas. Se conserva el último recorrido.' : 'No se encontraron rutas para este destino.'); return; }
       setRoutes(prepared);
       const selected = navigating ? prepared.find((route) => route.tipo === activeRoute?.tipo) || prepared[0] : prepared[0];
       onSelectRoute(selected);
@@ -161,7 +169,7 @@ export const RoutePlanner: React.FC<RoutePlannerProps> = ({
   useEffect(() => {
     if (!isNavigating || !activeRoute?.destino) { rerouteGuard.current.reset(); return; }
     if (rerouteGuard.current.shouldReroute(currentPosition, !!computedProgress?.offRoute, Date.now(), !busy && navigator.onLine)) {
-      void handlePlan(activeRoute.destino, activeRoute.modo || mode, true);
+      void handlePlan(activeRoute.destino, activeRoute.modo || mode, true, activeRoute.destinoNombre);
     }
   }, [currentPosition, isNavigating, activeRoute, busy, computedProgress?.offRoute]);
 
@@ -170,7 +178,7 @@ export const RoutePlanner: React.FC<RoutePlannerProps> = ({
     setDestinationName(place.nombre);
     const destination = { latitud: place.latitud, longitud: place.longitud };
     setDestCoords(destination);
-    void handlePlan(destination, selectedMode);
+    void handlePlan(destination, selectedMode, false, place.nombre);
   };
 
   const saveFavorite = async (route: Ruta) => {
@@ -180,7 +188,7 @@ export const RoutePlanner: React.FC<RoutePlannerProps> = ({
     savingRequest.current = true;
     setSaving(true); setError('');
     try {
-      const favorite = await NavigationService.addFavorite(destinationName || route.nombre || 'Ruta favorita', [], route, route.origen, route.destino, route.modo || mode);
+      const favorite = await NavigationService.addFavorite(route.destinoNombre || route.nombre || 'Ruta favorita', [], route, route.origen, route.destino, route.modo || mode);
       if (!mounted.current || userId.current !== owner) return;
       setFavorites((previous) => [favorite, ...previous.filter((item) => item.id !== favorite.id)]);
       setSavedRoute(route.id);
@@ -216,7 +224,7 @@ export const RoutePlanner: React.FC<RoutePlannerProps> = ({
       <div className="navigation-alerts" aria-label="Alertas del recorrido">{warnings.length ? warnings.map((warning) => <p className="navigation-alert" key={warning}><AlertTriangle size={13} /> {warning}</p>) : <p className="muted">Sin alertas informadas para esta ruta.</p>}</div>
       {error && <p className="notice notice-error" role="alert">{error}</p>}
       <div className="navigation-actions">
-        <button type="button" className="btn btn-secondary btn-small" disabled={busy || !progress.hasFix || !activeRoute.destino} onClick={() => void handlePlan(activeRoute.destino, activeRoute.modo || mode, true)}><RotateCw size={14} />{busy ? 'Recalculando…' : 'Recalcular'}</button>
+        <button type="button" className="btn btn-secondary btn-small" disabled={busy || !progress.hasFix || !activeRoute.destino} onClick={() => void handlePlan(activeRoute.destino, activeRoute.modo || mode, true, activeRoute.destinoNombre)}><RotateCw size={14} />{busy ? 'Recalculando…' : 'Recalcular'}</button>
         <button type="button" className="btn btn-secondary btn-small" aria-pressed={voice} disabled={typeof window === 'undefined' || !('speechSynthesis' in window)} onClick={() => setVoice(!voice)}>{voice ? <Volume2 size={14} /> : <VolumeX size={14} />}Voz {voice ? 'activada' : 'desactivada'}</button>
       </div>
       <SpotifyNavPlayer isNavigating />
@@ -253,7 +261,7 @@ export const RoutePlanner: React.FC<RoutePlannerProps> = ({
     {favorites.length > 0 && <div className="route-destinations" aria-label="Destinos favoritos">{favorites.filter((favorite) => isPosition(favorite.destino)).map((favorite) => <button key={favorite.id} type="button" className="btn btn-secondary btn-small" onClick={() => { const selectedMode = favorite.modo in modeLabels ? favorite.modo as Mode : mode; setMode(selectedMode); selectDestination({ ...favorite.destino, nombre: favorite.nombre || 'Destino favorito' }, selectedMode); }}><Bookmark size={12} />{favorite.nombre || 'Destino favorito'}</button>)}</div>}
     {destinationName && <p className="muted">Destino solicitado: {destinationName} · {modeLabels[mode]}</p>}
     {error && <div className="notice notice-error" role="alert">{error}{destCoords && <button type="button" className="btn btn-secondary btn-small" disabled={busy} onClick={() => void handlePlan()}>Reintentar</button>}</div>}
-    {busy && <p role="status" className="muted">Calculando alternativas… Se conserva el último resultado.</p>}
+    {busy && <p role="status" className="muted">Calculando alternativas…</p>}
     <div className="route-results">{routes.map((route) => {
       const selected = activeRoute?.id === route.id;
       const risk = Number.isFinite(route.nivelRiesgo) ? Math.min(5, Math.max(0, Math.round(route.nivelRiesgo))) : null;

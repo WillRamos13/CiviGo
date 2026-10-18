@@ -2,6 +2,7 @@ import { CapacitorHttp, type HttpOptions, type HttpResponse } from '@capacitor/c
 import { isNative, resolveApiUrl } from './api';
 import { resolveMediaUrl } from './media';
 import type { OperationToken } from './operationScope';
+import { mediaLoadQueue } from './mediaLoadQueue';
 
 export const MAX_MEDIA_BYTES = 15 * 1024 * 1024;
 const allowed = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'video/mp4', 'video/webm', 'video/quicktime', 'application/pdf']);
@@ -61,6 +62,11 @@ function contentHeaders(headers: Record<string, string>): Headers {
 
 export async function fetchAuthenticatedMedia(request: MediaRequest, operation: OperationToken, ports: MediaTransport = transport): Promise<Blob> {
   operation.assertActive();
+  return abortable(mediaLoadQueue.run(() => loadAuthenticatedMedia(request, operation, ports), operation.signal), operation.signal);
+}
+
+async function loadAuthenticatedMedia(request: MediaRequest, operation: OperationToken, ports: MediaTransport): Promise<Blob> {
+  operation.assertActive();
   const permitted = resolveMediaUrl(request.url);
   if (!permitted || !allowed.has(request.mimeType) || (request.mimeType === 'application/pdf' && !request.privado)) {
     throw new Error('La dirección o el formato de la evidencia no es válido.');
@@ -74,10 +80,11 @@ export async function fetchAuthenticatedMedia(request: MediaRequest, operation: 
     let blob: Blob;
     if (ports.native) {
       // Native HTTP uses its HttpOnly cookie jar; credentials never enter JavaScript.
-      const response = await abortable(ports.nativeGet({ url, responseType: 'arraybuffer', disableRedirects: true,
+      const response = await ports.nativeGet({ url, responseType: 'arraybuffer', disableRedirects: true,
         headers: { Accept: request.mimeType }, connectTimeout: 15000, readTimeout: 25000,
         webFetchExtra: { credentials: 'include', signal: controller.signal },
-      }), controller.signal);
+      });
+      if (controller.signal.aborted) throw new DOMException('Carga cancelada.', 'AbortError');
       operation.assertActive();
       validateHeaders(response.status, contentHeaders(response.headers), request.mimeType);
       if (response.url && new URL(response.url, url).href !== url) throw new Error('La evidencia cambió de dirección.');

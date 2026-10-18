@@ -164,6 +164,7 @@ export interface Ruta {
   modo?: 'walking' | 'cycling' | 'driving';
   origen?: Posicion;
   destino?: Posicion;
+  destinoNombre?: string;
   criterios?: RouteCriterion[];
   riesgoConocido?: boolean;
   llegadaEstimada?: string;

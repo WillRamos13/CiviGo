@@ -4,9 +4,11 @@ import { useAuth } from '../hooks/useAuth';
 import { useOperationScope } from '../hooks/useOperationScope';
 import { IncidentIcon } from '../components/map/IncidentIcon';
 import { AuthenticatedMedia } from '../components/incident/AuthenticatedMedia';
-import { api, post, upload, formatDate, errorMessage } from '../services/api';
+import { api, post, formatDate, errorMessage } from '../services/api';
+import { PRIVATE_EVIDENCE_ACCEPT, canRequestReportReview, canAddPrivateEvidence, remainingEvidenceSlots, submitPrivateEvidence } from '../services/reportFollowup';
+import { useDialog } from '../hooks/useDialog';
 import { triggerHaptic } from '../services/native';
-import { RefreshCw, FileText, AlertCircle, Upload, MessageSquare } from 'lucide-react';
+import { RefreshCw, FileText, Upload, MessageSquare } from 'lucide-react';
 import type { Reporte } from '../types';
 
 interface MyReportsPageProps {
@@ -28,8 +30,13 @@ export const MyReportsPage: React.FC<MyReportsPageProps> = ({
   const [activeReport, setActiveReport] = useState<Reporte | null>(null);
   const [appealReason, setAppealReason] = useState('');
   const [busyAppeal, setBusyAppeal] = useState(false);
+  const [proofReportId, setProofReportId] = useState<number | null>(null);
+  const [proofFiles, setProofFiles] = useState<File[]>([]);
+  const [busyProof, setBusyProof] = useState(false);
   const [message, setMessage] = useState('');
-  const operations = useOperationScope(`${usuario?.id ?? 'guest'}:${activeReport?.id ?? 'list'}`);
+  const operations = useOperationScope(`${usuario?.id ?? 'guest'}:${activeReport?.id ?? 'list'}:${proofReportId ?? 'none'}`);
+  const appealDialog = useDialog<HTMLDivElement>(!!activeReport, () => { if (!busyAppeal) setActiveReport(null); });
+  const submittingProof = React.useRef(false);
 
   const loadReports = useCallback(async () => {
     const request = ++requestId.current;
@@ -49,6 +56,7 @@ export const MyReportsPage: React.FC<MyReportsPageProps> = ({
   useEffect(() => {
     setReports([]);
     setActiveReport(null);
+    setProofReportId(null); setProofFiles([]);
     void loadReports();
     return () => { ++requestId.current; };
   }, [loadReports]);
@@ -59,10 +67,31 @@ export const MyReportsPage: React.FC<MyReportsPageProps> = ({
   }, [usuario?.id, activeReport?.id]);
 
   useEffect(() => { setMessage(''); }, [usuario?.id]);
+  useEffect(() => { setBusyProof(false); setProofFiles([]); }, [usuario?.id, proofReportId]);
+
+  const handleAddEvidence = async (report: Reporte) => {
+    if (submittingProof.current || !canAddPrivateEvidence(report, usuario)) return;
+    const operation = operations.begin();
+    submittingProof.current = true;
+    setBusyProof(true); setError(''); setMessage('');
+    try {
+      const updated = await submitPrivateEvidence(report, proofFiles, operation);
+      operation.assertActive();
+      setReports(previous => previous.map(item => item.id === updated.id ? updated : item));
+      setMessage('Pruebas privadas enviadas. Un agente revisará los nuevos archivos.');
+      setProofReportId(null); setProofFiles([]);
+    } catch (err) {
+      if (operation.isActive()) setError(errorMessage(err));
+    } finally {
+      submittingProof.current = false;
+      if (operation.isActive()) setBusyProof(false);
+      operation.finish();
+    }
+  };
 
   const handleSendAppeal = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!activeReport || !appealReason.trim() || busyAppeal) return;
+    if (!activeReport || appealReason.trim().length < 10 || busyAppeal || !canRequestReportReview(activeReport)) return;
     const operation = operations.begin();
     void triggerHaptic('medium');
     setBusyAppeal(true);
@@ -102,7 +131,7 @@ export const MyReportsPage: React.FC<MyReportsPageProps> = ({
             type="button"
             className="btn btn-secondary btn-small"
             onClick={loadReports}
-            disabled={loading}
+            disabled={loading || busyProof || busyAppeal}
           >
             <RefreshCw size={14} className={loading ? 'pulse' : ''} />
             <span>Actualizar</span>
@@ -183,26 +212,45 @@ export const MyReportsPage: React.FC<MyReportsPageProps> = ({
                       {/* Appeal notices if present */}
                       {r.apelaciones && r.apelaciones.length > 0 && (
                         <div style={{ marginTop: 8, padding: 8, borderRadius: 6, backgroundColor: 'var(--surface-subtle)', border: '1px solid var(--line)' }}>
-                          <small style={{ fontWeight: 700, display: 'block' }}>
-                            Revisión solicitada: {r.apelaciones[0].estado}
-                          </small>
-                          <small className="muted">{r.apelaciones[0].motivo}</small>
+                          {r.apelaciones.map(appeal => <div key={appeal.id} style={{ marginBottom: 6 }}>
+                            <small style={{ fontWeight: 700, display: 'block' }}>Revisión solicitada: {appeal.estado}</small>
+                            <small className="muted">{appeal.motivo}</small>
+                            {appeal.respuesta && <small style={{ display: 'block' }}>Respuesta: {appeal.respuesta}</small>}
+                          </div>)}
                         </div>
                       )}
 
-                      {/* Request review action if rejected / false */}
-                      {r.estado === 'FALSO' && (!r.apelaciones || r.apelaciones.length === 0) && (
-                        <div style={{ marginTop: 10 }}>
+                        <div style={{ marginTop: 10, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                          {canAddPrivateEvidence(r, usuario) && <button type="button" className="btn btn-secondary btn-small" disabled={busyProof || busyAppeal}
+                            onClick={() => { setProofReportId(proofReportId === r.id ? null : r.id); setActiveReport(null); setError(''); }}>
+                            <Upload size={13} />Aportar pruebas privadas
+                          </button>}
                           <button
                             type="button"
                             className="btn btn-secondary btn-small"
-                            onClick={() => setActiveReport(r)}
+                            disabled={busyProof || busyAppeal || !canRequestReportReview(r)}
+                            onClick={() => { setActiveReport(r); setProofReportId(null); setError(''); }}
                           >
                             <MessageSquare size={13} />
                             <span>Solicitar revisión del reporte</span>
                           </button>
                         </div>
-                      )}
+                      {proofReportId === r.id && <form style={{ marginTop: 12 }} onSubmit={event => { event.preventDefault(); void handleAddEvidence(r); }}>
+                        <label className="field">Fotos, videos o PDF para revisión privada
+                          <input type="file" accept={PRIVATE_EVIDENCE_ACCEPT} multiple disabled={busyProof} onChange={event => {
+                            const picked = Array.from(event.target.files || []);
+                            event.target.value = '';
+                            if (picked.length > remainingEvidenceSlots(r)) { setProofFiles([]); setError(`Quedan ${remainingEvidenceSlots(r)} espacios para archivos en este reporte.`); return; }
+                            setProofFiles(picked); setError('');
+                          }} />
+                        </label>
+                        <small className="muted">Hasta 15 MB por archivo. Espacios disponibles: {remainingEvidenceSlots(r)}. Estas pruebas no se publican en el mapa.</small>
+                        {proofFiles.length > 0 && <ul>{proofFiles.map((file, index) => <li key={`${file.name}:${index}`}><small>{file.name}</small></li>)}</ul>}
+                        <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                          <button type="submit" className="btn btn-primary btn-small" disabled={busyProof || !proofFiles.length}>{busyProof ? 'Enviando pruebas…' : 'Enviar pruebas privadas'}</button>
+                          <button type="button" className="btn btn-quiet btn-small" disabled={busyProof} onClick={() => setProofReportId(null)}>Cancelar</button>
+                        </div>
+                      </form>}
                     </div>
                   </div>
                 </article>
@@ -225,7 +273,7 @@ export const MyReportsPage: React.FC<MyReportsPageProps> = ({
               padding: 16,
             }}
           >
-            <div className="card" style={{ width: '100%', maxWidth: 450, margin: 0 }}>
+            <div ref={appealDialog} tabIndex={-1} role="dialog" aria-modal="true" aria-label="Solicitar revisión del reporte" className="card" style={{ width: '100%', maxWidth: 450, margin: 0 }}>
               <div className="card-header">
                 <h3>Solicitar revisión de Reporte #{activeReport.id}</h3>
               </div>

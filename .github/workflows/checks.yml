@@ -95,7 +95,24 @@ jobs:
           test -x "$(command -v google-chrome)"
       - run: npm test
         working-directory: mobile
+      - name: Comprobar navegación y evidencias sin servicios externos
+        working-directory: mobile
+        run: |
+          node tests/navigation-ui-smoke.mjs
+          node tests/media-followup-ui-smoke.mjs
       - run: npm run build
         working-directory: mobile
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Instalar SDK Android requerido por el proyecto
+        run: sdkmanager 'platforms;android-35' 'build-tools;34.0.0' 'build-tools;35.0.0'
+      - name: Sincronizar y compilar Android con análisis nativo
+        working-directory: mobile
+        run: |
+          npx cap sync android
+          cd android
+          bash gradlew --no-daemon --max-workers=2 :app:assembleDebug :app:lintDebug
       - run: npm audit --omit=dev --audit-level=high
         working-directory: mobile

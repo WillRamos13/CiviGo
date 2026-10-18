@@ -8,6 +8,7 @@ import { App } from '@capacitor/app';
 import type { Posicion, LocationFix } from '../types';
 import { subscribeAsync } from './native-lifecycle';
 import { normalizeGeolocationError } from './geolocation-consent';
+import { ReportCameraRecovery, type RecoveredReportPhoto } from './cameraRecovery';
 
 export const isNative = Capacitor.isNativePlatform();
 
@@ -145,29 +146,28 @@ export interface CapturedMedia {
 }
 
 export async function capturePhotoOrVideo(
-  source: 'camera' | 'photos' = 'camera'
+  source: 'camera' | 'photos' = 'camera', ownerId?: number,
 ): Promise<CapturedMedia | null> {
   if (isNative) {
+    let pending: string | undefined;
     try {
+      if (ownerId) pending = await reportCameraRecovery.begin(ownerId);
       const image = await Camera.getPhoto({
         quality: 85,
+        width: 2048,
+        height: 2048,
         allowEditing: false,
         resultType: CameraResultType.Uri,
         source: source === 'camera' ? CameraSource.Camera : CameraSource.Photos,
       });
 
-      if (!image.webPath) return null;
-      const response = await fetch(image.webPath);
-      const blob = await response.blob();
-      const filename = `civigo-media-${Date.now()}.${image.format || 'jpg'}`;
-      const file = new File([blob], filename, { type: blob.type || 'image/jpeg' });
-      return { file, previewUrl: image.webPath };
+      return image.webPath ? await loadCameraPhoto(image as { webPath: string; format: string }) : null;
     } catch (err: any) {
       if (err?.message?.includes('cancelled') || err?.message?.includes('User cancelled')) {
         return null;
       }
       throw new Error('Error al acceder a la cámara o galería: ' + (err?.message || ''));
-    }
+    } finally { if (pending) await reportCameraRecovery.finish(pending).catch(() => {}); }
   }
 
   // Web input fallback handled by input[type=file]
@@ -212,6 +212,37 @@ export const StorageService = {
     }
   },
 };
+
+const reportCameraRecovery = new ReportCameraRecovery(StorageService, typeof location === 'undefined' ? 'https://localhost' : location.origin);
+export const getRecoveredReportPhoto = (ownerId: number | undefined) => reportCameraRecovery.read(ownerId);
+export const consumeRecoveredReportPhoto = (photo: RecoveredReportPhoto) => reportCameraRecovery.consume(photo.ownerId, photo.nonce);
+export const discardRecoveredReportPhotos = (ownerId: number | undefined) => reportCameraRecovery.discard(ownerId);
+
+async function loadCameraPhoto(photo: { webPath: string; format: string }): Promise<CapturedMedia> {
+  const response = await fetch(photo.webPath);
+  if (!response.ok) throw new Error('No se pudo recuperar la fotografía local.');
+  const blob = await response.blob();
+  if (!blob.size || blob.size > 15 * 1024 * 1024) throw new Error('La fotografía está vacía o supera el límite de 15 MB.');
+  const format = ['jpeg', 'jpg', 'png', 'gif', 'webp'].includes(photo.format) ? photo.format : 'jpg';
+  const mime = format === 'jpg' || format === 'jpeg' ? 'image/jpeg' : `image/${format}`;
+  const file = new File([blob], `civigo-media-${Date.now()}.${format}`, { type: mime });
+  return { file, previewUrl: photo.webPath };
+}
+
+export async function loadRecoveredReportPhoto(photo: RecoveredReportPhoto): Promise<CapturedMedia> {
+  const current = await reportCameraRecovery.read(photo.ownerId);
+  if (!current || current.nonce !== photo.nonce) throw new Error('La fotografía recuperada ya no está disponible.');
+  return loadCameraPhoto(current);
+}
+
+// Capacitor retains this event until JavaScript registers its listener after
+// Android recreates the process. Only a previously owned capture is accepted.
+if (isNative) {
+  const startupCapture = reportCameraRecovery.snapshot().catch(() => null);
+  void App.addListener('appRestoredResult', result => {
+    void startupCapture.then(nonce => reportCameraRecovery.restore(result, nonce)).catch(() => {});
+  }).catch(() => {});
+}
 
 /* --- NETWORK STATUS --- */
 export async function getNetworkStatus(): Promise<ConnectionStatus> {

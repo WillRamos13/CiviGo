@@ -1,9 +1,15 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
+import { readAndroidFirebaseProjectId } from './android-firebase-config';
 
 // https://vitejs.dev/config/
 export default defineConfig({
+  define: {
+    // Native authentication reads its credentials from Android resources. The
+    // web bundle receives only this public project ID, never the native JSON.
+    'import.meta.env.CIVIGO_ANDROID_FIREBASE_PROJECT_ID': JSON.stringify(readAndroidFirebaseProjectId(path.resolve(__dirname, 'android/app/google-services.json'), 'com.civigo.app')),
+  },
   plugins: [react()],
   resolve: {
     alias: {

@@ -56,7 +56,7 @@ const server = http.createServer((request, response) => {
     return response.end(JSON.stringify(requestedMode === 'owner' ? {...fixture, publicado:false, estado:'RETIRADO', descripcion:'Autor autorizado: incidente retirado'} : fixture));
   }
   if (url.pathname === '/api/users/me') return response.end(JSON.stringify({usuario:{id:901,nickname:'Usuario prueba',correo:'fixture@example.invalid',correoVerificado:true,rol:'USUARIO',premium:false,credibilidad:100}}));
-  if (url.pathname === '/api/catalog') return response.end(JSON.stringify({categorias:[],config:{},distritos:['Ica']}));
+  if (url.pathname === '/api/catalog') return response.end(JSON.stringify({categorias:[],config:{confirmacionMetros:20,confirmaciones:5},distritos:['Ica']}));
   if (url.pathname === '/api/navigation/roads') return response.end('{"type":"FeatureCollection","features":[]}');
   if (url.pathname === '/api/navigation/traffic/status') return response.end('{"configurado":false,"habilitado":false}');
   if (url.pathname === '/api/navigation/traffic/incidents') return response.end('{"incidentes":[],"trafico":{"disponible":false}}');
@@ -87,6 +87,8 @@ async function run() {
     if (!allowed) blockedHosts.add(url.hostname || url.protocol);
     callback({cancel:!allowed});
   });
+  await window.loadURL(`${origin}/comunidad`);
+  await waitUntil(window, `location.pathname==='/ranking'`);
   await window.loadURL(`${origin}/mapa`);
   assert.equal(window.isVisible(), false);
   await waitUntil(window, `!!document.querySelector('.nearby-location-notice button')`);
@@ -104,6 +106,7 @@ async function run() {
   const dialog = `document.querySelector('[role="dialog"][aria-labelledby="incident-title"]')`;
   await window.webContents.executeJavaScript(`document.querySelector('.incident-row').click()`);
   await waitUntil(window, `${dialog}?.textContent.includes('Detalle disponible sólo')`);
+  await waitUntil(window, `${dialog}?.textContent.includes('20 metros o menos') && ${dialog}?.textContent.includes('0 / 5')`);
   await waitUntil(window, `${dialog}?.querySelector('img[alt^="Fotografía pública"]')?.naturalWidth>0`);
   assert.equal(await window.webContents.executeJavaScript(`${dialog}.getAttribute('aria-modal')`),'false');
   assert.equal(await window.webContents.executeJavaScript(`document.body.style.overflow==='hidden'`),false,'La tarjeta del mapa no bloquea el scroll de la página');

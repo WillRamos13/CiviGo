@@ -88,12 +88,15 @@ function counter({
 
 function rateLimits(options = {}) {
   const count = counter(options);
+  // Express routes are case-insensitive and allow a final slash by default.
+  // Every spelling of the same endpoint must consume the same quota.
+  const pathForLimit = (req) => req.path.toLowerCase().replace(/\/$/, "") || "/";
   const ip = (req, res, next) => {
     try {
       count("ip:" + req.ip, options.ipLimit ?? 2400, res);
       if (
         /^\/api\/users\/(login|register|password\/(forgot|reset|change)|email\/google\/(request|verify))\/?$/.test(
-          req.path,
+          pathForLimit(req),
         )
       )
         count("auth-ip:" + req.ip, options.authIpLimit ?? 200, res);
@@ -103,18 +106,19 @@ function rateLimits(options = {}) {
     }
   };
   const identity = asyncRoute(async (req, res, next) => {
-    if (["/", "/api/health", "/api/ready"].includes(req.path)) return next();
-    const route = req.path
+    const path = pathForLimit(req);
+    if (["/", "/api/health", "/api/ready"].includes(path)) return next();
+    const route = path
       .replace(/\/\d+(?=\/|$)/g, "/:id")
       .replace(/\/[a-f0-9-]{36}(?=\/|$)/gi, "/:id");
-    if (/^\/api\/users\/password\/(forgot|reset|change)\/?$/.test(req.path)) {
+    if (/^\/api\/users\/password\/(forgot|reset|change)\/?$/.test(path)) {
       count('password-ip:' + req.ip, options.passwordLimit ?? 20, res);
       if (typeof req.body?.correo === 'string') {
         const hash = crypto.createHash('sha256').update(req.body.correo.trim().toLowerCase()).digest('hex');
         count('password-account:' + hash, options.passwordAccountLimit ?? 5, res);
       }
     }
-    if (/^\/api\/users\/login\/?$/.test(req.path)) {
+    if (/^\/api\/users\/login\/?$/.test(path)) {
       if (typeof req.body?.correo === "string") {
         const emailHash = crypto
           .createHash("sha256")
@@ -131,7 +135,7 @@ function rateLimits(options = {}) {
     // de Next; cookies aleatorias y headers XFF no conceden otra cuota.
     const key = user ? "user:" + user.id : "anonymous:" + req.ip;
     const sensitive = /^\/api\/users\/email\/google\/(request|verify)\/?$/.test(
-      req.path,
+      path,
     );
     count(
       key + ":" + req.method + ":" + route,

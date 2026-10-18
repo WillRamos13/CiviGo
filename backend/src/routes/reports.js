@@ -20,6 +20,7 @@ const {
   transaction,
   alertAgents,
   rewardValidated,
+  eligibleConfirmationWhere,
   chatOpen,
 } = require("../lib/workflows");
 const router = express.Router();
@@ -449,11 +450,7 @@ router.post(
           });
         if (current.evaluacion !== "AGENTE") {
           const votes = await db.vote.count({
-            where: {
-              incidenteId: current.id,
-              tipo: "CONFIRMAR",
-              usuario: { correoVerificado: true },
-            },
+            where: eligibleConfirmationWhere(current.id),
           });
           const validacion = Math.min(
             1,

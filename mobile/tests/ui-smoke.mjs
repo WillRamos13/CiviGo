@@ -92,6 +92,22 @@ try {
       results.push(`Mapa ${width}px / ${dark ? 'oscuro' : 'claro'} sin desbordamiento`);
     }
   }
+  for (const viewport of [{ width: 320, height: 533 }, { width: 640, height: 360 }]) {
+    await page.setViewportSize(viewport);
+    const sheet = page.locator('.map-bottom-sheet');
+    const dimensions = await sheet.evaluate(element => {
+      const box = element.getBoundingClientRect();
+      const parent = element.parentElement.getBoundingClientRect();
+      return { height: box.height, available: parent.height };
+    });
+    assert.ok(dimensions.height <= dimensions.available * 0.69, 'El panel debe dejar visible parte del mapa');
+    await sheet.evaluate(element => { element.scrollTop = element.scrollHeight; });
+    await page.getByRole('button', { name: 'Mostrar navegación compacta', exact: true }).click();
+    assert.equal(await page.locator('#map-route-panel').isVisible(), false);
+    await page.getByRole('button', { name: 'Ampliar rutas y condiciones', exact: true }).click();
+    await sheet.evaluate(element => { element.scrollTop = 0; });
+    results.push(`Mapa visible y panel accesible en ${viewport.width}×${viewport.height}`);
+  }
   await page.setViewportSize({ width: 390, height: 844 });
   await context.setGeolocation({ latitude: -14.0678, longitude: -75.7286, accuracy: 5 });
   await page.getByRole('button', { name: 'Ubicar mi posición', exact: true }).click();

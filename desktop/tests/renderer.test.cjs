@@ -9,7 +9,7 @@ function loadSource(name, imports, browser, globals = {}) {
   const source = fs.readFileSync(path.join(__dirname, '../src', name), 'utf8');
   const code = ts.transpileModule(source, { fileName: name, compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX } }).outputText;
   const exports = {};
-  vm.runInNewContext(code, { exports, require: name => { if (!(name in imports)) throw new Error('Import inesperado: ' + name); return imports[name]; }, window: browser, crypto, DOMException, setInterval, clearInterval, Uint8Array, FormData, Blob, Date, console, ...globals }, { filename: name });
+  vm.runInNewContext(code, { exports, require: name => { if (name === '@/lib/user-edit') return loadSource('lib/user-edit.ts', {}, {}); if (!(name in imports)) throw new Error('Import inesperado: ' + name); return imports[name]; }, window: browser, crypto, DOMException, setInterval, clearInterval, Uint8Array, FormData, Blob, Date, console, ...globals }, { filename: name });
   return exports;
 }
 const ok = data => ({ ok: true, data });
@@ -117,11 +117,11 @@ function componentFixture(file, imports = {}) {
   }
   return { source, mount };
 }
-function usersFixture(user = null) {
+function usersFixture(user = null, failure) {
   const requests = [], saved = [];
   const common = { useRemote: route => ({ data: route === '/catalog' ? { distritos: ['Ica'] } : route === '/admin/permissions' ? require('../../backend/src/lib/agent-permissions').agentPermissions : user ? [user] : [], reload() {}, loading: false }), usePagedRemote: () => ({ data: user ? [user] : [], total: user ? 1 : 0, page: 1, pages: 1, setPage() {}, reload() {}, loading: false }), Pagination: 'pagination', Feedback: 'feedback', RemoteStatus: 'remote', number: String, message: error => error.message };
   const renderer = componentFixture('components/management/UsersPanel.tsx', {
-    '@/lib/api': { api: async (route, options) => { requests.push({ route, method: options.method, body: JSON.parse(options.body) }); } },
+    '@/lib/api': { api: async (route, options) => { requests.push({ route, method: options.method, body: JSON.parse(options.body) }); if (failure) throw failure; } },
     '@/components/AuthProvider': { useAuth: () => ({ usuario: { id: 1 }, refresh: async () => {} }) }, './common': common,
     '@/components/EditorPanel': { default: 'editor-panel' },
   });
@@ -197,6 +197,31 @@ test('editar la verificación envía bandera y motivo sin inventar nuevos datos 
   assert.equal(fixture.requests[0].body.motivoVerificacion, 'Titular comprobado durante revisión administrativa.');
   assert.equal('correo' in fixture.requests[0].body, false);
   assert.equal('password' in fixture.requests[0].body, false);
+  assert.equal('bloqueado' in fixture.requests[0].body, false);
+  assert.equal('rol' in fixture.requests[0].body, false);
+});
+
+test('cambiar únicamente Premium no reenvía un bloqueo o permisos antiguos y lleva su precondición', async () => {
+  const user = { id: 2, nickname: 'fixture', rol: 'AGENTE', tipoAgente: 'SERENAZGO', distrito: 'Ica', permisos: ['consultar', 'validar'], premium: false, bloqueado: false, correoVerificado: true };
+  const fixture = usersFixture(user);
+  findNode(fixture.form.render(), node => node.type === 'input' && node.props.checked === false && !node.props.name).props.onChange({ target: { checked: true } });
+  await findNode(fixture.form.render(), node => node.type === 'form').props.onSubmit({ preventDefault() {}, currentTarget: {} });
+  assert.deepEqual(fixture.requests[0].body, { premium: true, estadoAnterior: { rol: 'AGENTE', tipoAgente: 'SERENAZGO', distrito: 'Ica', permisos: ['consultar', 'validar'], premium: false, bloqueado: false, correoVerificado: true } });
+});
+
+test('un conflicto conserva el borrador del usuario y bloquea guardar hasta cargar datos actuales', async () => {
+  const error = Object.assign(new Error('La cuenta cambió desde que abriste el editor.'), { code: 'ADMIN_USER_CHANGED' });
+  const fixture = usersFixture({ id: 2, nickname: 'fixture', rol: 'USUARIO', permisos: [], premium: false, bloqueado: false, correoVerificado: true }, error);
+  findNode(fixture.form.render(), node => node.type === 'input' && node.props.checked === false && !node.props.name).props.onChange({ target: { checked: true } });
+  const submit = () => findNode(fixture.form.render(), node => node.type === 'form').props.onSubmit({ preventDefault() {}, currentTarget: {} });
+  await submit();
+  const tree = fixture.form.render();
+  assert.equal(findNode(tree, node => node.type === 'input' && node.props.checked === true && !node.props.name).props.checked, true);
+  assert.ok(findNode(tree, node => node.type === 'button' && node.props.children === 'Cerrar y cargar datos actuales'));
+  assert.equal(findNode(tree, node => node.type === 'button' && node.props.children === 'Guardar cambios').props.disabled, true);
+  await submit();
+  assert.equal(fixture.requests.length, 1);
+  assert.equal(fixture.saved.length, 0);
 });
 
 test('crear y editar agentes muestra diez funciones y envía permisos granulares sin conceder evidencia', async () => {

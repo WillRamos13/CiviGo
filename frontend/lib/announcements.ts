@@ -15,7 +15,7 @@ export function visibleAnnouncements(items: Announcement[], placement: Announcem
 export function announcementLink(value: string | null | undefined, origin: string) {
   if (!value || /[\u0000-\u0020<>\\]/.test(value)) return null;
   try {
-    if (internalLink.test(value)) return new URL(value, origin).href;
+    if (internalLink.test(value)) return new URL(value === '/comunidad' ? '/ranking' : value, origin).href;
     const url = new URL(value);
     return url.protocol === 'https:' && !url.username && !url.password ? url.href : null;
   } catch { return null; }

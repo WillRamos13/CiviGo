@@ -1,8 +1,13 @@
 const { HttpError } = require("./http");
 function mp4Duration(buffer) {
-  function boxes(start, end) {
+  // Movie metadata needs only shallow nesting. Bound both depth and work for
+  // malformed containers before they can exhaust the request's call stack.
+  let visited = 0;
+  function boxes(start, end, depth = 0) {
+    if (depth > 16) return null;
     let offset = start;
     while (offset + 8 <= end) {
+      if (++visited > 100000) return null;
       let size = buffer.readUInt32BE(offset),
         header = 8;
       const type = buffer.toString("ascii", offset + 4, offset + 8);
@@ -28,7 +33,7 @@ function mp4Duration(buffer) {
         }
       }
       if (type === "moov") {
-        const value = boxes(data, offset + size);
+        const value = boxes(data, offset + size, depth + 1);
         if (value !== null) return value;
       }
       offset += size;

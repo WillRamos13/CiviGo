@@ -2,6 +2,7 @@
 import { useState } from "react";
 import { api } from "@/lib/api";
 import { useAuth } from "@/components/AuthProvider";
+import { userEditPatch } from "@/lib/user-edit";
 import EditorPanel from "@/components/EditorPanel";
 import { Feedback, message, number, RemoteStatus, useRemote, usePagedRemote, Pagination } from "./common";
 
@@ -153,9 +154,10 @@ function UserForm({
   const isAgent = role === "AGENTE";
   const special = agentType === "COLABORADOR";
   const verificationChanged = verified !== (user?.correoVerificado ?? false);
+  const [conflict, setConflict] = useState(false);
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (pending) return;
+    if (pending || conflict) return;
     setPending(true);
     setError("");
     try {
@@ -164,10 +166,13 @@ function UserForm({
       const correo = String(fields.get('correo') ?? '').trim().toLowerCase();
       if (!user && role === 'USUARIO' && !correo.endsWith('@gmail.com')) throw new Error('Las cuentas ciudadanas requieren una dirección de Gmail.');
       if (verificationChanged && verificationReason.trim().length < 10) throw new Error('Explica la comprobación del correo con al menos 10 caracteres.');
+      const access = { rol: role, tipoAgente: isAgent ? agentType : null, distrito: isAgent && !special ? district : null, permisos: isAgent ? grants : [], premium, bloqueado: blocked, correoVerificado: verified };
+      const patch = user ? userEditPatch(user, access) : null;
+      if (user && !patch) throw new Error('No hay cambios para guardar.');
       await api(user ? `/admin/users/${user.id}` : '/admin/users', {
         method: user ? "PATCH" : "POST",
         body: JSON.stringify({
-          ...(!user ? {
+          ...(user ? patch : {
             nombres: String(fields.get('nombres') ?? '').trim(),
             apellidos: String(fields.get('apellidos') ?? '').trim(),
             nickname: String(fields.get('nickname') ?? '').trim(),
@@ -175,19 +180,19 @@ function UserForm({
             telefono: String(fields.get('telefono') ?? '').trim(),
             fechaNacimiento: String(fields.get('fechaNacimiento') ?? ''),
             password: String(fields.get('password') ?? ''),
-          } : {}),
-          rol: role,
-          tipoAgente: isAgent ? agentType : null,
-          distrito: isAgent && !special ? district : null,
-          permisos: isAgent ? grants : [],
-          ...(user ? { premium, bloqueado: blocked } : {}),
-          correoVerificado: verified,
+            rol: role,
+            tipoAgente: access.tipoAgente,
+            distrito: access.distrito,
+            permisos: access.permisos,
+            correoVerificado: verified,
+          }),
           ...(verificationChanged ? { motivoVerificacion: verificationReason.trim() } : {}),
         }),
       });
       if (user && usuario?.id === user.id) await refresh();
       save(user ? undefined : "La cuenta se creó con el rol y los permisos indicados.");
     } catch (reason: unknown) {
+      if (reason && typeof reason === 'object' && 'code' in reason && reason.code === 'ADMIN_USER_CHANGED') setConflict(true);
       setError(message(reason));
     } finally {
       setPending(false);
@@ -201,6 +206,7 @@ function UserForm({
       </p>}
       <form onSubmit={submit} className="mt-5">
         <Feedback error={error} />
+        {conflict && <p className="notice notice-warning">La cuenta fue actualizada por otra operación. Tu borrador sigue visible. <button type="button" className="btn btn-secondary" disabled={pending} onClick={cancel}>Cerrar y cargar datos actuales</button></p>}
         {!user && <>
           <div className="grid-2">
             <label className="field">Nombres<input name="nombres" required maxLength={100} autoComplete="given-name" /></label>
@@ -316,7 +322,7 @@ function UserForm({
           trabajan según sus permisos y ámbito asignado.
         </p>
         <div className="flex flex-wrap gap-3 mt-5">
-          <button className="btn btn-primary" disabled={pending}>
+          <button className="btn btn-primary" disabled={pending || conflict}>
             {pending ? "Guardando…" : user ? "Guardar cambios" : "Crear cuenta"}
           </button>
           <button
@@ -463,7 +469,7 @@ export default function UsersPanel() {
             user={selected}
             districts={catalog.data?.distritos ?? []}
             permissions={permissions.data ?? []}
-            cancel={() => { setSelected(null); setCreating(false); }}
+            cancel={() => { setSelected(null); setCreating(false); users.reload(); }}
             save={(feedback) => {
               if (selected) setSelected(current => current?.id === selected.id ? null : current);
               else setCreating(false);

@@ -7,7 +7,7 @@ import { useGeolocation } from '../hooks/useGeolocation';
 import { useAuth } from '../hooks/useAuth';
 import { errorMessage, onUnauthorized } from '../services/api';
 import { triggerHaptic, onNetworkChange } from '../services/native';
-import { isUsableFix, isNavigationAccountCurrent } from '../services/navigation';
+import { NavigationService, isUsableFix, isNavigationAccountCurrent } from '../services/navigation';
 import { DEFAULT_ICA_BOUNDS, expandMapBounds, getMapIncidents, getRecentIncidents, type MapBounds } from '../services/mapData';
 import { MessageCircle, ChevronUp, ChevronDown } from 'lucide-react';
 import type { Incidente, Ruta } from '../types';
@@ -20,6 +20,10 @@ export const MapPage: React.FC<MapPageProps> = ({ visible = true }) => {
   const [selectedIncident, setSelectedIncident] = useState<Incidente | null>(null);
   const [activeRoute, setActiveRoute] = useState<Ruta | null>(null);
   const [isNavigating, setIsNavigating] = useState(false);
+  const navigationStarted = useRef(false);
+  const historyRequest = useRef<AbortController | null>(null);
+  const historyRequests = useRef(new Set<AbortController>());
+  const [historyError, setHistoryError] = useState('');
   const { position, loading: gpsLoading, error: gpsError, locate } = useGeolocation(visible || isNavigating);
   const routeOwner = useRef(usuario?.id);
   const currentRouteAccount = isNavigationAccountCurrent(routeOwner.current, usuario);
@@ -46,12 +50,20 @@ export const MapPage: React.FC<MapPageProps> = ({ visible = true }) => {
   const onBoundsChange = useCallback((value: MapBounds) => setBounds((previous) => expandMapBounds(previous, value)), []);
 
   useEffect(() => {
+    historyRequests.current.forEach(controller => controller.abort());
+    historyRequests.current.clear();
+    navigationStarted.current = false;
+    setHistoryError('');
     routeOwner.current = usuario?.id;
     setActiveRoute(null); setIsNavigating(false); setSheetOpen(true);
     setSelectedIncident(null); setChatOpen(false);
   }, [usuario?.id, usuario?.bloqueado]);
 
   useEffect(() => onUnauthorized(() => {
+    historyRequests.current.forEach(controller => controller.abort());
+    historyRequests.current.clear();
+    navigationStarted.current = false;
+    setHistoryError('');
     routeOwner.current = undefined;
     setActiveRoute(null); setIsNavigating(false); setSheetOpen(true);
     setSelectedIncident(null); setChatOpen(false);
@@ -61,7 +73,7 @@ export const MapPage: React.FC<MapPageProps> = ({ visible = true }) => {
 
   useEffect(() => {
     mounted.current = true;
-    return () => { mounted.current = false; pending.current?.abort(); nearbyRequest.current?.abort(); };
+    return () => { mounted.current = false; pending.current?.abort(); nearbyRequest.current?.abort(); historyRequests.current.forEach(controller => controller.abort()); historyRequests.current.clear(); };
   }, []);
 
   const loadIncidents = useCallback(async () => {
@@ -122,12 +134,25 @@ export const MapPage: React.FC<MapPageProps> = ({ visible = true }) => {
 
   const toggleSheet = () => { void triggerHaptic('light'); setSheetOpen((open) => !open); };
   const handleStartNav = (route: Ruta) => {
-    if (!usuario || usuario.bloqueado) return;
+    if (!usuario || usuario.bloqueado || navigationStarted.current) return;
+    navigationStarted.current = true;
     routeOwner.current = usuario.id;
     void triggerHaptic('medium');
     setActiveRoute(route); setIsNavigating(true); setSheetOpen(false);
+    // One write when starting a trip, never for a GPS update or an automatic reroute.
+    const controller = new AbortController();
+    historyRequest.current = controller;
+    historyRequests.current.add(controller);
+    setHistoryError('');
+    void NavigationService.recordHistory(route, route.origen, route.destino, route.modo, controller.signal)
+      .catch((err) => {
+        if (mounted.current && !controller.signal.aborted && historyRequest.current === controller) {
+          setHistoryError(`No se pudo guardar el recorrido en tu historial: ${errorMessage(err)}`);
+        }
+      }).finally(() => historyRequests.current.delete(controller));
   };
   const handleStopNav = () => {
+    navigationStarted.current = false;
     void triggerHaptic('medium');
     setIsNavigating(false); setActiveRoute(null); setSheetOpen(true);
   };
@@ -136,6 +161,7 @@ export const MapPage: React.FC<MapPageProps> = ({ visible = true }) => {
     {visible && <MapView incidentes={incidents} ruta={displayedRoute} posicion={position} onSelectIncident={setSelectedIncident} onLocateMe={locate} locating={gpsLoading} onBoundsChange={onBoundsChange} refreshEnabled={refreshEnabled} />}
     <div className="map-data-status" aria-live="polite">
       {offline && <p>Sin conexión. Se conserva la última información disponible.</p>}
+      {historyError && <p role="status">{historyError}</p>}
       {error && <p role="alert">{error} {lastUpdated ? 'Se conserva la última información.' : 'Aún no hay alertas cargadas.'}<button type="button" className="btn btn-small btn-secondary" disabled={loadingIncidents} onClick={() => void loadIncidents()}>Reintentar</button></p>}
       {loadingIncidents && <p role="status">{lastUpdated ? 'Actualizando alertas…' : 'Cargando alertas…'}</p>}
       {lastUpdated && (offline || error) && <small>Última actualización: {lastUpdated.toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit' })}</small>}

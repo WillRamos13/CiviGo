@@ -150,3 +150,33 @@ test("La cuota vencida se renueva con Retry-After verificable", () => {
   time = 2000;
   assert.doesNotThrow(() => consume("actor", 1, res));
 });
+
+function consumeLimit(handler, path, body = {}) {
+  return new Promise(resolve => handler({ path, ip: '192.0.2.15', method: 'POST', body },
+    { setHeader() {} }, error => resolve(error?.status ?? 204)));
+}
+
+test('login and password quotas cannot be bypassed by case or a trailing slash', async () => {
+  const { identity } = rateLimits({ loginLimit: 1, passwordAccountLimit: 1, loadUser: async () => null });
+  const body = { correo: 'fixture@example.invalid' };
+  assert.equal(await consumeLimit(identity, '/api/users/LoGiN/', body), 204);
+  assert.equal(await consumeLimit(identity, '/api/users/login', body), 429);
+  assert.equal(await consumeLimit(identity, '/api/users/PASSWORD/forgot/', body), 204);
+  assert.equal(await consumeLimit(identity, '/api/USERS/password/FORGOT', body), 429);
+});
+
+test('authentication IP quota covers all case aliases before parsing the body', async () => {
+  const { ip } = rateLimits({ authIpLimit: 2 });
+  assert.equal(await consumeLimit(ip, '/API/Users/Register/'), 204);
+  assert.equal(await consumeLimit(ip, '/api/users/PASSWORD/reset'), 204);
+  assert.equal(await consumeLimit(ip, '/api/users/email/GOOGLE/verify/'), 429);
+  assert.equal(await consumeLimit(ip, '/api/users/login'), 429);
+});
+
+test('Google and ordinary user limits share a bucket across equivalent endpoint spellings', async () => {
+  const { identity } = rateLimits({ identityAuthLimit: 1, userLimit: 1, loadUser: async () => ({ id: 10 }) });
+  assert.equal(await consumeLimit(identity, '/api/users/email/Google/verify/'), 204);
+  assert.equal(await consumeLimit(identity, '/api/users/email/google/verify'), 429);
+  assert.equal(await consumeLimit(identity, '/api/Reports/42/appeal/'), 204);
+  assert.equal(await consumeLimit(identity, '/api/reports/49/APPEAL'), 429);
+});

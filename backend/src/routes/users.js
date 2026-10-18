@@ -15,6 +15,25 @@ const {
   nicknameValue,
 } = require("../lib/account-input");
 const router = express.Router();
+const bodyRoutes = new Set([
+  "POST /password/forgot",
+  "POST /password/reset",
+  "POST /password/change",
+  "POST /register",
+  "POST /login",
+  "PATCH /me",
+  "POST /email/google/verify",
+  "POST /recovery",
+]);
+router.use((req, res, next) => {
+  const route = req.method + " " + req.path.toLowerCase().replace(/\/$/, "");
+  if (
+    bodyRoutes.has(route) &&
+    (!req.body || typeof req.body !== "object" || Array.isArray(req.body))
+  )
+    return next(new HttpError(400, "Envía un objeto JSON válido."));
+  next();
+});
 router.post(
   "/password/forgot",
   asyncRoute(async (req, res) => {
@@ -105,7 +124,9 @@ router.post(
     let usuario = await prisma.user.findUnique({ where: { correo } });
     if (!usuario || !(await verifyPassword(password, usuario.password)))
       throw new HttpError(401, "Correo o contraseña incorrectos.");
-    usuario = await createSession(usuario, res, { passwordHash: usuario.password });
+    usuario = await createSession(usuario, res, {
+      passwordHash: usuario.password,
+    });
     if (usuario.bloqueado)
       return res.status(403).json({
         error:

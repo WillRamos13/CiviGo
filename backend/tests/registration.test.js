@@ -105,6 +105,50 @@ test("Registro HTTP y errores internos sin base de datos ni proveedores", async 
     }
 
     await t.test(
+      "los cuerpos vacíos, arrays y contenido sin JSON devuelven 400 antes de acceder a datos",
+      async () => {
+        const before = logs.length;
+        for (const route of [
+          "login",
+          "register",
+          "password/forgot",
+          "LoGiN/",
+        ]) {
+          for (const options of [
+            {},
+            { headers: { "Content-Type": "application/json" }, body: "" },
+            { headers: { "Content-Type": "application/json" }, body: "[]" },
+            { headers: { "Content-Type": "application/json" }, body: "null" },
+            { headers: { "Content-Type": "text/plain" }, body: "correo=a" },
+          ]) {
+            const response = await fetch(base + "/api/users/" + route, {
+              method: "POST",
+              ...options,
+            });
+            assert.equal(response.status, 400, route);
+            assert.equal(typeof (await response.json()).error, "string");
+            assert.equal(response.headers.get("set-cookie"), null);
+          }
+        }
+        assert.equal(
+          logs.length,
+          before,
+          "Los cuerpos inválidos no son fallos internos.",
+        );
+        for (const route of ["logout", "email/google/request"]) {
+          const response = await fetch(base + "/api/users/" + route, {
+            method: "POST",
+          });
+          assert.equal(
+            response.status,
+            401,
+            "Estas acciones sin campos conservan su control de sesión.",
+          );
+        }
+      },
+    );
+
+    await t.test(
       "nickname crea nombreUsuario, normaliza datos y descarta privilegios enviados",
       async (context) => {
         const { create, session } = mockSuccessfulRegistration(context);

@@ -74,9 +74,10 @@ export const NavigationService = {
     ruta: Ruta,
     origen?: Posicion,
     destino?: Posicion,
-    modo?: string
+    modo?: string,
+    signal?: AbortSignal
   ): Promise<void> {
-    await post('/navigation/history', { ruta, origen, destino, modo });
+    await post('/navigation/history', { ruta, origen, destino, modo }, { signal });
   },
 
   async getFavorites(signal?: AbortSignal): Promise<SavedRoute[]> {

@@ -7,7 +7,8 @@ import { IncidentIcon } from '../components/map/IncidentIcon';
 import { api, crearReporte, distance, errorMessage } from '../services/api';
 import { REPORT_FILE_ACCEPT, reportVideoLimit, submitReportWithEvidence, validateEvidenceFile } from '../services/reportEvidence';
 import { clearReportDraft, readReportDraft, reportDraftKey, saveReportDraft } from '../services/reportDraft';
-import { getCurrentDevicePosition, capturePhotoOrVideo, triggerHaptic, isNative, StorageService } from '../services/native';
+import { getCurrentDevicePosition, capturePhotoOrVideo, triggerHaptic, StorageService, isNative, getRecoveredReportPhoto, loadRecoveredReportPhoto, consumeRecoveredReportPhoto } from '../services/native';
+import type { RecoveredReportPhoto } from '../services/cameraRecovery';
 import type { Catalogo, Posicion, TipoIncidente } from '../types';
 
 interface ReportPageProps {
@@ -45,10 +46,13 @@ export const ReportPage: React.FC<ReportPageProps> = ({
   const [error, setError] = useState('');
   const [result, setResult] = useState<Awaited<ReturnType<typeof crearReporte>> | null>(null);
   const [selectingMedia, setSelectingMedia] = useState(false);
+  const [recoveredPhoto, setRecoveredPhoto] = useState<RecoveredReportPhoto | null>(null);
   const filesRef = useRef(files);
   const pickingRef = useRef(false);
   const submittingRef = useRef(false);
   const submissionController = useRef<AbortController | null>(null);
+  const localFileInput = useRef<HTMLInputElement>(null);
+  const webCameraInput = useRef<HTMLInputElement>(null);
   filesRef.current = files;
 
   useEffect(() => {
@@ -91,6 +95,8 @@ export const ReportPage: React.FC<ReportPageProps> = ({
     for (const item of filesRef.current) if (item.preview) URL.revokeObjectURL(item.preview);
     filesRef.current = [];
     setFiles([]);
+    setRecoveredPhoto(null);
+    void getRecoveredReportPhoto(userId).then(photo => { if (active) setRecoveredPhoto(photo); }).catch(() => {});
     if (!draftKey) return;
     readReportDraft(userId, StorageService).then((draft) => {
       if (!active || !draft) return;
@@ -162,11 +168,15 @@ export const ReportPage: React.FC<ReportPageProps> = ({
       setError('Solo se permiten hasta 3 archivos adjuntos.');
       return;
     }
+    if (!isNative) {
+      (source === 'camera' ? webCameraInput.current : localFileInput.current)?.click();
+      return;
+    }
     pickingRef.current = true;
     setSelectingMedia(true);
     void triggerHaptic(source === 'camera' ? 'medium' : 'light');
     try {
-      const media = await capturePhotoOrVideo(source);
+      const media = await capturePhotoOrVideo(source, usuario?.id);
       if (media && session === sessionKeyRef.current) await addMedia([media.file]);
     } catch (err) {
       if (mountedRef.current && session === sessionKeyRef.current) setError(errorMessage(err));
@@ -174,6 +184,22 @@ export const ReportPage: React.FC<ReportPageProps> = ({
       pickingRef.current = false;
       setSelectingMedia(false);
     }
+  };
+
+  const restorePhoto = async () => {
+    const photo = recoveredPhoto, session = draftKey;
+    if (!photo || pickingRef.current || submittingRef.current || files.length >= 3) return;
+    pickingRef.current = true; setSelectingMedia(true);
+    try {
+      const captured = await loadRecoveredReportPhoto(photo);
+      if (!mountedRef.current || session !== sessionKeyRef.current) return;
+      await addMedia([captured.file]);
+      if (!mountedRef.current || session !== sessionKeyRef.current) return;
+      await consumeRecoveredReportPhoto(photo);
+      setRecoveredPhoto(null);
+    } catch (err) {
+      if (mountedRef.current && session === sessionKeyRef.current) setError(errorMessage(err));
+    } finally { pickingRef.current = false; if (mountedRef.current) setSelectingMedia(false); }
   };
 
   const handleWebFileInput = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -398,6 +424,11 @@ export const ReportPage: React.FC<ReportPageProps> = ({
               <small className="muted" style={{ display: 'block', marginBottom: 12 }}>
                 Fotos JPEG, PNG, WebP o GIF: hasta 15 MB. Videos MP4, MOV o WebM cortos: hasta {Math.round(reportVideoLimit(catalog?.config?.maxVideoBytes) / 1048576)} MB.
               </small>
+              {recoveredPhoto && <div className="notice" role="status">
+                <p>Android cerró CiviGo mientras usabas la cámara. Puedes recuperar la fotografía de tu borrador.</p>
+                <button type="button" className="btn btn-secondary btn-small" disabled={busy || selectingMedia || files.length >= 3} onClick={() => void restorePhoto()}>Recuperar fotografía</button>
+                <button type="button" className="btn btn-quiet btn-small" disabled={busy || selectingMedia} onClick={() => { void consumeRecoveredReportPhoto(recoveredPhoto).catch(() => {}); setRecoveredPhoto(null); }}>Descartar</button>
+              </div>}
 
               {/* Native Mobile Camera Buttons */}
               <div style={{ display: 'flex', gap: 10, marginBottom: 12 }}>
@@ -424,12 +455,12 @@ export const ReportPage: React.FC<ReportPageProps> = ({
                 </button>
               </div>
 
-              {/* Web file input fallback */}
-              {!isNative && (
+              {/* Android's system file picker also supports videos; Camera.getPhoto only returns photos. */}
                 <div style={{ textAlign: 'center', marginBottom: 10 }}>
                   <label className="btn btn-quiet btn-small">
-                    <span>O seleccionar archivos locales</span>
+                    <span>Adjuntar foto o video</span>
                     <input
+                      ref={localFileInput}
                       type="file"
                       accept={REPORT_FILE_ACCEPT}
                       multiple
@@ -439,7 +470,7 @@ export const ReportPage: React.FC<ReportPageProps> = ({
                     />
                   </label>
                 </div>
-              )}
+              {!isNative && <input ref={webCameraInput} type="file" accept="image/jpeg,image/png,image/webp,image/gif" capture="environment" className="sr-only" aria-label="Tomar fotografía con el navegador" onChange={handleWebFileInput} disabled={files.length >= 3 || busy || selectingMedia} />}
 
               {/* Media Preview Chips */}
               {files.length > 0 && (

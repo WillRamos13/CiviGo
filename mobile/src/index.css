@@ -609,7 +609,8 @@ small {
   border-top-left-radius: 20px;
   border-top-right-radius: 20px;
   box-shadow: 0 -4px 20px rgba(0,0,0,0.15);
-  max-height: 80vh;
+  /* Keep part of the map visible even on short screens or with the keyboard open. */
+  max-height: min(68%, 520px);
   overflow-y: auto;
   z-index: 30;
   padding: 16px;
@@ -771,9 +772,9 @@ small {
 }
 
 /* Route controls remain visible during compact navigation. */
-.map-sheet-toggle { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 36px; background: transparent; color: var(--ink); padding: 0 0 8px; border: 0; }
+.map-sheet-toggle { position: sticky; top: 0; z-index: 1; display: flex; align-items: center; gap: 8px; width: 100%; min-height: 36px; background: var(--surface); color: var(--ink); padding: 0 0 8px; border: 0; }
 .map-sheet-toggle .eyebrow { flex: 1; text-align: left; }
-.map-bottom-sheet-navigating { max-height: min(62dvh, 520px); padding-top: 8px; }
+.map-bottom-sheet-navigating { max-height: min(68%, 520px); padding-top: 8px; }
 .navigation-guidance-heading { display: flex; gap: 10px; justify-content: space-between; align-items: flex-start; }
 .navigation-guidance-heading > div { flex: 1; min-width: 0; }
 .navigation-guidance-heading strong, .navigation-guidance-heading small { display: block; }
@@ -808,7 +809,6 @@ small {
 .spotify-shortcut p { margin: 6px 0; color: var(--muted); }
 .incident-marker { background: transparent; border: 0; padding: 4px; }
 @media (max-height: 550px) {
-  .map-bottom-sheet-navigating { max-height: 75dvh; }
   .navigation-guidance-compact .navigation-alerts { max-height: 44px; }
 }
 .nearby-incidents { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--line); }

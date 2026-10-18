@@ -11,6 +11,8 @@ import { canParticipate } from '@/lib/session';
 import type { Incidente, Mensaje } from '@/lib/types';
 import { isHistoricalAntecedent, incidentSource, incidentEvaluationLabel } from '@/lib/incidents';
 import { referencePhotoCredit } from '@/lib/reference-photo';
+import { confirmationExplanation } from '@/lib/citizen-rules';
+import { useCitizenRules } from '@/lib/use-citizen-rules';
 export default function IncidentPanel({ incidente, onClose, onRefresh, variant = 'dialog', onShowOnMap }: {
     incidente: Incidente;
     onClose: () => void;
@@ -19,6 +21,7 @@ export default function IncidentPanel({ incidente, onClose, onRefresh, variant =
     onShowOnMap?: () => void;
 }) {
     const { usuario } = useAuth();
+    const rules = useCitizenRules();
     const compact = variant === 'map-card';
     const panelRef=useRef<HTMLElement|null>(null),closeRef=useRef(onClose),detailRequest=useRef<AbortController|null>(null);
     useEffect(()=>{closeRef.current=onClose;},[onClose]);
@@ -122,7 +125,7 @@ export default function IncidentPanel({ incidente, onClose, onRefresh, variant =
                     <div className="actions"><span className="badge">{incidentEvaluationLabel(detail)}</span>{antecedent && <span className="badge">Antecedente histórico</span>}{individual && <span className="badge">Reporte individual</span>}</div>
                     <div className="report-meta"><span>Ocurrió: {antecedent && !detail.fechaEvento ? 'Fecha del hecho no indicada' : formatDate(timestamp)}</span>{source && <span>Procedencia: {source}</span>}{detail.fechaPublicacion && <span>Publicado: {formatDate(detail.fechaPublicacion)}</span>}</div>
                     {antecedent && <p className="notice">Este registro corresponde a un hecho pasado y aporta antecedentes al riesgo del tramo.</p>}
-                    <div className="grid-2"><div><small className="muted">Aportes agrupados</small><h3>{detail.totalReportes ?? 1}</h3></div><div><small className="muted">{individual ? 'Revisión de pruebas privadas' : 'Confirmaciones ciudadanas'}</small><h3>{individual ? detail.estado === 'VALIDADO' ? 'Validado por un agente' : 'Pendiente de validación' : count + ' / 3'}</h3></div></div>
+                    <div className="grid-2"><div><small className="muted">Aportes agrupados</small><h3>{detail.totalReportes ?? 1}</h3></div><div><small className="muted">{individual ? 'Revisión de pruebas privadas' : 'Confirmaciones ciudadanas'}</small><h3>{individual ? detail.estado === 'VALIDADO' ? 'Validado por un agente' : 'Pendiente de validación' : rules ? `${count} / ${rules.confirmaciones}` : count}</h3></div></div>
                     <p className="muted">La gravedad del incidente y el nivel de la calle son valores diferentes.</p>
                 </details>
                 {media.length > 1 && <div className="media-list">{media.slice(1).map(a => a.mimeType.startsWith('video/') ? <video key={a.id} src={a.url!} controls preload="metadata"/> : <a href={a.url!} key={a.id} target="_blank" rel="noopener noreferrer"><Image src={a.url!} alt="Otra fotografía pública del incidente" width={160} height={110} unoptimized/></a>)}</div>}
@@ -131,7 +134,7 @@ export default function IncidentPanel({ incidente, onClose, onRefresh, variant =
                 {success && <div className="notice notice-success" role="status">{success}</div>}
                 {canParticipate(usuario) ? <div className={styles.participation}>
                     <h3>Ayuda a verificar este incidente</h3>
-                    {!individual && ["ACTIVO", "VALIDADO", "PENDIENTE"].includes(detail.estado) && <><p className="muted">Confirmar o marcar como resuelto requiere estar a 50 metros o menos. Una persona puede confirmar una sola vez.</p><div className="actions"><button className="btn btn-primary btn-small" disabled={busy} onClick={() => nearby('confirmar')}><Check size={14}/>Sigue ocurriendo</button><button className="btn btn-secondary btn-small" disabled={busy} onClick={() => nearby('resolver')}>Ya se resolvió</button></div></>}
+                    {!individual && ["ACTIVO", "VALIDADO", "PENDIENTE"].includes(detail.estado) && <><p className="muted">{confirmationExplanation(rules)}</p><div className="actions"><button className="btn btn-primary btn-small" disabled={busy} onClick={() => nearby('confirmar')}><Check size={14}/>Sigue ocurriendo</button><button className="btn btn-secondary btn-small" disabled={busy} onClick={() => nearby('resolver')}>Ya se resolvió</button></div></>}
                     {["RESUELTO", "RETIRADO"].includes(detail.estado) && <button className="btn btn-secondary btn-small" disabled={busy} onClick={() => nearby("reabrir")}>Solicitar reapertura</button>}
                     {individual && <p className="muted">Este delito se valida mediante las pruebas privadas del autor. No recibe confirmaciones comunitarias.</p>}
                     <button className="btn btn-quiet btn-small" onClick={() => setFlag(flag ? '' : 'FALSO')}><Flag size={13}/>Solicitar revisión</button>

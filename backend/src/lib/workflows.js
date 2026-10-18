@@ -49,6 +49,29 @@ async function refreshCredibility(db, usuarioId) {
     },
   });
 }
+// Keep the original vote IDs for audited withdrawals and successful appeals.
+// False and withdrawn contributions cannot support their own incident. A held
+// report may still confirm presence explicitly; reporting never creates that vote.
+function eligibleConfirmationWhere(incidenteId) {
+  return {
+    incidenteId,
+    tipo: "CONFIRMAR",
+    usuario: {
+      correoVerificado: true,
+      OR: [
+        { reportes: { none: { incidenteId } } },
+        {
+          reportes: {
+            some: {
+              incidenteId,
+              estado: { notIn: ["FALSO", "RETIRADO"] },
+            },
+          },
+        },
+      ],
+    },
+  };
+}
 async function rewardValidated(db, incidenteId) {
   const rules = await config(db);
   const reports = await db.report.findMany({
@@ -66,11 +89,7 @@ async function rewardValidated(db, incidenteId) {
     },
   });
   const votes = await db.vote.findMany({
-    where: {
-      incidenteId,
-      tipo: "CONFIRMAR",
-      usuario: { correoVerificado: true },
-    },
+    where: eligibleConfirmationWhere(incidenteId),
   });
   const keys = reports
     .flatMap((r) => ["reporte:" + r.id, "prueba:" + r.id])
@@ -216,6 +235,15 @@ async function reviewIncident(db, incident, user, input) {
     throw new HttpError(
       409,
       "El incidente fue declarado falso. Primero revisa la apelación correspondiente.",
+    );
+  if (
+    accion === "VALIDAR" &&
+    ["RESUELTO", "RETIRADO"].includes(incident.estado)
+  )
+    throw new HttpError(
+      409,
+      "Reabre primero el incidente mediante una revisión autorizada antes de validarlo.",
+      "INCIDENT_REOPEN_REQUIRED",
     );
   if (
     ![
@@ -509,6 +537,12 @@ async function reviewReport(db, reportId, user, input) {
       });
     }
   } else if (accion === "VALIDAR") {
+    if (["RESUELTO", "RETIRADO", "FALSO"].includes(r.incidente.estado))
+      throw new HttpError(
+        409,
+        "Reabre primero el incidente mediante una revisión autorizada antes de validar sus aportes.",
+        "INCIDENT_REOPEN_REQUIRED",
+      );
     if (!r.usuario.correoVerificado)
       throw new HttpError(
         409,
@@ -574,6 +608,43 @@ async function reviewReport(db, reportId, user, input) {
             motivoRetiro: null,
           },
         });
+      else if (
+        !r.incidente.individual &&
+        r.incidente.evaluacion !== "AGENTE" &&
+        ["ACTIVO", "VALIDADO", "PENDIENTE"].includes(r.incidente.estado)
+      ) {
+        const rules = await config(db);
+        const confirms = await db.vote.count({
+          where: eligibleConfirmationWhere(r.incidenteId),
+        });
+        const validacion = Math.min(
+          1,
+          0.5 + (0.5 * confirms) / rules.confirmaciones,
+        );
+        await db.incident.update({
+          where: { id: r.incidenteId },
+          data: {
+            validacion,
+            estado: r.incidente.publicado
+              ? validacion >= 1
+                ? "VALIDADO"
+                : "ACTIVO"
+              : "PENDIENTE",
+          },
+        });
+        if (validacion < 1) {
+          const affected = await db.report.findMany({
+            where: { incidenteId: r.incidenteId, estado: "VALIDADO" },
+            select: { usuarioId: true },
+          });
+          await db.report.updateMany({
+            where: { incidenteId: r.incidenteId, estado: "VALIDADO" },
+            data: { estado: "PENDIENTE" },
+          });
+          for (const userId of new Set(affected.map((row) => row.usuarioId)))
+            await refreshCredibility(db, userId);
+        }
+      }
     }
   }
   await db.review.create({
@@ -616,11 +687,7 @@ async function refreshVerificationEffects(db, usuarioId) {
     const data = {};
     if (row.evaluacion !== "AGENTE" && !row.individual) {
       const confirms = await db.vote.count({
-        where: {
-          incidenteId: row.id,
-          tipo: "CONFIRMAR",
-          usuario: { correoVerificado: true },
-        },
+        where: eligibleConfirmationWhere(row.id),
       });
       const resolves = await db.vote.count({
         where: {
@@ -680,6 +747,7 @@ module.exports = {
   credibility,
   refreshCredibility,
   rewardValidated,
+  eligibleConfirmationWhere,
   alertAgents,
   notifyOwners,
   chatOpen,

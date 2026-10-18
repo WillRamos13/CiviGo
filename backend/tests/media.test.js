@@ -49,3 +49,37 @@ test("Los videos MOV de cámara verifican la marca QuickTime y el límite de dur
   assert.equal(videoDuration(short, "video/quicktime"), 20);
   assert.throws(() => videoDuration(mp4(31, "qt  "), "video/quicktime"));
 });
+
+test("Los contenedores MP4 anidados no desbordan la pila ni producen un error interno", () => {
+  const depth = 20000;
+  const leaf = mp4(12).subarray(24);
+  const buffer = Buffer.alloc(16 + depth * 8 + leaf.length);
+  mp4(12).copy(buffer, 0, 0, 16);
+  for (let index = 0; index < depth; index++) {
+    const offset = 16 + index * 8;
+    buffer.writeUInt32BE(buffer.length - offset, offset);
+    buffer.write("moov", offset + 4);
+  }
+  leaf.copy(buffer, 16 + depth * 8);
+  assert.throws(
+    () => videoDuration(buffer, "video/mp4"),
+    (error) => error.status === 400 && !(error instanceof RangeError),
+  );
+  assert.equal(videoDuration(mp4(12), "video/mp4"), 12);
+});
+
+test("El análisis MP4 limita las cajas de metadatos de un archivo malformado", () => {
+  const boxes = 100001;
+  const buffer = Buffer.alloc(16 + boxes * 8 + mp4(12).length - 16);
+  mp4(12).copy(buffer, 0, 0, 16);
+  for (let index = 0; index < boxes; index++) {
+    const offset = 16 + index * 8;
+    buffer.writeUInt32BE(8, offset);
+    buffer.write("free", offset + 4);
+  }
+  mp4(12).copy(buffer, 16 + boxes * 8, 16);
+  assert.throws(
+    () => videoDuration(buffer, "video/mp4"),
+    (error) => error.status === 400,
+  );
+});

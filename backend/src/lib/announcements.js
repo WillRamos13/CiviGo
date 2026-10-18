@@ -44,7 +44,7 @@ function safeLink(value) {
       candidate,
     )
   )
-    return candidate;
+    return candidate === '/comunidad' ? '/ranking' : candidate;
   let parsed;
   try {
     parsed = new URL(candidate);
