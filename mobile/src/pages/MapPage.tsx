@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useLayoutEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useCallback, useRef, useMemo } from 'react';
+import { filterIncidentsByYears, incidentYearOptions, type IncidentYears } from '../services/incidentYears';
 import { MapView } from '../components/map/MapView';
 import { MapStatusNotice } from '../components/map/MapStatusNotice';
 import { RoutePlanner } from '../components/navigation/RoutePlanner';
@@ -24,6 +25,7 @@ export const MapPage: React.FC<MapPageProps> = ({ visible = true, onGoReport, on
   const { usuario, loading: sessionLoading } = useAuth();
   const foreground = useAppActivity();
   const [incidents, setIncidents] = useState<Incidente[]>([]);
+  const [selectedYears, setSelectedYears] = useState<IncidentYears>(null);
   const [selectedIncident, setSelectedIncident] = useState<Incidente | null>(null);
   const [focusedLocation, setFocusedLocation] = useState<Posicion | null>(null);
   const [activeRoute, setActiveRoute] = useState<Ruta | null>(null);
@@ -70,6 +72,13 @@ export const MapPage: React.FC<MapPageProps> = ({ visible = true, onGoReport, on
   const [error, setError] = useState('');
   const [bounds, setBounds] = useState<MapBounds>(DEFAULT_ICA_BOUNDS);
   const [nearby, setNearby] = useState<Incidente[]>([]);
+  const years = useMemo(() => incidentYearOptions([...incidents,...nearby], selectedYears), [incidents, nearby, selectedYears]);
+  const visibleIncidents = useMemo(() => filterIncidentsByYears(incidents, selectedYears), [incidents, selectedYears]);
+  const visibleNearby = useMemo(() => {
+    if(selectedYears === null || !isUsableFix(position)) return filterIncidentsByYears(nearby,selectedYears);
+    const publishedAt=(item:Incidente)=>{const value=Date.parse(item.fechaPublicacion||item.fechaCreacion||item.creadoEn||'');return Number.isFinite(value)?value:0;};
+    return filterIncidentsByYears([...nearby,...incidents],selectedYears).sort((a,b)=>publishedAt(b)-publishedAt(a)||b.id-a.id);
+  }, [nearby, incidents, selectedYears, position]);
   const [nearbyError, setNearbyError] = useState('');
   const [nearbyLoading, setNearbyLoading] = useState(false);
   const [nearbyUpdated, setNearbyUpdated] = useState<Date | null>(null);
@@ -288,7 +297,7 @@ export const MapPage: React.FC<MapPageProps> = ({ visible = true, onGoReport, on
   };
 
   return <div className={`map-mobile-screen ${navigating ? 'map-navigation-active' : ''}`} style={{ position: 'relative', width: '100%', height: '100%', overflow: 'hidden', '--map-sheet-height': `${sheetHeight}px` } as React.CSSProperties}>
-    {visible && <MapView incidentes={incidents} ruta={displayedRoute} posicion={position} onSelectIncident={setSelectedIncident} onLocateMe={() => { setFocusedLocation(null); return locate(); }} locating={gpsLoading} onBoundsChange={onBoundsChange} refreshEnabled={refreshEnabled} following={navigating} recenterNonce={recenterNonce} onLayersOpen={() => setSheetOpen(false)} navigationMode={navigating} navigationExpanded={sheetOpen} layersOpen={layersOpen} onLayersOpenChange={setLayersOpen} navigationAvatar={navigationAvatar} restoredProgress={restoredProgress} focusedLocation={focusedLocation} statusNotices={<>
+    {visible && <MapView incidentes={visibleIncidents} yearFilter={{options: years, selected: selectedYears, onChange: value => {setSelectedYears(value); setSelectedIncident(null);}}} ruta={displayedRoute} posicion={position} onSelectIncident={setSelectedIncident} onLocateMe={() => { setFocusedLocation(null); return locate(); }} locating={gpsLoading} onBoundsChange={onBoundsChange} refreshEnabled={refreshEnabled} following={navigating} recenterNonce={recenterNonce} onLayersOpen={() => setSheetOpen(false)} navigationMode={navigating} navigationExpanded={sheetOpen} layersOpen={layersOpen} onLayersOpenChange={setLayersOpen} navigationAvatar={navigationAvatar} restoredProgress={restoredProgress} focusedLocation={focusedLocation} statusNotices={<>
       {offline && <MapStatusNotice title="Sin conexión" retryDisabled={loadingIncidents} retryLabel="Reintentar alertas" onRetry={() => void loadIncidents()}><p>Se conserva la última información disponible.{!lastUpdated ? ' Aún no hay alertas cargadas.' : ''}</p>{error && <p>Consulta de alertas: {error}</p>}{lastUpdated && <small>Última actualización: {lastUpdated.toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit' })}</small>}</MapStatusNotice>}
       {historyError && (!navigating || sheetOpen) && <MapStatusNotice title="Historial sin guardar"><p>{historyError}</p></MapStatusNotice>}
       {!offline && error && <MapStatusNotice title="Alertas sin actualizar" retryDisabled={loadingIncidents} retryLabel="Reintentar alertas" onRetry={() => void loadIncidents()}><p>{error} {lastUpdated ? 'Se conserva la última información.' : 'Aún no hay alertas cargadas.'}</p>{lastUpdated && <small>Última actualización: {lastUpdated.toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit' })}</small>}</MapStatusNotice>}
@@ -298,7 +307,7 @@ export const MapPage: React.FC<MapPageProps> = ({ visible = true, onGoReport, on
     <button type="button" className={`chatbot-fab ${navigating ? 'chatbot-fab-navigating' : ''}`} onClick={() => { void triggerHaptic('light'); setChatOpen(true); }} aria-label="Abrir asistente de ayuda CiviGo"><MessageCircle size={24} /></button>
     <div ref={sheetRef} className={`map-bottom-sheet ${navigating ? 'map-bottom-sheet-navigating' : ''} ${!sheetOpen ? 'map-bottom-sheet-compact' : ''}`} data-expanded={sheetOpen} style={{ transform: navigating || sheetOpen ? 'translateY(0)' : 'translateY(calc(100% - 60px))', paddingBottom: 'calc(12px + var(--safe-bottom))' }}>
       <button type="button" className="map-sheet-toggle" onClick={toggleSheet} aria-expanded={sheetOpen} aria-controls="map-route-panel" aria-label={navigating ? sheetOpen ? 'Contraer opciones de navegación' : 'Expandir opciones de navegación' : sheetOpen ? 'Mostrar navegación compacta' : 'Ampliar rutas y condiciones'}>
-        <span className="eyebrow">{navigating ? sheetOpen ? 'OPCIONES DEL RECORRIDO' : 'EN CAMINO' : '¿A DÓNDE VAMOS?'}</span>{!navigating && <span className="badge">{incidents.length} en mapa</span>}{sheetOpen ? <ChevronDown size={16} /> : <ChevronUp size={16} />}
+        <span className="eyebrow">{navigating ? sheetOpen ? 'OPCIONES DEL RECORRIDO' : 'EN CAMINO' : '¿A DÓNDE VAMOS?'}</span>{!navigating && <span className="badge">{visibleIncidents.length} en mapa</span>}{sheetOpen ? <ChevronDown size={16} /> : <ChevronUp size={16} />}
       </button>
       <div id="map-route-panel" hidden={!navigating && !sheetOpen}>
         <RoutePlanner currentPosition={position} onSelectRoute={(route) => { routeOwner.current = usuario?.id; if (navigating && route !== activeRoute) setRestoredProgress(0); setActiveRoute(route); }} activeRoute={displayedRoute} onStartNavigation={handleStartNav} onStopNavigation={handleStopNav} isNavigating={navigating} compact={!sheetOpen} restoredProgress={restoredProgress} onProgressChange={handleProgressChange} onShowPlace={place => { setFocusedLocation({latitud:place.latitud,longitud:place.longitud}); setSheetOpen(false); }} onRecenter={() => { setFocusedLocation(null); setRecenterNonce(value => value + 1); void triggerHaptic('light'); }} />
@@ -313,7 +322,7 @@ export const MapPage: React.FC<MapPageProps> = ({ visible = true, onGoReport, on
           {avatarError && <p className="navigation-alert" role="status">{avatarError}</p>}
           {gpsError && <MapStatusNotice title="GPS no disponible" retryDisabled={gpsLoading} retryLabel="Reintentar GPS" onRetry={() => void locate()}><p>{gpsError}</p></MapStatusNotice>}
         </section>}
-        {sheetOpen && !navigating && <NearbyIncidentCards incidents={nearby} loading={nearbyLoading} error={nearbyError} updatedAt={nearbyUpdated} position={position} onSelect={incident => { setFocusedLocation(incident); setSelectedIncident(incident); }} onRefresh={() => void loadNearby()} />}
+        {sheetOpen && !navigating && <NearbyIncidentCards incidents={visibleNearby} loading={nearbyLoading} error={nearbyError} updatedAt={nearbyUpdated} position={position} onSelect={incident => { setFocusedLocation(incident); setSelectedIncident(incident); }} onRefresh={() => void loadNearby()} />}
       </div>
     </div>
     {selectedIncident && <IncidentDetailModal incidente={selectedIncident} onClose={() => setSelectedIncident(null)} onRefresh={loadIncidents} />}

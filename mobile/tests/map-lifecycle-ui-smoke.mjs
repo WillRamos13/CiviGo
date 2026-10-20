@@ -32,12 +32,12 @@ class Marker{constructor(options){this.element=options.element;}setLngLat(value)
 export default {Map,Marker,AttributionControl:class{},LngLatBounds:class{extend(){return this;}}};
 `;
 const entry = `
-import React,{useState} from 'react';import{createRoot}from'react-dom/client';import{MapView}from'./src/components/map/MapView';import{ThemeProvider}from'./src/hooks/useTheme';
+import React,{useState} from 'react';import{createRoot}from'react-dom/client';import{MapView}from'./src/components/map/MapView';import{ThemeProvider,useTheme}from'./src/hooks/useTheme';
 window.auditMaps=[];window.auditForeground=true;Object.defineProperty(document,'visibilityState',{configurable:true,get:()=>window.auditForeground?'visible':'hidden'});
 window.auditSetForeground=value=>{window.auditForeground=value;document.dispatchEvent(new Event('visibilitychange'));};
 const route={id:'driving-test',modo:'driving',distancia:2220,duracion:400,geometria:{type:'LineString',coordinates:[[-75.75,-14.07],[-75.74,-14.07],[-75.73,-14.07]]},pasos:[],advertencias:[]};
 window.auditRoute=route;
-function Test(){const[fix,setFix]=useState({latitud:-14.07,longitud:-75.745,accuracy:5,timestamp:Date.now()}),[visible,setVisible]=useState(true),[layers,setLayers]=useState(false),[focus,setFocus]=useState(null);window.auditFix=fix;window.auditSetFix=setFix;window.auditUnmount=()=>setVisible(false);window.auditOpenLayers=()=>setLayers(true);window.auditSetFocus=setFocus;
+function Test(){const theme=useTheme();window.auditSetTheme=theme.setThemePreference;const[fix,setFix]=useState({latitud:-14.07,longitud:-75.745,accuracy:5,timestamp:Date.now()}),[visible,setVisible]=useState(true),[layers,setLayers]=useState(false),[focus,setFocus]=useState(null);window.auditFix=fix;window.auditSetFix=setFix;window.auditUnmount=()=>setVisible(false);window.auditOpenLayers=()=>setLayers(true);window.auditSetFocus=setFocus;
 return visible?<MapView ruta={route} posicion={fix} following navigationMode focusedLocation={focus} layersOpen={layers} onLayersOpenChange={setLayers} onLocateMe={async()=>window.auditFix}/>:null;}
 createRoot(document.getElementById('root')).render(<ThemeProvider><Test/></ThemeProvider>);
 `;
@@ -90,12 +90,12 @@ try {
   await page.getByRole('button', { name: 'Centrar ubicación y seguir recorrido', exact: true }).click();
   await page.waitForFunction(() => window.auditMap.camera.length === 1);
   await page.evaluate(() => window.auditOpenLayers());
-  await page.getByLabel('Aspecto del mapa', { exact: true }).selectOption('dark');
-  await page.waitForFunction(() => window.auditMap.layers.background.paint['background-color'] === '#091923');
-  assert.equal(await page.evaluate(() => window.auditMap.layers['route-line'].paint['line-color']), '#19c9ff');
+  await page.evaluate(() => window.auditSetTheme('dark'));
+  await page.waitForFunction(() => document.documentElement.dataset.theme === 'dark'); assert.equal(await page.evaluate(() => window.auditMap.layers.background.paint['background-color']), '#f8f8f8');
+  assert.equal(await page.evaluate(() => window.auditMap.layers['route-line'].paint['line-color']), '#1554d8');
   assert.equal(await page.evaluate(() => window.auditMaps.length), 1);
   assert.equal(await page.locator('.user-gps-marker').count(), 1);
-  await page.getByLabel('Aspecto del mapa', { exact: true }).selectOption('light');
+  await page.evaluate(() => window.auditSetTheme('light'));
   await page.waitForFunction(() => window.auditMap.layers['road-primary'].paint['line-color'] === '#ffffaa');
   await page.getByRole('button', { name: 'Cerrar capas del mapa', exact: true }).click();
   await page.evaluate(() => window.auditSetFocus({ latitud:-14.071,longitud:-75.741 }));
@@ -115,6 +115,6 @@ try {
   await page.evaluate(() => window.auditUnmount());
   await page.waitForFunction(() => window.auditMap.removed);
   assert.equal(await page.evaluate(() => Object.keys(window.auditMap.handlers).length), 0);
-  const result = { passed: true, cycles: 5, mapInstances: 1, gpu: 'Mapbox adapter, not Android GPU', assertions: ['context restored in place','background pauses recovery','completed geometry retained','route immutable','manual camera honored','recenter restores following','dark theme updates in place','exact light theme restored','focused place does not override later recenter after resume','focused marker clears','one marker/listener','unmount cleanup'], errors };
+  const result = { passed: true, cycles: 5, mapInstances: 1, gpu: 'Mapbox adapter, not Android GPU', assertions: ['context restored in place','background pauses recovery','completed geometry retained','route immutable','manual camera honored','recenter restores following','interface dark theme preserves light map','exact light theme restored','focused place does not override later recenter after resume','focused marker clears','one marker/listener','unmount cleanup'], errors };
   await writeFile(`${folder}/result.json`, JSON.stringify(result, null, 2)); console.log(JSON.stringify(result));
 } finally { await browser.close(); }

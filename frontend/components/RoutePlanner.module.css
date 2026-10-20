@@ -1,6 +1,9 @@
 .planner {
     min-width: 0;
 }
+.destinationButton { display: flex; align-items: center; gap: 9px; min-height: 48px; width: 100%; padding: 10px 12px; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); color: var(--ink); text-align: left; font-size: 13px; }
+.destinationButton > span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.destinationButton > svg { flex-shrink: 0; color: var(--brand); }
 .planner :global(.card-header) h2 { font-size: 23px; letter-spacing: -.7px; }
 .originDetails { margin: 0 0 12px; font-size: 11px; }
 .originDetails > summary { display: flex; align-items: center; gap: 5px; cursor: pointer; min-height: 35px; color: var(--muted); }

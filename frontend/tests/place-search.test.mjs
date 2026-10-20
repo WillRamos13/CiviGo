@@ -14,7 +14,7 @@ test('place results preserve a point of interest and its address while rejecting
         {...plaza,nombre:'  '}, null, {nombre:'sin posición'},
         {...plaza,nombre:'Otra plaza',descripcion:42},
     ]);
-    assert.deepEqual(result,[plaza,{nombre:'Otra plaza',latitud:plaza.latitud,longitud:plaza.longitud}]);
+    assert.deepEqual(result,[{...plaza,fuente:'tomtom'},{nombre:'Otra plaza',latitud:plaza.latitud,longitud:plaza.longitud}]);
     assert.equal(normalizePlaceQuery('  plaza   de  armas de ica  '),'plaza de armas de ica');
     assert.throws(()=>parsePlaceResults({results:[plaza]}),/datos incompletos/);
     assert.deepEqual(parsePlaceResults([]),[]);

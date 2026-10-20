@@ -1,7 +1,7 @@
 import type { Posicion } from './types';
 import { isPosition } from './route-cache';
 
-export type PlaceResult = Posicion & { nombre: string; descripcion?: string };
+export type PlaceResult = Posicion & { nombre: string; descripcion?: string; fuente?: string };
 export type PlaceSearchState = { query: string; status: 'idle' | 'loading' | 'ready' | 'error'; results: PlaceResult[]; error: string };
 
 export function normalizePlaceQuery(value: string) {
@@ -14,7 +14,7 @@ export function parsePlaceResults(value: unknown): PlaceResult[] {
     const results: PlaceResult[] = [];
     for (const item of value) {
         if (!isPosition(item)) continue;
-        const record = item as Posicion & { nombre?: unknown; descripcion?: unknown };
+        const record = item as Posicion & { nombre?: unknown; descripcion?: unknown; fuente?: unknown };
         if (typeof record.nombre !== 'string') continue;
         const nombre = normalizePlaceQuery(record.nombre);
         if (!nombre) continue;
@@ -22,6 +22,7 @@ export function parsePlaceResults(value: unknown): PlaceResult[] {
         if (seen.has(key)) continue;
         seen.add(key);
         results.push({ nombre, latitud: item.latitud, longitud: item.longitud,
+            ...(typeof record.fuente === 'string' && record.fuente.trim() ? {fuente: record.fuente.trim().slice(0,80)} : {}),
             ...(typeof record.descripcion === 'string' && record.descripcion.trim() ? { descripcion: record.descripcion.trim() } : {}) });
         if (results.length === 12) break;
     }

@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { MapRecoveryController } from '../src/services/mapRecovery';
-import { CiviGoMapTheme } from '../src/services/mapTheme';
+
 import { ThemeController } from '../src/services/theme';
 
 test('WebGL recovery waits in foreground, restores in place and never fires a stale rebuild', t => {
@@ -26,34 +26,6 @@ test('disposing a lost map cancels pending recovery before a React replacement m
   const recovery = new MapRecoveryController({ lost() {}, restored() {}, rebuild() { rebuilds++; } }, 1000);
   recovery.contextLost(); recovery.dispose();
   t.mock.timers.tick(60000); assert.equal(rebuilds, 0);
-});
-
-test('dark cartography restores exact light paint and does not touch risk, traffic, sources or camera', () => {
-  const layers = [
-    { id: 'background', type: 'background' }, { id: 'water', type: 'fill' },
-    { id: 'road-primary', type: 'line', 'source-layer': 'road' },
-    { id: 'road-label', type: 'symbol', layout: { 'text-field': ['get', 'name'] } },
-    { id: 'civigo-roads-layer', type: 'line' }, { id: 'tomtom-flow-layer', type: 'raster' },
-    { id: 'route-completed-line', type: 'line' }, { id: 'route-line', type: 'line' }, { id: 'route-casing', type: 'line' },
-  ];
-  const originalRoad = ['match', ['get', 'class'], 'primary', '#ffffbb', '#ffffff'];
-  const values = new Map<string, unknown>([['road-primary:line-color', originalRoad], ['water:fill-color', '#aadeff'], ['background:background-color', '#fefefe']]);
-  const initial = new Map(values), writes: string[] = [];
-  const map = { getStyle: () => ({ layers }), getLayer: (id: string) => layers.find(layer => layer.id === id),
-    getPaintProperty: (id: string, prop: string) => values.get(`${id}:${prop}`),
-    setPaintProperty: (id: string, prop: string, value: unknown) => { writes.push(`${id}:${prop}`); values.set(`${id}:${prop}`, value); },
-  };
-  const theme = new CiviGoMapTheme();
-  theme.apply(map as any, true);
-  assert.equal(values.get('road-primary:line-color'), '#344d60');
-  assert.equal(values.get('route-line:line-color'), '#19c9ff');
-  assert.equal(writes.some(key => /^(?:civigo-|tomtom-|route-completed)/.test(key)), false);
-  theme.apply(map as any, false);
-  for (const [key, value] of initial) assert.deepEqual(values.get(key), value);
-  assert.equal(values.get('road-primary:line-color'), originalRoad);
-  assert.equal(values.get('route-line:line-color'), '#1554d8');
-  theme.apply(map as any, true); theme.apply(map as any, false);
-  assert.equal(values.get('road-primary:line-color'), originalRoad);
 });
 
 test('automatic theme follows system changes until an explicit choice and removes its listener', async () => {

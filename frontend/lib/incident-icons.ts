@@ -12,6 +12,7 @@ import incendio from '@/iconos/incendio.png';
 import intentoDeRobo from '@/iconos/intento de robo.png';
 import inundacion from '@/iconos/inundacion.png';
 import robo from '@/iconos/robo.png';
+import hurto from '@/iconos/hurto.png';
 import semaforo from '@/iconos/semaforo.png';
 import sospechoso from '@/iconos/sospechoso.png';
 
@@ -33,6 +34,7 @@ const icons = new Map<string, IncidentIconAsset>([
     ['intento-de-robo', { image: intentoDeRobo }],
     ['inundacion', { image: inundacion }],
     ['robo', { image: robo }],
+    ['hurto', { image: hurto }],
     ['semaforo-danado', { image: semaforo }],
     ['persona-sospechosa', { image: sospechoso }],
 ]);

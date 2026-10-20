@@ -66,7 +66,7 @@ class Map {
   resize(){
     const width=this.container.clientWidth||390,height=this.container.clientHeight||720;
     this.canvas.width=width;this.canvas.height=height;
-    const ctx=this.canvas.getContext('2d');const dark=document.documentElement.dataset.theme==='dark';
+    const ctx=this.canvas.getContext('2d');const dark=false;
     ctx.fillStyle=dark?'#153143':'#dbe9e2';ctx.fillRect(0,0,width,height);
     ctx.save();ctx.translate(width*.48,height*.46);ctx.rotate(-.17);
     for(let index=-12;index<13;index++){
@@ -155,7 +155,7 @@ const entry = String.raw`
 import React,{useState,useCallback}from'react';
 import{createRoot}from'react-dom/client';
 import{AppContent}from'./src/App';
-import{ThemeProvider}from'./src/hooks/useTheme';
+import{ThemeProvider,useTheme}from'./src/hooks/useTheme';
 import'./src/index.css';
 window.auditCalls=[];window.auditSpeech=[];window.auditSpeechStops=0;
 window.auditSpotifyCalls=[];
@@ -165,8 +165,8 @@ window.auditUser={id:901,nickname:'Vecina de prueba',correo:'prueba@example.inva
 window.auditFix={latitud:-14.0678,longitud:-75.7286,accuracy:5,heading:175,speed:1.3,timestamp:Date.now()};
 const when=new Date().toISOString();
 window.auditIncidents=[
- {id:501,tipo:'bache',tipoSlug:'bache',tipoNombre:'Bache',descripcion:'Bache frente al acceso peatonal de la avenida de prueba.',latitud:-14.0679,longitud:-75.7286,nivelRiesgo:2},
- {id:502,tipo:'robo',tipoSlug:'robo',tipoNombre:'Robo',descripcion:'Reporte ciudadano de prueba: revisar el entorno antes de continuar.',latitud:-14.075,longitud:-75.734,nivelRiesgo:4,individual:true},
+ {id:501,tipo:'bache',tipoSlug:'bache',tipoNombre:'Bache',fechaEvento:'2024-06-01T05:00:00Z',descripcion:'Bache frente al acceso peatonal de la avenida de prueba.',latitud:-14.0679,longitud:-75.7286,nivelRiesgo:2},
+ {id:502,tipo:'robo',tipoSlug:'robo',tipoNombre:'Robo',fechaEvento:'2023-06-01T05:00:00Z',descripcion:'Reporte ciudadano de prueba: revisar el entorno antes de continuar.',latitud:-14.075,longitud:-75.734,nivelRiesgo:4,individual:true},
  {id:503,tipo:'incendio',tipoSlug:'incendio',tipoNombre:'Incendio',descripcion:'Humo visible en un inmueble de la calle de prueba.',latitud:-14.045,longitud:-75.75,nivelRiesgo:3},
  {id:504,tipo:'bache',tipoSlug:'bache',tipoNombre:'Bache',descripcion:'Incidente fuera del viewport, parte del snapshot provincial.',latitud:-14.8,longitud:-75.2,nivelRiesgo:1},
 ].map(value=>({estado:'VALIDADO',publicado:true,totalReportes:1,evaluacion:'AGENTE',fechaCreacion:when,fechaPublicacion:when,adjuntos:[],...value}));
@@ -212,8 +212,9 @@ window.auditPost=async(path,body,options={})=>{
  if(path==='/navigation/favorites')return{id:1,nombre:body.nombre,modo:body.modo,origen:body.origen,destino:body.destino,datos:body.ruta};
  throw new Error('El fixture no permite esta escritura: '+path);
 };
+function ThemeProbe(){window.auditSetTheme=useTheme().setThemePreference;return null;}
 function Test(){const[revision,setRevision]=useState(0);window.auditSetUser=value=>{window.auditUser=value;setRevision(value=>value+1);};
- return <ThemeProvider><div data-audit-revision={revision} style={{height:'100%'}}><AppContent/></div></ThemeProvider>;
+ return <ThemeProvider><ThemeProbe/><div data-audit-revision={revision} style={{height:'100%'}}><AppContent/></div></ThemeProvider>;
 }
 createRoot(document.getElementById('root')).render(<Test/>);
 `;
@@ -422,6 +423,15 @@ try {
   try {
     await page.evaluate(() => window.auditMap.setZoom(14));
     await page.locator('.map-layer-panel > summary').click();
+    await page.getByLabel('Todos los años',{exact:true}).uncheck();
+    await page.waitForFunction(()=>document.querySelector('.map-bottom-sheet .badge')?.textContent==='0 en mapa');
+    await page.getByLabel('2024',{exact:true}).check();
+    await page.waitForFunction(()=>document.querySelector('.map-bottom-sheet .badge')?.textContent==='1 en mapa');
+    assert.equal(await visibleMarkers(page).count(),1);
+    await page.getByLabel('2023',{exact:true}).check();
+    await page.waitForFunction(()=>document.querySelector('.map-bottom-sheet .badge')?.textContent==='2 en mapa');
+    await screenshot(page,'filtros-anos-390');
+    await page.getByLabel('Todos los años',{exact:true}).check();
     const filter = page.getByLabel('Filtrar por tipo', { exact: true });
     await filter.selectOption('robo');
     await page.waitForFunction(() => [...document.querySelectorAll('.incident-marker[data-incident-id]')].filter(element => element.checkVisibility()).length === 1);
@@ -538,11 +548,11 @@ try {
     const layerDrawer = page.getByRole('dialog', { name: 'Capas del mapa', exact: true });
     await layerDrawer.waitFor();
     await page.evaluate(() => { window.auditThemeMap=window.auditMap; window.auditThemeSource=window.auditMap.sources['route-source']; window.auditThemeRisk=JSON.stringify(window.auditMap.layers['civigo-roads-layer'].paint); });
-    await layerDrawer.getByLabel('Aspecto del mapa', { exact: true }).selectOption('light');
+    assert.equal(await layerDrawer.getByLabel('Aspecto del mapa', {exact:true}).count(),0); await page.evaluate(() => window.auditSetTheme('light'));
     await page.waitForFunction(() => window.auditMap.layers['route-line'].paint['line-color'] === '#1554d8');
     assert.equal(await page.evaluate(() => window.auditMap.layers['fixture-road'].paint['line-color']), '#a9d5c6');
-    await layerDrawer.getByLabel('Aspecto del mapa', { exact: true }).selectOption('dark');
-    await page.waitForFunction(() => window.auditMap.layers['route-line'].paint['line-color'] === '#19c9ff');
+    await page.evaluate(() => window.auditSetTheme('dark')); assert.equal(await page.evaluate(() => window.auditMap.layers['fixture-road'].paint['line-color']), '#a9d5c6');
+    await page.waitForFunction(() => window.auditMap.layers['route-line'].paint['line-color'] === '#1554d8');
     assert.equal(await page.evaluate(() => window.auditMap===window.auditThemeMap && window.auditMap.sources['route-source']===window.auditThemeSource && JSON.stringify(window.auditMap.layers['civigo-roads-layer'].paint)===window.auditThemeRisk), true, 'Cambiar tema conserva instancia, fuente de ruta y semántica de riesgo');
     await page.locator('.user-gps-marker[data-navigation-avatar="suv:red"]').waitFor();
     await layerDrawer.getByLabel('Riesgo por tramo', { exact: true }).check();

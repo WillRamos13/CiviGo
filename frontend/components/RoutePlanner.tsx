@@ -8,22 +8,23 @@ import type { Posicion, Ruta } from '@/lib/types';
 import { RISK_COLORS, RISK_NAMES } from '@/lib/types';
 import { readRouteCache, isPosition, isRoute, routeMode, type CachedRoute } from '@/lib/route-cache';
 import PlaceInput from './PlaceInput';
+import DestinationExplorer from './DestinationExplorer';
 import NavigationGuidance, {type GuidanceProps} from './NavigationGuidance';
 import styles from './RoutePlanner.module.css';
 import { routeTimeSource } from '@/lib/navigation-presentation';
 type Punto = Posicion & { nombre: string };
 type Saved = { id: number; nombre: string; modo: string; origen: Posicion; destino: Posicion; datos: Ruta; creadoEn: string };
-type Props = { onRoute: (r: Ruta | null) => void; active: Ruta | null; following: boolean; onFollow: (v: boolean) => void; recalculate?: number; guidance?: GuidanceProps; onLocate?: (position: Posicion) => void; currentPosition?: Posicion | null; compact?: boolean };
+type Props = { onRoute: (r: Ruta | null) => void; active: Ruta | null; following: boolean; onFollow: (v: boolean) => void; recalculate?: number; guidance?: GuidanceProps; onLocate?: (position: Posicion) => void; currentPosition?: Posicion | null; compact?: boolean; onShowPlace?: (place: Punto) => void };
 export default function RoutePlanner(props: Props) {
     const { usuario } = useAuth();
     return <AccountRoutePlanner key={usuario?.id ?? 'publico'} {...props} />;
 }
-function AccountRoutePlanner({ onRoute, active, following, onFollow, recalculate = 0, guidance, onLocate, currentPosition, compact = false }: Props) {
+function AccountRoutePlanner({ onRoute, active, following, onFollow, recalculate = 0, guidance, onLocate, currentPosition, compact = false, onShowPlace }: Props) {
     const { usuario, offline } = useAuth();
     const accountId = usuario?.id, premium = usuario?.premium === true;
     const [origin, setOrigin] = useState<Punto | null>(null), [destination, setDestination] = useState<Punto | null>(null), [mode, setMode] = useState('walking'), [routes, setRoutes] = useState<Ruta[]>([]), [error, setError] = useState(''), [message, setMessage] = useState(''), [busy, setBusy] = useState(false), [manual, setManual] = useState(false), [cached, setCached] = useState<CachedRoute[]>([]), [saved, setSaved] = useState<Saved[]>([]), [favoriteName, setFavoriteName] = useState(''), [favoriteTags, setFavoriteTags] = useState(''), [loadedCopy, setLoadedCopy] = useState(false);
     const [manualOrigin, setManualOrigin] = useState(['', '']), [manualDestination, setManualDestination] = useState(['', '']);
-    const [shortcut, setShortcut] = useState<{query: string; revision: number}>();
+    const [explorer, setExplorer] = useState({open:false,query:''});
     const [locating, setLocating] = useState(false);
     const originTouched = useRef(false), gpsSeeded = useRef(false);
     const mounted = useRef(true), planEpoch = useRef(0), selectionEpoch = useRef(0), planRequest = useRef<AbortController | null>(null), requests = useRef(new Set<AbortController>());
@@ -173,10 +174,7 @@ function AccountRoutePlanner({ onRoute, active, following, onFollow, recalculate
         </div>
         </details>
         {!origin && <button type="button" className={'btn btn-secondary btn-small ' + styles.fullWidth} disabled={locating} onClick={locate}><MapPin size={15} aria-hidden="true"/>{locating ? 'Buscando tu ubicación…' : 'Usar mi ubicación'}</button>}
-        <div className={styles.placeField}>
-            <Search className={styles.searchIcon} size={16} aria-hidden="true"/>
-            <PlaceInput label="Destino" value={destination} onChange={changeDestination} shortcut={shortcut}/>
-        </div>
+        <div className="field"><span className={styles.manualLabel}>Destino</span><button type="button" className={styles.destinationButton} aria-label="Buscar destino" aria-haspopup="dialog" onClick={()=>setExplorer({open:true,query:''})}><Search size={18} aria-hidden="true"/><span>{destination?.nombre || 'Buscar lugar o dirección'}</span><ChevronRight size={17}/></button></div>
         <button type="button" className={'btn btn-quiet btn-small ' + styles.manualToggle} aria-expanded={manual} onClick={() => setManual(!manual)}>
             {manual ? 'Ocultar' : 'Ingresar'} coordenadas manualmente
         </button>
@@ -191,7 +189,7 @@ function AccountRoutePlanner({ onRoute, active, following, onFollow, recalculate
                 </div>)}
         </div>}
         <div className={styles.shortcuts} aria-label="Destinos rápidos">
-            {['Plaza de Armas de Ica', 'Huacachina', 'Hospital Regional de Ica', 'Terminal Terrestre Ica'].map(name => <button type="button" key={name} onClick={() => { changeDestination(null); setShortcut(previous => ({query: name, revision: (previous?.revision ?? 0) + 1})); }}><MapPin size={13} aria-hidden="true"/>{name}</button>)}
+            {['Plaza de Armas de Ica', 'Huacachina', 'Hospital Regional de Ica', 'Terminal Terrestre Ica'].map(name => <button type="button" key={name} onClick={() => setExplorer({open:true,query:name})}><MapPin size={13} aria-hidden="true"/>{name}</button>)}
             {saved.slice(0, 8).map(item => <button type="button" key={`saved-${item.id}`} onClick={() => loadCopy(item.datos, item.origen, item.destino, item.modo, 'Favorito cargado. Actualiza sus condiciones antes de iniciar.')}><Bookmark size={13} aria-hidden="true"/>{item.nombre}</button>)}
         </div>
         <div className={'route-planner-search ' + styles.searchAction}>
@@ -264,5 +262,6 @@ function AccountRoutePlanner({ onRoute, active, following, onFollow, recalculate
                 <strong>{c.ruta.nombre}</strong><p>Guardado: {formatDate(c.fecha)}</p>
             </button>)}
         </details>}
+        <DestinationExplorer open={explorer.open} initialQuery={explorer.query} onClose={()=>setExplorer(value=>({...value,open:false}))} ownerId={accountId??null} currentPosition={currentPosition} route={active} onChoose={changeDestination} onShowPlace={onShowPlace}/>
     </div>;
 }

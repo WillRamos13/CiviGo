@@ -1,6 +1,7 @@
 'use client';
 import { useState, useEffect, useCallback, useMemo, useRef, useId } from 'react';
-import { ChevronRight, ChevronDown, ChevronUp, LocateFixed, RefreshCw, ShieldAlert, Signal } from 'lucide-react';
+import { ChevronRight, ChevronDown, ChevronUp, LocateFixed, RefreshCw, ShieldAlert, Signal, Maximize, Minimize } from 'lucide-react';
+import { useMapFullscreen } from '@/lib/use-map-fullscreen';
 import styles from './page.module.css';
 import MapView from '@/components/MapView';
 import IncidentPanel from '@/components/IncidentPanel';
@@ -12,6 +13,7 @@ import { api, post, errorMessage, distance, formatDate } from '@/lib/api';
 import { isHistoricalAntecedent, incidentSource } from '@/lib/incidents';
 import { useLiveRefresh } from '@/lib/use-live-refresh';
 import { buildIncidentFilterGroups, filterIncidentsByType } from '@/lib/incident-filters';
+import { filterIncidentsByYears, incidentYearOptions, type IncidentYears } from '@/lib/incident-years';
 import type { Incidente, Ruta, Posicion, Catalogo } from '@/lib/types';
 import { nearRoute, isRouteWarning } from '@/lib/navigation';
 import { useNavigation } from '@/lib/use-navigation';
@@ -39,8 +41,11 @@ export default function Mapa() {
 function AccountMap() {
     const { usuario } = useAuth();
     const [panelExpanded, setPanelExpanded] = useState(true);
+    const [selectedYears, setSelectedYears] = useState<IncidentYears>(null);
     const routePanelId = useId();
     const pageRef = useRef<HTMLDivElement>(null);
+    const mapFrameRef = useRef<HTMLDivElement>(null);
+    const fullscreen = useMapFullscreen(mapFrameRef);
     useEffect(() => {
         const viewport = window.visualViewport;
         const resize = () => pageRef.current?.style.setProperty('--map-viewport-height', `${viewport?.height ?? window.innerHeight}px`);
@@ -58,7 +63,7 @@ function AccountMap() {
     useEffect(() => () => { if (boundsTimer.current) clearTimeout(boundsTimer.current); }, []);
     const [catalog, setCatalog] = useState<Catalogo | null>(null);
     const [filterLabel, setFilterLabel] = useState('');
-    const [focusPoint, setFocusPoint] = useState<{ posicion: Posicion; version: number } | null>(null);
+    const [focusPoint, setFocusPoint] = useState<{ posicion: Posicion; version: number; label?: string } | null>(null);
     const focusIncident = (incident: Incidente) => setFocusPoint(current => ({ posicion: incident, version: (current?.version ?? 0) + 1 }));
     const selectIncident = (incident: Incidente) => { setSelected(incident); focusIncident(incident); };
     const changeFollowing = useCallback((value: boolean) => { setFollowing(value); setAd(null); setPanelExpanded(!value); }, []);
@@ -125,8 +130,9 @@ function AccountMap() {
         return; seenBusiness.current.add(close.id); traveled.current = 0; setAd(close); void post(`/businesses/${close.id}/impressions`, { ...position, recorridoId: trip.current }).catch(() => { }); if (adTimer.current)
         clearTimeout(adTimer.current); adTimer.current = setTimeout(() => setAd(null), adConfig.current.duracionAnuncioSegundos*1000); }, [following, position, route, usuario]);
     const observed = useMemo(() => mergeMapIncidents(incidents, nearby.incidents, confirmedBounds), [incidents, nearby.incidents, confirmedBounds]);
-    const filtered = useMemo(() => filterIncidentsByType(observed, category), [category, observed]);
-    const recent = useMemo(() => recentNearbyIncidents(filterIncidentsByType(nearby.incidents, category), position), [category, nearby.incidents, position]);
+    const years = useMemo(() => incidentYearOptions(observed, selectedYears), [observed, selectedYears]);
+    const filtered = useMemo(() => filterIncidentsByYears(filterIncidentsByType(observed, category), selectedYears), [category, observed, selectedYears]);
+    const recent = useMemo(() => recentNearbyIncidents(filterIncidentsByYears(filterIncidentsByType(selectedYears === null ? nearby.incidents : observed, category), selectedYears), position), [category, nearby.incidents, observed, position, selectedYears]);
     const refreshAll = () => { refresh(); nearby.refresh(); };
     const filterGroups = useMemo(() => buildIncidentFilterGroups(catalog, observed, category ? { key: category, name: filterLabel } : undefined), [catalog, observed, category, filterLabel]);
     const changeTypeFilter = (value: string) => {
@@ -145,8 +151,10 @@ function AccountMap() {
         {!following && navigation.notice && <div className="notice notice-warning">{navigation.notice}</div>}
         <div className="map-workspace">
             <div className="map-column">
-                <div className="map-frame" aria-busy={loading}>
-                    <MapView onBounds={changeBounds} incidentes={filtered} ruta={route} onSelect={selectIncident} focusPoint={focusPoint} posicion={position} onLocate={location.acceptPosition} onRequestLocation={location.requestLocation} compactLegend navigating={following} heading={navigation.progress?.heading} centerVersion={navigation.centerVersion} onTrafficChange={() => { if (tracking.current) setRecalculate(v => v + 1); }} typeFilter={{ value: category, groups: filterGroups, onChange: changeTypeFilter }}/>
+                <div ref={mapFrameRef} className={`map-frame ${fullscreen.active?styles.fullscreenFrame:''}`} data-map-fullscreen={fullscreen.active} aria-busy={loading}>
+                    <button type="button" className={`icon-btn ${styles.fullscreenButton}`} aria-label={fullscreen.active?'Salir de pantalla completa':'Ampliar mapa a pantalla completa'} aria-pressed={fullscreen.active} onClick={()=>void fullscreen.toggle()}>{fullscreen.active?<Minimize size={20}/>:<Maximize size={20}/>}</button>
+                    {fullscreen.notice&&<span role="status" className="sr-only">{fullscreen.notice}</span>}
+                    <MapView onBounds={changeBounds} incidentes={filtered} ruta={route} onSelect={selectIncident} focusPoint={focusPoint} posicion={position} onLocate={location.acceptPosition} onRequestLocation={location.requestLocation} compactLegend navigating={following} heading={navigation.progress?.heading} centerVersion={navigation.centerVersion} onTrafficChange={() => { if (tracking.current) setRecalculate(v => v + 1); }} yearFilter={{options: years, selected: selectedYears, onChange: value => {setSelectedYears(value); setSelected(null);}}} typeFilter={{ value: category, groups: filterGroups, onChange: changeTypeFilter }}/>
                     <section className={`map-side-panel map-route-panel ${styles.plannerPanel}`} aria-label="Panel de recorridos" data-expanded={panelExpanded}>
                         <button type="button" className={`panel-toggle ${styles.plannerToggle}`} aria-expanded={panelExpanded} aria-controls={routePanelId} onClick={() => setPanelExpanded(value => !value)}>
                             <strong>{following ? 'EN CAMINO' : '¿A DÓNDE VAMOS?'}</strong>
@@ -154,7 +162,7 @@ function AccountMap() {
                             {panelExpanded ? <ChevronDown size={17} aria-hidden="true"/> : <ChevronUp size={17} aria-hidden="true"/>}
                         </button>
                         <div id={routePanelId} className={`collapsible-panel-body ${styles.plannerBody}`} hidden={!following && !panelExpanded}>
-                            <RoutePlanner onRoute={changeRoute} active={route} following={following} onFollow={changeFollowing} guidance={navigation} onLocate={location.acceptPosition} currentPosition={position} compact={following && !panelExpanded}/>
+                            <RoutePlanner onShowPlace={place=>{setSelected(null);setFocusPoint(current=>({posicion:place,label:place.nombre,version:(current?.version??0)+1}));setPanelExpanded(false);}} onRoute={changeRoute} active={route} following={following} onFollow={changeFollowing} guidance={navigation} onLocate={location.acceptPosition} currentPosition={position} compact={following && !panelExpanded}/>
                         </div>
                     </section>
                 </div>
@@ -163,7 +171,7 @@ function AccountMap() {
             </div>
                 <CollapsiblePanel title="Reportes recientes" className="map-side-panel map-reports-panel" defaultOpen>
                     <div className="card-header">
-                        <span className="muted">{recent.length} {recent.length === 1 ? 'reporte' : 'reportes'} · a 1 km de ti{category && ' · filtro activo'}</span>
+                        <span className="muted">{recent.length} {recent.length === 1 ? 'reporte' : 'reportes'} · a 1 km de ti{(category || selectedYears !== null) && ' · filtro activo'}</span>
                         <button className="icon-btn" aria-label="Actualizar incidentes" onClick={refreshAll}><RefreshCw size={17}/></button>
                     </div>
                     {!position ? <div className="nearby-location-notice" role="status">

@@ -17,10 +17,10 @@ import { getTrafficStatus, getTrafficIncidents, trafficAvailable, trafficFlowMes
 import { getIncidentIconPath } from '../../services/incidentIcons';
 import { useDialog } from '../../hooks/useDialog';
 import { updateNavigationAvatarMarker, type NavigationAvatar } from '../../services/navigationAvatar';
-import { useTheme } from '../../hooks/useTheme';
 import { useAppActivity } from '../../hooks/useAppActivity';
 import { MapRecoveryController } from '../../services/mapRecovery';
-import { CiviGoMapTheme } from '../../services/mapTheme';
+import IncidentYearFilter from './IncidentYearFilter';
+import type { IncidentYearControl } from '../../services/incidentYears';
 import { RouteProgressTracker, getNavigationRouteLines } from '../../services/navigationProgress';
 import { MapStatusNotice } from './MapStatusNotice';
 import './map-glass.css';
@@ -53,6 +53,7 @@ interface MapViewProps {
   restoredProgress?: number;
   focusedLocation?: Posicion | null;
   statusNotices?: React.ReactNode;
+  yearFilter?: IncidentYearControl;
 }
 
 
@@ -78,8 +79,8 @@ export const MapView: React.FC<MapViewProps> = ({
   restoredProgress = 0,
   focusedLocation = null,
   statusNotices,
+  yearFilter,
 }) => {
-  const { isDark, preference, setThemePreference } = useTheme();
   const appActive = useAppActivity();
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<mapboxgl.Map | null>(null);
@@ -94,8 +95,6 @@ export const MapView: React.FC<MapViewProps> = ({
   const recoveryRef = useRef<MapRecoveryController | null>(null);
   const contextMissing = useRef(false);
   const automaticMapRebuilds = useRef(0);
-  const mapTheme = useRef<CiviGoMapTheme | null>(null);
-  const themeRef = useRef(isDark); themeRef.current = isDark;
   const appActiveRef = useRef(appActive); appActiveRef.current = appActive;
   const savedCamera = useRef<{ center: [number, number]; zoom: number; bearing: number; pitch: number } | null>(null);
   const routeTracker = useRef(new RouteProgressTracker());
@@ -124,7 +123,6 @@ export const MapView: React.FC<MapViewProps> = ({
   const layersDialogRef = useDialog<HTMLDivElement>(navigationMode && effectiveLayersOpen, () => changeLayersOpen(false));
   const layersTitleId = useId();
   const typeFilterId = useId();
-  const themePreferenceId = useId();
   const [markerZoomVisible, setMarkerZoomVisible] = useState(false);
   const filteredIncidents = useMemo(() => filterMapIncidents(incidentes, typeFilter), [incidentes, typeFilter]);
   const typeOptions = useMemo(() => {
@@ -298,7 +296,6 @@ export const MapView: React.FC<MapViewProps> = ({
       setMapError('No se pudo iniciar el mapa en este dispositivo.');
       return;
     }
-    mapTheme.current = new CiviGoMapTheme();
     const recovery = new MapRecoveryController({
       lost: () => { if (active) { contextMissing.current = true; setRecoveringContext(true); setMapLoaded(false); setMapError(''); } },
       restored: () => {
@@ -499,7 +496,6 @@ export const MapView: React.FC<MapViewProps> = ({
           'line-width': 5,
         },
       });
-      mapTheme.current?.apply(map, themeRef.current);
     });
 
     // Handle click on editor mode
@@ -548,10 +544,6 @@ export const MapView: React.FC<MapViewProps> = ({
     else map.stop();
   }, [appActive]);
 
-  useEffect(() => {
-    const map = mapRef.current;
-    if (map && mapLoaded) mapTheme.current?.apply(map, isDark);
-  }, [isDark, mapLoaded]);
 
   useEffect(() => {
     if (focusRequestRef.current !== focusedLocation) {
@@ -841,12 +833,6 @@ export const MapView: React.FC<MapViewProps> = ({
   const compactLegend = showTraffic ? <TrafficLegend compact status={flowMessage} available={trafficReady && !trafficError && !trafficTileError && !outsideTrafficCoverage && Boolean(trafficLoadedAt)} /> :
     <RiskLegend compact />;
   const layerControls = <div className="map-layer-content">
-    <div className="map-type-filter">
-      <label htmlFor={themePreferenceId}>Aspecto del mapa</label>
-      <select id={themePreferenceId} value={preference} onChange={event => setThemePreference(event.target.value as 'light' | 'dark' | 'system')}>
-        <option value="system">Automático según el sistema</option><option value="light">Claro</option><option value="dark">Oscuro</option>
-      </select>
-    </div>
     <div className="map-layer-options">
       <label><input type="checkbox" checked={showRisks} onChange={event => { setShowRisks(event.target.checked); if (event.target.checked) setShowTraffic(false); }} />Riesgo por tramo</label>
       <label><input type="checkbox" checked={showTraffic} disabled={!trafficReady && !showTraffic} onChange={event => { setShowTraffic(event.target.checked); if (event.target.checked) setShowRisks(false); }} />Tráfico · TomTom</label>
@@ -861,7 +847,8 @@ export const MapView: React.FC<MapViewProps> = ({
         {typeOptions.map(([key, name]) => <option key={key} value={key}>{name}</option>)}
       </select>
     </div>
-    <small>El filtro cambia los iconos y sus zonas. El riesgo vial considera todos los incidentes.</small>
+    {yearFilter && <IncidentYearFilter {...yearFilter}/>}
+    <small>Los años filtran iconos, zonas y reportes recientes. El riesgo vial considera todos los antecedentes aplicables; el tráfico sigue siendo actual. El mapa conserva siempre su estilo claro.</small>
     {legend}
     {trafficData && !trafficData.trafico.disponible && <small role="status">{trafficData.trafico.motivo}</small>}
   </div>;
@@ -880,7 +867,7 @@ export const MapView: React.FC<MapViewProps> = ({
       {!editor && <>
         {!navigationMode && <>
           <details className="map-layer-panel" open={effectiveLayersOpen} onToggle={event => { if (event.currentTarget.open !== effectiveLayersOpen) changeLayersOpen(event.currentTarget.open); }}>
-            <summary onClick={event => { event.preventDefault(); changeLayersOpen(!effectiveLayersOpen); }}><Layers size={15} aria-hidden="true" /><span>Capas y filtros{typeFilter ? ' · 1 filtro' : ''}</span><ChevronDown size={15} aria-hidden="true" /></summary>
+            <summary onClick={event => { event.preventDefault(); changeLayersOpen(!effectiveLayersOpen); }}><Layers size={15} aria-hidden="true" /><span>Capas y filtros{typeFilter || yearFilter && yearFilter.selected !== null ? ' · filtros activos' : ''}</span><ChevronDown size={15} aria-hidden="true" /></summary>
             {layerControls}
           </details>
           <div className="map-fixed-legend">{compactLegend}</div>

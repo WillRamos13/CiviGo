@@ -2,13 +2,13 @@
 // Real Chromium/React/Mapbox. GPS, civic data and route API are local fixtures.
 const {app,server,windows,requests,errors,rendererConsoleErrors,createClient,waitUntil,delay,setIncidents,incident}=require('./map-live-smoke.cjs');
 const assert=require('node:assert/strict'),fs=require('node:fs/promises'),path=require('node:path'),{once}=require('node:events');
-const out=path.resolve(__dirname,'../.local/oct20-web/screenshots');
+const out=path.resolve(__dirname,'../.local/oct20-years/screenshots');
 app.commandLine.appendSwitch('enable-unsafe-swiftshader');
 app.on('window-all-closed',()=>{});
 const results=[];
 async function run() {
   await fs.mkdir(out,{recursive:true});server.listen(Number(process.env.CIVIGO_MAP_SMOKE_FIXTURE_PORT||55709),'127.0.0.1');await once(server,'listening');await app.whenReady();
-  setIncidents([incident]);
+  setIncidents([incident,{...incident,id:915,tipo:'Hurto',tipoNombre:'Hurto',tipoSlug:'hurto',fechaEvento:'2024-06-12T05:00:00Z',descripcion:'Hurto histórico de prueba'},{...incident,id:916,fechaEvento:'2023-08-12T05:00:00Z'}]);
   for(const [index,[width,height]] of [[390,844],[768,1024],[1366,768],[1920,1080]].entries()) {
     const win=await createClient(500+index,width,height,{mapReady:false,mapbox:true,offscreen:true});
     const js=script=>win.webContents.executeJavaScript(script);
@@ -34,9 +34,36 @@ async function run() {
       Object.defineProperty(navigator,'geolocation',{configurable:true,value:{getCurrentPosition(ok){setTimeout(()=>ok({...window.__nearbyPosition,timestamp:Date.now()}),0)},watchPosition(ok){const id=++window.__watchId;window.__watchers.set(id,ok);setTimeout(()=>ok({...window.__nearbyPosition,timestamp:Date.now()}),0);return id},clearWatch(id){window.__watchers.delete(id)}}});
       document.querySelector('.map-recenter').click();`);
     await waitUntil(win,`document.querySelector('summary')?.textContent.includes('Mi ubicación')`,12000);
-    await js(`Array.from(document.querySelectorAll('button')).find(b=>b.textContent==='Plaza de Armas de Ica').click()`);
-    await waitUntil(win,`document.querySelector('[role="option"]')?.textContent.includes('Plaza de Armas')`);
-    await js(`document.querySelector('[role="option"]').click()`);
+    await js(`document.querySelector('.map-controls > button').click()`);
+    await waitUntil(win,`Array.from(document.querySelectorAll('fieldset legend')).some(e=>e.textContent==='Años del incidente')`);
+    await js(`Array.from(document.querySelectorAll('fieldset label')).find(e=>e.textContent==='Todos los años').querySelector('input').click()`);
+    await waitUntil(win,`document.querySelector('.map-route-panel > button').textContent.includes('0 en mapa')`);
+    await js(`Array.from(document.querySelectorAll('fieldset label')).find(e=>e.textContent==='2024').querySelector('input').click()`);
+    await waitUntil(win,`document.querySelector('.map-route-panel > button').textContent.includes('1 en mapa')`);
+    await js(`Array.from(document.querySelectorAll('fieldset label')).find(e=>e.textContent==='2023').querySelector('input').click()`);
+    await waitUntil(win,`document.querySelector('.map-route-panel > button').textContent.includes('2 en mapa')`);
+    await screenshot(`filtros-anos-${width}x${height}.png`);
+    await js(`Array.from(document.querySelectorAll('fieldset label')).find(e=>e.textContent==='Todos los años').querySelector('input').click();document.querySelector('.map-controls > button').click()`);
+    await waitUntil(win,`document.querySelector('.map-route-panel > button').textContent.includes('3 en mapa')`);
+    // Hidden Electron windows cannot complete an OS fullscreen transition.
+    // Exercise the real CSS fallback used by browsers without that API.
+    await js(`Object.defineProperty(document,'fullscreenEnabled',{configurable:true,value:false});document.querySelector('button[aria-label="Ampliar mapa a pantalla completa"]').click()`);
+    await waitUntil(win,`document.querySelector('.map-frame').dataset.mapFullscreen==='true'`);
+    const full=await js(`(()=>{const r=document.querySelector('.map-frame').getBoundingClientRect();return{w:r.width,h:r.height,same:window.__originalCanvas===document.querySelector('.mapboxgl-canvas')}})()`);
+    assert.ok(Math.abs(full.w-width)<2);assert.ok(Math.abs(full.h-height)<2);assert.equal(full.same,true);
+    await screenshot(`pantalla-completa-${width}x${height}.png`);
+    await js(`document.querySelector('button[aria-label="Salir de pantalla completa"]').click()`);
+    await waitUntil(win,`document.querySelector('.map-frame').dataset.mapFullscreen==='false'`);
+    await js(`document.querySelector('button[aria-label="Buscar destino"]').click()`);
+    await waitUntil(win,`!!document.querySelector('[role="dialog"][aria-label="Buscar destino"] input[type="search"]')`);
+    await js(`(()=>{const input=document.querySelector('input[aria-label="Buscar lugares en Ica"]');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,'plaza de armas de ica');input.dispatchEvent(new Event('input',{bubbles:true}));})()`);
+    await waitUntil(win,`document.querySelector('section[aria-label="Resultados de lugares"] button')?.textContent.includes('Plaza de Armas')`);
+    await js(`document.querySelector('section[aria-label="Resultados de lugares"] button').click()`);
+    await waitUntil(win,`!!document.querySelector('[role="dialog"][aria-label="Información del lugar"]')`);
+    await screenshot(`ficha-lugar-${width}x${height}.png`);
+    await js(`Array.from(document.querySelectorAll('[role="dialog"] button')).find(b=>b.textContent==='Casa').click()`);
+    await waitUntil(win,`Object.keys(localStorage).some(k=>k==='civigo:places:v1:user:901')`);
+    await js(`Array.from(document.querySelectorAll('[role="dialog"] button')).find(b=>b.textContent==='Elegir destino').click()`);
     await waitUntil(win,`!document.querySelector('.route-planner-search button').disabled`);
     await js(`document.querySelector('.route-planner-search button').click()`);
     await waitUntil(win,`document.querySelectorAll('section[aria-label="Alternativas de recorrido"] > button').length===3`);
