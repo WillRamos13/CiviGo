@@ -22,9 +22,10 @@ test('marker viewport includes a pan buffer and handles wrapped longitude withou
 
 test('existing marker updates position, icon, severity and click payload without HTML injection', () => {
   const image: any = { src: '', alt: '', onerror: null };
-  const pill: any = { style: {}, textContent: '' };
+  const properties: Record<string, string> = {};
+  const halo: any = { style: { setProperty: (key: string, value: string) => { properties[key] = value; } } };
   const attributes: Record<string, string> = {};
-  const element: any = { title: '', dataset: {}, onclick: null, setAttribute: (name: string, value: string) => { attributes[name] = value; }, querySelector: (selector: string) => selector === 'img' ? image : pill };
+  const element: any = { title: '', dataset: {}, onclick: null, setAttribute: (name: string, value: string) => { attributes[name] = value; }, querySelector: (selector: string) => selector === 'img' ? image : halo };
   Object.defineProperty(element, 'innerHTML', { set: () => { throw new Error('HTML must never be injected'); } });
   let coordinates: any;
   let selected: any;
@@ -39,9 +40,10 @@ test('existing marker updates position, icon, severity and click payload without
   assert.deepEqual(coordinates, [-75.1, -14.1]);
   assert.match(image.src, /bache\.png$/);
   assert.equal(image.alt, 'Bache');
-  assert.equal(pill.style.backgroundColor, '#DC2626');
+  assert.equal(properties['--incident-risk-color'], '#DC2626');
   assert.equal(attributes['aria-label'], 'Bache: <img src=x onerror=alert(1)>');
-  assert.equal(pill.textContent, '');
+  updateIncidentMarker(marker, { ...updated, porEvaluar: true });
+  assert.equal(properties['--incident-risk-color'], '#64748b', 'pending evaluation is never displayed as a known severity');
   image.onerror();
   assert.equal(image.src, '/iconos/alerta.svg');
   assert.equal(image.onerror, null);

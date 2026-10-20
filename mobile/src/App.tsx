@@ -35,7 +35,9 @@ export const AppContent: React.FC = () => {
   const [viewMode, setViewMode] = useState<ViewMode>(() => isPasswordResetLocation(window.location.href) ? 'forgot' : 'tab');
   const [viewHistory, setViewHistory] = useState<ViewMode[]>([]);
   const [notificationIncidentId, setNotificationIncidentId] = useState<number | null>(null);
+  const [navigationActive, setNavigationActive] = useState(false);
   const mapVisible = viewMode === 'tab' && activeTab === 'map';
+  const navigationFullscreen = mapVisible && navigationActive;
   const [mapVisited, setMapVisited] = useState(mapVisible);
   const mainRef = useRef<HTMLElement>(null);
 
@@ -193,22 +195,22 @@ export const AppContent: React.FC = () => {
   };
 
   return (
-    <div className="app-container">
-      <MobileHeader
+    <div className={`app-container ${navigationFullscreen ? 'app-navigation-fullscreen' : ''}`}>
+      {!navigationFullscreen && <MobileHeader
         title={getPageTitle()}
         showBack={viewMode !== 'tab'}
         onBack={handleBack}
         onOpenAgent={() => navigateTo('agent')}
-      />
+      />}
 
       <main className="app-main" ref={mainRef}>
-        {(mapVisited || mapVisible) && <div className="retained-map-view" hidden={!mapVisible} style={{ height: '100%' }}><MapPage visible={mapVisible} onGoReport={() => setActiveTab('report')} /></div>}
+        {(mapVisited || mapVisible) && <div className="retained-map-view" hidden={!mapVisible} style={{ height: '100%' }}><MapPage visible={mapVisible} onGoReport={() => setActiveTab('report')} onNavigationChange={setNavigationActive} /></div>}
         <div className="other-app-view" hidden={mapVisible}>{renderContent()}</div>
       </main>
 
       {notificationIncidentId !== null && <IncidentFromAlert key={notificationIncidentId} id={notificationIncidentId} onClose={() => setNotificationIncidentId(null)} />}
 
-      {viewMode === 'tab' && (
+      {viewMode === 'tab' && !navigationFullscreen && (
         <BottomNavigation
           activeTab={activeTab}
           onChangeTab={(tab) => {

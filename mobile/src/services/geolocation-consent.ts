@@ -30,16 +30,33 @@ export function normalizeGeolocationError(value: unknown): GeolocationError {
   return new GeolocationError(message, code);
 }
 
+export function isGeolocationDenial(error: unknown): boolean {
+  const code = normalizeGeolocationError(error).code;
+  return code === 'OS-PLUG-GLOC-0003' || code === 'OS-PLUG-GLOC-0008' || code === 'OS-PLUG-GLOC-0009' || code === 1;
+}
+
 /** A denial is a user decision; temporary GPS failures must remain retryable. */
 export class GeolocationAccessPolicy {
   private denied = false;
   private manualInProgress = false;
+  private revision = 0;
+  private denialListeners = new Set<(error: GeolocationError, revision: number) => void>();
   canWatchAutomatically() { return !this.denied && !this.manualInProgress; }
-  beginManualAttempt() { this.denied = false; this.manualInProgress = true; }
+  currentRevision() { return this.revision; }
+  isCurrentRevision(revision: number) { return revision === this.revision; }
+  onDenial(listener: (error: GeolocationError, revision: number) => void): () => void {
+    this.denialListeners.add(listener);
+    return () => { this.denialListeners.delete(listener); };
+  }
+  beginManualAttempt() { this.revision++; this.denied = false; this.manualInProgress = true; }
   finishManualAttempt() { this.manualInProgress = false; }
-  observeError(error: unknown): boolean {
-    const code = normalizeGeolocationError(error).code;
-    if (code === 'OS-PLUG-GLOC-0003' || code === 'OS-PLUG-GLOC-0008' || code === 'OS-PLUG-GLOC-0009' || code === 1) this.denied = true;
+  observeError(error: unknown, revision = this.revision): boolean {
+    if (!this.isCurrentRevision(revision)) return false;
+    if (isGeolocationDenial(error)) {
+      this.denied = true;
+      const normalized = normalizeGeolocationError(error);
+      for (const listener of this.denialListeners) listener(normalized, revision);
+    }
     return this.denied;
   }
 }
@@ -53,21 +70,36 @@ export function watchWithGeolocationConsent(
   onError: (error: GeolocationError) => void
 ): () => void {
   if (!policy.canWatchAutomatically()) return () => {};
+  const revision = policy.currentRevision();
   let closed = false;
   let cleanup: (() => void) | undefined;
   let released = false;
+  let unsubscribeDenial = () => {};
   const stop = () => {
     closed = true;
+    unsubscribeDenial();
     if (cleanup && !released) { released = true; cleanup(); }
   };
+  unsubscribeDenial = policy.onDenial((error, deniedRevision) => {
+    if (closed || deniedRevision !== revision || !policy.isCurrentRevision(revision)) return;
+    stop(); onError(error);
+  });
   const fail = (error: unknown) => {
-    if (closed) return;
+    if (!policy.isCurrentRevision(revision)) return;
+    const wasClosed = closed;
     const normalized = normalizeGeolocationError(error);
-    if (policy.observeError(normalized)) stop();
-    onError(normalized);
+    // A permission/settings dialog can finish after the page was suspended.
+    // Remember that user decision without sending UI callbacks to a closed view.
+    if (isGeolocationDenial(normalized)) {
+      // Also close a replacement automatic watch that started on resume before
+      // the previous permission dialog delivered its denial.
+      policy.observeError(normalized, revision);
+      return;
+    }
+    if (!wasClosed) onError(normalized);
   };
   try {
-    cleanup = register((fix) => { if (!closed) onSuccess(fix); }, fail);
+    cleanup = register((fix) => { if (!closed && policy.isCurrentRevision(revision)) onSuccess(fix); }, fail);
     if (closed) stop(); // A platform may reject synchronously before returning its watch handle.
   } catch (error) { fail(error); }
   return stop;

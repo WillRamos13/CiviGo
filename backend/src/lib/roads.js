@@ -5,6 +5,7 @@ const { HttpError } = require("./http");
 const { distanceMeters, projectToLine } = require("./risk");
 const { searchLocalPlaces } = require("./local-places");
 const { parseTurnRestrictions } = require("./navigation-restrictions");
+const { subdivideRoads } = require("./road-segmentation");
 let cached;
 const coverageCache = new WeakMap();
 const normalize = (value) =>
@@ -143,7 +144,7 @@ function parseRoads(data) {
       inner: ringsFromRelation(r, ways, nodes, "inner"),
     }));
   return {
-    segments,
+    segments: subdivideRoads(segments),
     boundary,
     districts,
     nodeTags,

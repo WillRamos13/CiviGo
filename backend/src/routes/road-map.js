@@ -27,6 +27,9 @@ module.exports = function createRoadMapRouter({
           properties: {
             id: s.id,
             nombre: s.nombre,
+            parentEdgeId: s.parentEdgeId ?? s.id,
+            desdeMetros: s.startOffset ?? 0,
+            hastaMetros: s.endOffset ?? s.length,
             puntos: 0,
             nivelRiesgo: 0,
             pendiente: false,

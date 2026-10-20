@@ -564,7 +564,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                     Spotify durante la navegación
                   </strong>
                   <span className="muted" style={{ fontSize: 11, display: 'block', marginTop: 2 }}>
-                    Muestra un acceso para abrir Spotify. No hay una cuenta conectada ni controles de reproducción dentro de CiviGo. Desactivado por defecto.
+                    Opcional. Conecta la app de Spotify para consultar la canción y controlar su reproducción cuando la integración esté disponible. Desactivado por defecto.
                   </span>
                 </div>
                 <input

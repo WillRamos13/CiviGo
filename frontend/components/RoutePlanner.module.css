@@ -1,6 +1,14 @@
 .planner {
     min-width: 0;
 }
+.planner :global(.card-header) h2 { font-size: 23px; letter-spacing: -.7px; }
+.originDetails { margin: 0 0 12px; font-size: 11px; }
+.originDetails > summary { display: flex; align-items: center; gap: 5px; cursor: pointer; min-height: 35px; color: var(--muted); }
+.originDetails > summary > span:first-of-type { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.originDetails > summary > span:last-child { color: var(--brand); }
+.shortcuts { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: thin; padding: 7px 0 9px; margin-top: 5px; }
+.shortcuts > button { display: inline-flex; align-items: center; gap: 5px; flex-shrink: 0; min-height: 36px; max-width: 220px; padding: 6px 10px; border-radius: 12px; border: 1px solid var(--line); color: var(--ink); background: var(--surface); font-size: 11px; }
+.shortcuts > button > svg { flex: 0 0 auto; }
 
 .planner .intro {
     font-size: 12px;

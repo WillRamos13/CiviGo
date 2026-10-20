@@ -4,9 +4,11 @@ import { mkdir, mkdtemp, writeFile, rm } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import assert from 'node:assert/strict';
+import { checkOfflineMapNotices } from './offline-map-notices.mjs';
 
 const root = process.cwd();
-const artifactDir = path.join(root, '.local', 'ui-smoke');
+const offlineNotices = process.argv.includes('--offline-notices');
+const artifactDir = path.join(root, '.local', ...(offlineNotices ? ['oct20', 'offline-map-notices'] : ['ui-smoke']));
 await mkdir(artifactDir, { recursive: true });
 const profileDir = await mkdtemp(path.join(artifactDir, 'chrome-profile-'));
 const server = await createServer({ root, server: { host: '127.0.0.1', port: 0 }, logLevel: 'error' });
@@ -14,7 +16,8 @@ let context;
 const results = [];
 const errors = [];
 const external = [];
-let failedIncidents = false;
+let failedIncidents = offlineNotices;
+const noticeRequests = { incidents: 0, roads: 0, map: 0 };
 const user = { id: 901, nickname: 'Prueba local', correo: 'prueba-local@gmail.com', telefono: '+51900000000',
   rol: 'USUARIO', premium: false, correoVerificado: true, bloqueado: false, monedas: 20, credibilidad: null };
 const incident = { id: 501, tipo: 'bache', tipoNombre: 'Bache', descripcion: 'Bache del entorno local de prueba',
@@ -27,8 +30,8 @@ const route = { id: 'segura-local', nombre: 'Más segura', tipo: 'segura', dista
   puntosRiesgo: 2, nivelRiesgo: 1, riesgoConocido: true, advertencias: ['Aviso local de prueba'],
   trafico: { disponible: false, fuente: null, actualizadoEn: null, demoraSegundos: 0, motivo: 'No disponible' },
   pasos: [
-    { id: 'start', tipo: 'start', maniobra: 'start', instruccion: 'Continúa por la avenida de prueba', calle: 'Avenida local', distancia: 450, duracion: 200, distanciaAcumulada: 0, duracionAcumulada: 0 },
-    { id: 'left', tipo: 'turn', maniobra: 'turn-left', instruccion: 'Gira a la izquierda en la calle de prueba', calle: 'Calle local', distancia: 950, duracion: 400, distanciaAcumulada: 450, duracionAcumulada: 200 },
+    { id: 'start', tipo: 'salida', maniobra: 'recto', instruccion: 'Continúa por la avenida de prueba', calle: 'Avenida local', distancia: 450, duracion: 200, distanciaAcumulada: 0, duracionAcumulada: 0 },
+    { id: 'left', tipo: 'giro', maniobra: 'izquierda', instruccion: 'Gira a la izquierda en la calle de prueba', calle: 'Calle local', distancia: 950, duracion: 400, distanciaAcumulada: 450, duracionAcumulada: 200 },
   ] };
 const executablePath = process.env.CIVIGO_CHROME_PATH || [
   'C:/Program Files/Google/Chrome/Application/chrome.exe',
@@ -39,9 +42,25 @@ try {
   const address = server.httpServer.address();
   const origin = `http://127.0.0.1:${address.port}`;
   context = await chromium.launchPersistentContext(profileDir, {
-    executablePath, headless: true, viewport: { width: 390, height: 844 },
+    executablePath, headless: true, viewport: offlineNotices ? { width: 360, height: 640 } : { width: 390, height: 844 },
     permissions: ['geolocation'], geolocation: { latitude: -14.0678, longitude: -75.7286, accuracy: 5 },
     args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader'],
+  });
+  await context.addInitScript(() => {
+    window.__uiSpeech = [];
+    Object.defineProperty(window, 'SpeechSynthesisUtterance', { configurable: true, value: class { constructor(text) { this.text = text; } } });
+    Object.defineProperty(window, 'speechSynthesis', { configurable: true, value: {
+      getVoices: () => [{ lang: 'es-PE', localService: true }], cancel() {},
+      speak(utterance) { window.__uiSpeech.push(utterance.text); queueMicrotask(() => utterance.onend?.()); },
+    } });
+  });
+  if (offlineNotices) await context.addInitScript(() => {
+    window.__uiOnline = false; window.__uiGPSRetries = 0;
+    Object.defineProperty(navigator, 'onLine', { configurable: true, get: () => window.__uiOnline });
+    const denied = failure => queueMicrotask(() => failure?.({ code: 1, message: 'User denied Geolocation' }));
+    Object.defineProperty(navigator.geolocation, 'watchPosition', { configurable: true, value: (_success, failure) => { denied(failure); return 900001; } });
+    Object.defineProperty(navigator.geolocation, 'clearWatch', { configurable: true, value: () => {} });
+    Object.defineProperty(navigator.geolocation, 'getCurrentPosition', { configurable: true, value: (_success, failure) => { window.__uiGPSRetries++; denied(failure); } });
   });
   await context.route('**/*', async handler => {
     const request = handler.request();
@@ -49,9 +68,13 @@ try {
     if (!['http:', 'https:'].includes(url.protocol)) return handler.continue();
     if (url.origin !== origin) {
       external.push(url.hostname);
-      if (url.hostname === 'api.mapbox.com' && url.pathname.startsWith('/styles/')) return handler.fulfill({ json: {
+      if (url.hostname === 'api.mapbox.com' && url.pathname.startsWith('/styles/')) {
+        noticeRequests.map++;
+        if (offlineNotices) return handler.abort('internetdisconnected');
+        return handler.fulfill({ json: {
         version: 8, sources: {}, layers: [{ id: 'local-background', type: 'background', paint: { 'background-color': '#d8e8dc' } }],
-      } });
+        } });
+      }
       return handler.abort();
     }
     if (!url.pathname.startsWith('/api/')) return handler.continue();
@@ -62,13 +85,18 @@ try {
     if (api === '/incidents/501/chat') return handler.fulfill({ json: [] });
     if (api === '/incidents/501/resolver') return handler.fulfill({ json: { ...incident, estado: 'ACTIVO', resoluciones: 1 } });
     if (api === '/incidents/501') return handler.fulfill({ json: incident });
-    if (api === '/incidents') return handler.fulfill(failedIncidents ? { status: 503, json: { error: 'Fallo local de prueba' } }
-      : { json: url.searchParams.has('bbox') ? { items: [incident], nextCursor: null } : [incident] });
+    if (api === '/incidents') {
+      noticeRequests.incidents++;
+      return handler.fulfill(failedIncidents ? { status: 503, json: { error: 'Fallo local de prueba' } }
+        : { json: url.searchParams.has('bbox') ? { items: [incident], nextCursor: null } : [incident] });
+    }
     if (api === '/navigation/favorites' || api === '/reports/mine') return handler.fulfill({ json: [] });
-    if (api === '/navigation/roads/risk') return handler.fulfill({ json: { version: 'local', revision: 'r1', values: [] } });
+    if (api === '/navigation/roads/risk') { noticeRequests.roads++; return handler.fulfill(offlineNotices ? { status: 503, json: { error: 'Riesgo no disponible en el fixture offline' } } : { json: { version: 'local', revision: 'r1', values: [] } }); }
     if (api === '/navigation/roads/geometry') return handler.fulfill({ json: { version: 'local', type: 'FeatureCollection', features: [] } });
+    if (api === '/navigation/traffic/status') return handler.fulfill({ json: { configurado: false, habilitado: false, controlCuotaDisponible: false } });
     if (api === '/navigation/places') return handler.fulfill({ json: [{ nombre: 'Plaza de Armas de Ica', latitud: -14.0758, longitud: -75.731, fuente: 'Prueba local' }] });
     if (api === '/navigation/plan') return handler.fulfill({ json: { rutas: [route] } });
+    if (api === '/navigation/history') return handler.fulfill({ json: { guardado: true } });
     if (api === '/catalog') return handler.fulfill({ json: { categorias: [{ id: 1, nombre: 'Infraestructura', slug: 'infraestructura', tipos: [type] }], config: {}, distritos: ['Ica'] } });
     if (api === '/participation') return handler.fulfill({ json: { reportesValidados: 0, totalReportes: 0, puntosMensuales: 0, mes: '2026-10', insignias: [], movimientos: [] } });
     if (api === '/notifications') return handler.fulfill({ json: [{ id: 3, titulo: 'Aviso de prueba', mensaje: 'Notificación local', leida: false, tipo: 'REVISION', incidenteId: 501, creadoEn: new Date().toISOString() }] });
@@ -81,7 +109,10 @@ try {
   const page = context.pages()[0] || await context.newPage();
   page.on('pageerror', error => errors.push(error.message));
   await page.goto(origin, { waitUntil: 'domcontentloaded', timeout: 60000 });
-  await page.getByRole('combobox', { name: 'Buscar destino en Ica' }).waitFor();
+  await page.getByRole('button', { name: 'Buscar destino en Ica' }).waitFor();
+  if (offlineNotices) {
+    results.push(...await checkOfflineMapNotices(page, artifactDir, { counts: () => ({ ...noticeRequests }), failIncidents: value => { failedIncidents = value; } }));
+  } else {
   for (const width of [320, 390, 768, 1024]) {
     for (const dark of [false, true]) {
       await page.setViewportSize({ width, height: 844 });
@@ -98,9 +129,9 @@ try {
     const dimensions = await sheet.evaluate(element => {
       const box = element.getBoundingClientRect();
       const parent = element.parentElement.getBoundingClientRect();
-      return { height: box.height, available: parent.height };
+      return { height: box.height, width: box.width, available: parent.height, availableWidth: parent.width };
     });
-    assert.ok(dimensions.height <= dimensions.available * 0.69, 'El panel debe dejar visible parte del mapa');
+    assert.ok(dimensions.height * dimensions.width <= dimensions.available * dimensions.availableWidth * 0.69, 'El panel debe dejar visible parte del mapa, también cuando se sitúa en un lateral');
     await sheet.evaluate(element => { element.scrollTop = element.scrollHeight; });
     await page.getByRole('button', { name: 'Mostrar navegación compacta', exact: true }).click();
     assert.equal(await page.locator('#map-route-panel').isVisible(), false);
@@ -111,31 +142,63 @@ try {
   await page.setViewportSize({ width: 390, height: 844 });
   await context.setGeolocation({ latitude: -14.0678, longitude: -75.7286, accuracy: 5 });
   await page.getByRole('button', { name: 'Ubicar mi posición', exact: true }).click();
-  await page.getByRole('combobox', { name: 'Buscar destino en Ica' }).fill('Plaza de Armas');
-  await page.getByRole('option').first().click();
+  await page.getByRole('button', { name: 'Buscar destino en Ica', exact: true }).click();
+  await page.getByRole('searchbox', { name: 'Buscar lugares en Ica', exact: true }).fill('Plaza de Armas');
+  await page.getByRole('region', { name: 'Resultados de lugares', exact: true }).getByRole('button', { name: /Plaza de Armas de Ica/ }).first().click();
+  await page.getByRole('dialog', { name: 'Información del lugar', exact: true }).getByRole('button', { name: 'Ver rutas', exact: true }).click();
   await page.getByRole('button', { name: 'Iniciar recorrido' }).click();
   const guidance = page.getByRole('region', { name: 'Indicaciones del recorrido' });
   await guidance.waitFor();
+  await page.waitForFunction(() => window.__uiSpeech.length > 0);
+  await page.locator('.app-navigation-fullscreen').waitFor();
+  assert.equal(await page.locator('.mobile-header:visible, .bottom-nav:visible').count(), 0);
+  assert.equal(await guidance.getByRole('button').count(), 1);
+  await guidance.getByRole('button', { name: 'Salir de navegación', exact: true }).waitFor();
+  assert.ok(await guidance.getByText(/restantes/).count());
+  assert.ok(await guidance.getByText(/Llegada/).count());
+  assert.equal(await guidance.locator('.gn-turn-row').count(), 0);
+  assert.ok((await page.locator('.map-bottom-sheet').boundingBox()).height <= 200);
+  await page.getByRole('button', { name: 'Centrar ubicación y seguir recorrido', exact: true }).waitFor();
+  assert.equal(await guidance.locator('.gn-compact-maneuver').count(), 1);
+  assert.equal(await guidance.locator('.gn-speed').count(), 1);
+  assert.equal(await guidance.locator('.gn-estimate-source').count(), 1);
+  await page.screenshot({ path: path.join(artifactDir, 'navigation-compact.png') });
+  results.push('Navegación usa toda la pantalla con giro, velocímetro real, fuente ETA, Salir y recentrado flotante');
+  await page.getByRole('button', { name: 'Expandir opciones de navegación', exact: true }).click();
+  await page.waitForFunction(() => {
+    const heading = document.querySelector('.map-sheet-toggle')?.getBoundingClientRect();
+    const label = document.querySelector('.navigation-guidance .gn-eyebrow');
+    const instruction = label?.getBoundingClientRect();
+    window.__uiSheetLayout = { headingBottom: heading?.bottom, instructionTop: instruction?.top, instructionHeight: instruction?.height, scrollTop: document.querySelector('.map-bottom-sheet')?.scrollTop };
+    if (!heading || !instruction || !label) return false;
+    const target = document.elementFromPoint(instruction.x + instruction.width / 2, instruction.y + instruction.height / 2);
+    // A line box may include a few pixels of leading above the visible glyphs.
+    return instruction.bottom - Math.max(instruction.top, heading.bottom) >= instruction.height * .8 && (target === label || label.contains(target));
+  }, undefined, { timeout: 5000 });
+  assert.ok(await page.locator('.map-bottom-sheet').evaluate(element => element.scrollTop <= 1), 'Expandir navegación devuelve la hoja al comienzo');
   await guidance.getByRole('button', { name: 'Finalizar', exact: true }).waitFor({ state: 'visible' });
   assert.ok(await guidance.getByText(/restantes/).count());
   assert.ok(await guidance.getByText(/Llegada aprox/).count());
   assert.ok(await guidance.getByText(/Gira a la izquierda/).count());
   assert.equal(await guidance.getByText('Abrir Spotify', { exact: true }).count(), 0);
-  await page.screenshot({ path: path.join(artifactDir, 'navigation-compact.png') });
-  results.push('Navegación compacta mantiene siguiente giro, distancia, ETA, alertas y Finalizar; Spotify apagado');
+  await page.screenshot({ path: path.join(artifactDir, 'navigation-expanded.png') });
+  results.push('El menú ampliado mantiene siguiente giro, distancia, ETA, alertas y Finalizar; Spotify apagado');
+  await page.getByRole('button', { name: 'Agregar aviso', exact: true }).click();
+  await page.getByRole('heading', { name: 'Reportar un incidente', exact: true }).waitFor();
   await page.getByRole('button', { name: 'Mi Perfil', exact: true }).click();
   await page.locator('.mapboxgl-canvas').waitFor({ state: 'detached' });
   await page.locator('label').filter({ hasText: 'Spotify durante la navegación' }).locator('input[type=checkbox]').check();
   await page.getByRole('button', { name: 'Explorar Mapa', exact: true }).click();
   await page.locator('.mapboxgl-canvas').waitFor({ state: 'visible' });
+  await page.getByRole('button', { name: 'Expandir opciones de navegación', exact: true }).click();
   await guidance.getByRole('button', { name: 'Finalizar', exact: true }).waitFor();
   await guidance.getByRole('button', { name: 'Abrir Spotify', exact: true }).waitFor();
   assert.equal(await guidance.getByRole('button', { name: /Reproducir|Siguiente pista|Pausar/ }).count(), 0);
   results.push('Mapa libera su contexto gráfico al ocultarse y lo reconstruye al volver');
   results.push('Recorrido continúa entre pestañas y el acceso honesto a Spotify aparece sólo al habilitarlo');
   await guidance.getByRole('button', { name: 'Finalizar', exact: true }).click();
-  await page.locator('.nearby-incidents summary').click();
-  await page.locator('.nearby-incident').first().click();
+  await page.locator('.nearby-incident-cards summary').click();
+  await page.locator('.nearby-mini-card').first().getByRole('button', { name: /Ver en mapa/ }).click();
   const photo = page.locator('img[src^="blob:"]').first();
   await photo.waitFor({ state: 'visible' });
   assert.ok(await photo.evaluate(element => element.complete && element.naturalWidth > 0));
@@ -200,16 +263,19 @@ try {
     } });
   });
   await page.getByRole('button', { name: 'Explorar Mapa', exact: true }).click();
+  await page.locator('.map-render-status summary').filter({ hasText: 'GPS no disponible' }).click();
   await page.getByRole('button', { name: 'Reintentar GPS', exact: true }).waitFor();
   assert.equal(await page.evaluate(() => window.__civigoGeoChecks.watches), 1);
   await page.getByRole('button', { name: 'Mi Perfil', exact: true }).click();
   await page.getByRole('button', { name: 'Explorar Mapa', exact: true }).click();
+  await page.locator('.map-render-status summary').filter({ hasText: 'GPS no disponible' }).click();
   await page.getByRole('button', { name: 'Reintentar GPS', exact: true }).waitFor();
   assert.equal(await page.evaluate(() => window.__civigoGeoChecks.watches), 1);
   await page.getByRole('button', { name: 'Reintentar GPS', exact: true }).click();
   await page.waitForFunction(() => window.__civigoGeoChecks.watches === 2 && window.__civigoGeoChecks.manual === 1);
   await page.getByRole('button', { name: 'Reintentar GPS', exact: true }).waitFor({ state: 'detached' });
   results.push('GPS denegado no vuelve a solicitarse al cambiar de pestaña; reintento explícito reactiva seguimiento');
+  }
   assert.deepEqual(errors, []);
   await writeFile(path.join(artifactDir, 'resultado.json'), JSON.stringify({ passed: true, results, browserErrors: errors,
     externalRequestsAllowed: 0, externalRequestsBlockedOrMocked: external.length, productionMutations: 0 }, null, 2));
@@ -217,7 +283,8 @@ try {
   console.log(JSON.stringify({ passed: true, checks: results.length, browserErrors: errors, externalRequestsAllowed: 0 }));
 } catch (error) {
   if (context?.pages()[0]) await context.pages()[0].screenshot({ path: path.join(artifactDir, 'failure.png') }).catch(() => {});
-  await writeFile(path.join(artifactDir, 'failure.json'), JSON.stringify({ message: String(error), results, errors, external }, null, 2));
+  const sheetLayout = await context?.pages()[0]?.evaluate(() => window.__uiSheetLayout).catch(() => null);
+  await writeFile(path.join(artifactDir, 'failure.json'), JSON.stringify({ message: String(error), results, errors, external, sheetLayout }, null, 2));
   throw error;
 } finally {
   await context?.close(); await server.close();

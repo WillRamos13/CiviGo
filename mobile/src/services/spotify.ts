@@ -1,4 +1,5 @@
 import { StorageService } from './native';
+import { disableNativeSpotify } from './spotifyRemote';
 
 const SPOTIFY_NAV_KEY = 'civigo:spotify_nav_enabled';
 const preferenceListeners = new Set<(enabled: boolean) => void>();
@@ -23,6 +24,7 @@ export const SpotifyService = {
   async setEnabled(enabled: boolean): Promise<void> {
     await StorageService.set(SPOTIFY_NAV_KEY, enabled ? 'true' : 'false');
     preferenceListeners.forEach(listener => listener(enabled));
+    if (!enabled) await disableNativeSpotify().catch(() => {});
   },
 
   subscribe(listener: (enabled: boolean) => void): () => void {

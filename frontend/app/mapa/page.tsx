@@ -1,6 +1,7 @@
 'use client';
-import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { ChevronRight, LocateFixed, RefreshCw, ShieldAlert, Signal } from 'lucide-react';
+import { useState, useEffect, useCallback, useMemo, useRef, useId } from 'react';
+import { ChevronRight, ChevronDown, ChevronUp, LocateFixed, RefreshCw, ShieldAlert, Signal } from 'lucide-react';
+import styles from './page.module.css';
 import MapView from '@/components/MapView';
 import IncidentPanel from '@/components/IncidentPanel';
 import IncidentIcon from '@/components/IncidentIcon';
@@ -37,6 +38,15 @@ export default function Mapa() {
 }
 function AccountMap() {
     const { usuario } = useAuth();
+    const [panelExpanded, setPanelExpanded] = useState(true);
+    const routePanelId = useId();
+    const pageRef = useRef<HTMLDivElement>(null);
+    useEffect(() => {
+        const viewport = window.visualViewport;
+        const resize = () => pageRef.current?.style.setProperty('--map-viewport-height', `${viewport?.height ?? window.innerHeight}px`);
+        resize(); viewport?.addEventListener('resize', resize); window.addEventListener('resize', resize);
+        return () => { viewport?.removeEventListener('resize', resize); window.removeEventListener('resize', resize); };
+    }, []);
     const [incidents, setIncidents] = useState<Incidente[]>([]), [selected, setSelected] = useState<Incidente | null>(null), [route, setRoute] = useState<Ruta | null>(null), [following, setFollowing] = useState(false), [error, setError] = useState(''), [updated, setUpdated] = useState(''), [loading, setLoading] = useState(true), [routeAlert, setRouteAlert] = useState(''), [recalculate, setRecalculate] = useState(0), [ad, setAd] = useState<Business | null>(null), [businessDetail, setBusinessDetail] = useState<Business | null>(null), [category, setCategory] = useState('');
     const [bounds, setBounds] = useState<MapBounds>(() => [...ICA_MAP_BOUNDS]);
     const [confirmedBounds, setConfirmedBounds] = useState<MapBounds | null>(null);
@@ -51,7 +61,7 @@ function AccountMap() {
     const [focusPoint, setFocusPoint] = useState<{ posicion: Posicion; version: number } | null>(null);
     const focusIncident = (incident: Incidente) => setFocusPoint(current => ({ posicion: incident, version: (current?.version ?? 0) + 1 }));
     const selectIncident = (incident: Incidente) => { setSelected(incident); focusIncident(incident); };
-    const changeFollowing = useCallback((value: boolean) => { setFollowing(value); setAd(null); }, []);
+    const changeFollowing = useCallback((value: boolean) => { setFollowing(value); setAd(null); setPanelExpanded(!value); }, []);
     const changeRoute = useCallback((next: Ruta | null) => {
         setRoute(next);
         setBounds(previous => mapQueryBounds(previous, next?.geometria.coordinates));
@@ -123,7 +133,7 @@ function AccountMap() {
         setCategory(value);
         setFilterLabel(filterGroups.flatMap(group => group.types).find(type => type.key === value)?.name ?? value);
     };
-    return <div className="map-page">
+    return <div ref={pageRef} className={`map-page ${styles.page} ${following ? styles.navigating : ''}`} data-map-mode={following ? 'navigation' : 'planning'}>
         <h1 className="sr-only">Mapa de incidentes en Ica</h1>
         {routeAlert && <div className="notice notice-warning">
             <strong><ShieldAlert size={16} style={{ display: 'inline', marginRight: 8 }}/>Aviso sobre tu recorrido</strong>
@@ -136,13 +146,18 @@ function AccountMap() {
         <div className="map-workspace">
             <div className="map-column">
                 <div className="map-frame" aria-busy={loading}>
-                    <MapView onBounds={changeBounds} incidentes={filtered} ruta={route} onSelect={selectIncident} focusPoint={focusPoint} posicion={position} onLocate={location.acceptPosition} navigating={following} heading={navigation.progress?.heading} centerVersion={navigation.centerVersion} onTrafficChange={() => { if (tracking.current) setRecalculate(v => v + 1); }} typeFilter={{ value: category, groups: filterGroups, onChange: changeTypeFilter }}/>
+                    <MapView onBounds={changeBounds} incidentes={filtered} ruta={route} onSelect={selectIncident} focusPoint={focusPoint} posicion={position} onLocate={location.acceptPosition} onRequestLocation={location.requestLocation} compactLegend navigating={following} heading={navigation.progress?.heading} centerVersion={navigation.centerVersion} onTrafficChange={() => { if (tracking.current) setRecalculate(v => v + 1); }} typeFilter={{ value: category, groups: filterGroups, onChange: changeTypeFilter }}/>
+                    <section className={`map-side-panel map-route-panel ${styles.plannerPanel}`} aria-label="Panel de recorridos" data-expanded={panelExpanded}>
+                        <button type="button" className={`panel-toggle ${styles.plannerToggle}`} aria-expanded={panelExpanded} aria-controls={routePanelId} onClick={() => setPanelExpanded(value => !value)}>
+                            <strong>{following ? 'EN CAMINO' : '¿A DÓNDE VAMOS?'}</strong>
+                            {!following && <span className={styles.incidentCount}>{filtered.length} en mapa</span>}
+                            {panelExpanded ? <ChevronDown size={17} aria-hidden="true"/> : <ChevronUp size={17} aria-hidden="true"/>}
+                        </button>
+                        <div id={routePanelId} className={`collapsible-panel-body ${styles.plannerBody}`} hidden={!following && !panelExpanded}>
+                            <RoutePlanner onRoute={changeRoute} active={route} following={following} onFollow={changeFollowing} guidance={navigation} onLocate={location.acceptPosition} currentPosition={position} compact={following && !panelExpanded}/>
+                        </div>
+                    </section>
                 </div>
-            <aside className="side-panel map-floating-panels" aria-label="Paneles del mapa">
-                <CollapsiblePanel title="¿A dónde vamos?" className="map-side-panel map-route-panel" defaultOpen>
-                    <RoutePlanner onRoute={changeRoute} active={route} following={following} onFollow={changeFollowing} guidance={navigation} onLocate={location.acceptPosition}/>
-                </CollapsiblePanel>
-            </aside>
                 {selected && <IncidentPanel key={selected.id} incidente={selected} variant="map-card" onClose={() => setSelected(null)} onRefresh={refreshAll} onShowOnMap={() => { focusIncident(selected); setSelected(null); document.querySelector('.map-column')?.scrollIntoView({block: 'start'}); }}/>}
                 <div className="map-footer"><span className="online-state"><span/>Provincia de Ica</span><span>{updated ? `Actualizados ${updated}` : 'Conectando…'}</span><Signal size={17} aria-hidden="true"/></div>
             </div>

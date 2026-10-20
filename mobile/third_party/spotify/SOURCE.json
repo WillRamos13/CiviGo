@@ -1,0 +1,13 @@
+{
+  "name": "Spotify App Remote SDK for Android",
+  "version": "0.8.0",
+  "tag": "v0.8.0-appremote_v2.1.0-auth",
+  "upstream": "https://github.com/spotify/android-sdk",
+  "download": "https://github.com/spotify/android-sdk/releases/download/v0.8.0-appremote_v2.1.0-auth/spotify-app-remote-release-0.8.0.aar",
+  "artifact": "android/app/libs/spotify-app-remote-release-0.8.0.aar",
+  "sha256": "b5a6dd880eaf01f63a871cba9ef7af77c341f8a94ffc8fdf2e9021f9a9d4c198",
+  "bytes": 132749,
+  "license": "Apache-2.0",
+  "licenseSource": "https://raw.githubusercontent.com/spotify/android-sdk/v0.8.0-appremote_v2.1.0-auth/LICENSE",
+  "retrievedAt": "2026-10-20"
+}

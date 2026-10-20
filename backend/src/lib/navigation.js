@@ -226,6 +226,13 @@ function shortestPath(graph, profile, mode = "walking", penalties = new Map()) {
     for (const edge of graph.get(current.node) || []) {
       const s = edge.segment;
       const node = graph.aliases?.get(current.node) || current.node;
+      // A scoring boundary is not a new junction at which to fabricate a U-turn.
+      if (
+        node.startsWith("civigo-risk-node:") &&
+        edge.length > 0.01 &&
+        current.incoming?.segment.id === s.id
+      )
+        continue;
       if (edge.length > 0 && !permitsNode(graph.nodeTags?.get(node), mode))
         continue;
       const turns =
@@ -369,6 +376,13 @@ function routeFrom(edges, type, mode, snaps, updated) {
     tramos: [...segments],
     actualizadoEn: updated,
     fuente: "OpenStreetMap",
+    estimacion: {
+      fuente: "OPENSTREETMAP",
+      actualizadoEn: updated,
+      incluyeTrafico: false,
+      modelo:
+        "Velocidades OSM y respaldo local; sin calibración de circulación observada",
+    },
     riesgoMetodo: "Promedio de puntos por distancia recorrida",
     pasos: stepsFromEdges(
       edges,

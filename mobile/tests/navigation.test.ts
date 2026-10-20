@@ -68,13 +68,32 @@ test('automatic reroute requires sustained precise fixes and enforces cooldown',
   assert.equal(guard.shouldReroute(fix(174000), true, 174000, true), true);
 });
 
-test('compact guidance renders next turn, distance, ETA, risk and finish together', () => {
+test('compact guidance includes next maneuver, actual GPS speed availability, ETA source and exit', () => {
   const html = renderToStaticMarkup(React.createElement(RoutePlanner, {
     currentPosition: { latitud: 0, longitud: 0.0005 }, activeRoute: route,
     onSelectRoute: () => {}, isNavigating: true, compact: true,
   }));
-  for (const text of ['Gira a la derecha', 'siguiente indicación', 'restantes', 'Llegada aprox.', 'Finalizar', 'Precaución en el cruce', 'Riesgo sin verificar', 'Sin tráfico en vivo', 'Recalcular']) assert.ok(html.includes(text), text);
-  assert.ok(!html.includes('INDICACIONES DEL TRAYECTO'));
+  for (const text of ['Indicaciones del recorrido', 'gn-compact-summary', 'Gira a la derecha', 'gn-compact-maneuver', 'restantes', 'Llegada', 'Velocidad GPS no disponible', 'sin tráfico en vivo', 'aria-label="Salir de navegación"']) assert.ok(html.includes(text), text);
+  for (const text of ['gn-turn-row', 'Recalcular', 'Silenciar voz', 'Condiciones del recorrido', 'Precaución en el cruce', 'Riesgo sin verificar', 'spotify-shortcut', 'aria-label="Centrar"']) assert.ok(!html.includes(text), text);
+  assert.equal((html.match(/<button\b/g) || []).length, 1);
+});
+
+test('expanded guidance retains turns, voice, recalculation, conditions and finish', () => {
+  const html = renderToStaticMarkup(React.createElement(RoutePlanner, {
+    currentPosition: { latitud: 0, longitud: 0.0005 }, activeRoute: route,
+    onSelectRoute: () => {}, isNavigating: true, compact: false,
+  }));
+  for (const text of ['Gira a la derecha', 'siguiente indicación', 'restantes', 'Llegada aprox.', 'Finalizar', 'Precaución en el cruce', 'Riesgo sin verificar', 'Sin tráfico en vivo', 'Recalcular', 'Silenciar voz']) assert.ok(html.includes(text), text);
+  assert.ok(!html.includes('gn-compact-summary'));
+});
+
+test('compact navigation preserves short accessible GPS and emergency states without live ETA', () => {
+  const html = renderToStaticMarkup(React.createElement(RoutePlanner, {
+    currentPosition: null, activeRoute: { ...route, advertencias: ['Hay una emergencia en este recorrido.'] },
+    onSelectRoute: () => {}, isNavigating: true, compact: true,
+  }));
+  for (const text of ['GPS pendiente', 'Alerta en la ruta', 'Última estimación', 'role="alert"', 'aria-label="GPS sin señal reciente']) assert.ok(html.includes(text), text);
+  for (const text of ['Llegada ', 'gn-turn-row', 'Condiciones del recorrido', 'GPS activo']) assert.ok(!html.includes(text), text);
 });
 
 test('missing risk and live traffic remain explicit instead of claiming safe conditions', () => {
@@ -125,6 +144,18 @@ test('late response from an aborted plan cannot replace a newer result', async (
   } finally { globalThis.fetch = original; }
 });
 
+test('route planning rejects a transport mismatch and driving traffic attached to a walking estimate', async () => {
+  const original = globalThis.fetch;
+  try {
+    globalThis.fetch = async () => new Response(JSON.stringify({ rutas: [{ ...route, modo: 'driving' }] }));
+    await assert.rejects(() => NavigationService.planRoute({ latitud: 0, longitud: 0 }, { latitud: 0, longitud: .002 }, 'walking'), /ruta incompleta/);
+    globalThis.fetch = async () => new Response(JSON.stringify({ rutas: [{ ...route, trafico: {
+      disponible: true, fuente: 'TOMTOM', actualizadoEn: new Date().toISOString(), demoraSegundos: 5, motivo: 'Tráfico vehicular',
+    } }] }));
+    await assert.rejects(() => NavigationService.planRoute({ latitud: 0, longitud: 0 }, { latitud: 0, longitud: .002 }, 'walking'), /ruta incompleta/);
+  } finally { globalThis.fetch = original; }
+});
+
 test('place search calls the real backend contract, encodes query and rejects corrupt results', async () => {
   const original = globalThis.fetch;
   let requested = '';
@@ -147,7 +178,8 @@ test('place search calls the real backend contract, encodes query and rejects co
 
 test('planner includes searchable destination and coordinate fallback controls', () => {
   const html = renderToStaticMarkup(React.createElement(RoutePlanner, { activeRoute: null, onSelectRoute: () => {} }));
-  for (const text of ['Buscar destino en Ica', 'combobox', 'Usar coordenadas del destino', 'route-latitude', 'route-longitude', 'Accesos locales en Ica']) assert.ok(html.includes(text), text);
+  for (const text of ['Buscar destino en Ica', 'gn-search-launch', 'Usar coordenadas del destino', 'route-latitude', 'route-longitude', 'Accesos locales en Ica']) assert.ok(html.includes(text), text);
+  for (const text of ['gn-origin', 'Mi ubicación actual', '>Origen<']) assert.ok(!html.includes(text), text);
 });
 
 test('retained navigation belongs to the same authorized account across views', () => {

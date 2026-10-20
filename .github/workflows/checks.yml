@@ -99,6 +99,7 @@ jobs:
         working-directory: mobile
         run: |
           node tests/navigation-ui-smoke.mjs
+          node tests/liquid-glass-ui-smoke.mjs
           node tests/media-followup-ui-smoke.mjs
       - run: npm run build
         working-directory: mobile

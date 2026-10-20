@@ -18,6 +18,10 @@ const MESSAGES = {
     "Sin tráfico actualizado: no se pudo verificar la cuota del proveedor.",
   PROVIDER_UNAVAILABLE:
     "Sin tráfico actualizado: el proveedor no está disponible.",
+  ROUTE_GEOMETRY_MISMATCH:
+    "Sin tráfico para este recorrido: el trazado del proveedor no coincide con las calles y restricciones de la ruta local.",
+  STALE_ROUTE_TRAFFIC:
+    "Sin tráfico actualizado para este recorrido: la fecha de la estimación no es reciente o no está disponible.",
   PROVIDER_AUTHORIZATION:
     "Sin tráfico actualizado: la clave de TomTom no autoriza este servicio. La administración debe revisar su configuración.",
   PROVIDER_RATE_LIMIT:

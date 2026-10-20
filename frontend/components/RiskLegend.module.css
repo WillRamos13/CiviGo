@@ -4,6 +4,10 @@
     gap: 5px;
     line-height: 1.2;
 }
+.legend.compact .title { font-size: 10px; white-space: nowrap; gap: 4px; }
+.legend.compact .title svg { width: 11px; height: 11px; }
+.legend.compact .scale { margin: 6px 0 0; gap: 3px; }
+.legend.compact .scale > span { height: 5px; flex: 1; }
 
 .legend .title svg {
     flex-shrink: 0;

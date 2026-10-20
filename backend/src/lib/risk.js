@@ -70,13 +70,18 @@ function incidentRisk(incident, now = new Date()) {
   const resolvedWithoutHistory = incident.estado === "RESUELTO" && !historical;
   if (removed || resolvedWithoutHistory)
     return { points: 0, pending: false, confidence: 0, age: 0 };
+  const age = historical
+    ? ageWeight(incident.fechaEvento || incident.fechaCreacion, now)
+    : 1;
+  if (historical && age === 0)
+    return { points: 0, pending: false, confidence: 0, age: 0 };
   const severity = incident.nivelRiesgo;
   if (
     severity === null ||
     severity === undefined ||
     incident.evaluacion === "PENDIENTE"
   ) {
-    return { points: 0, pending: true, confidence: 0, age: 1 };
+    return { points: 0, pending: true, confidence: 0, age };
   }
   let confidence = Math.max(0, Math.min(1, Number(incident.validacion ?? 0.5)));
   if (
@@ -85,14 +90,13 @@ function incidentRisk(incident, now = new Date()) {
     confidence < 1 &&
     !incident.pruebasRecibidas
   ) {
-    const elapsed = now.getTime() - new Date(incident.fechaPublicacion || incident.fechaCreacion).getTime();
+    const elapsed =
+      now.getTime() -
+      new Date(incident.fechaPublicacion || incident.fechaCreacion).getTime();
     if (elapsed >= 7 * 86400000)
       return { points: 0, pending: false, confidence: 0, age: 0 };
     if (elapsed >= 3 * 86400000) confidence = Math.min(confidence, 0.25);
   }
-  const age = historical
-    ? ageWeight(incident.fechaEvento || incident.fechaCreacion, now)
-    : 1;
   if (persistent && incident.estado === "RESUELTO")
     return { points: 0, pending: false, confidence: 0, age: 0 };
   return {
@@ -329,6 +333,9 @@ function scoreSegments(
     connected.delete(String(nearest.segment.id));
     for (const id of connected) {
       const neighbor = scores.get(id);
+      // Sharing an endpoint does not carry a local incident arbitrarily far.
+      const nearby = projectToLine(incident, neighbor.coordinates);
+      if (!nearby || nearby.distance > 150) continue;
       neighbor.points += points * neighborFactor;
       neighbor.pending ||= risk.pending;
     }

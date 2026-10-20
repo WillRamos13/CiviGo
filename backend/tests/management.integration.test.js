@@ -121,6 +121,47 @@ test(
       await verifyEmail(citizen);
 
       await t.test(
+        "Corredor e itinerario exigen sesión y validan entradas sin publicar datos",
+        async () => {
+          for (const endpoint of [
+            "/navigation/places/corridor",
+            "/navigation/itinerary",
+          ])
+            assert.equal(
+              (await request(endpoint, { method: "POST", body: {} })).status,
+              401,
+            );
+          const corridor = await request("/navigation/places/corridor", {
+            cookie: citizen.cookie,
+            method: "POST",
+            body: {
+              geometria: {
+                type: "LineString",
+                coordinates: [
+                  [-75.729, -14.067],
+                  [-75.727, -14.067],
+                ],
+              },
+              radioMetros: 500,
+              limit: 2,
+            },
+          });
+          assert.equal(corridor.status, 200, JSON.stringify(corridor.json));
+          assert.ok(corridor.json.items.length <= 2);
+          assert.match(
+            corridor.json.cobertura,
+            /no es una búsqueda exhaustiva/,
+          );
+          const invalid = await request("/navigation/itinerary", {
+            cookie: citizen.cookie,
+            method: "POST",
+            body: { origen: point, destino: point, paradas: [point] },
+          });
+          assert.equal(invalid.status, 400);
+        },
+      );
+
+      await t.test(
         "Acceso administrativo, roles, distrito, permisos y perfiles privados",
         async () => {
           assert.equal((await request("/admin")).status, 401);
@@ -722,7 +763,7 @@ test(
       );
 
       await t.test(
-        "Históricos con vista previa, procedencia, repetición y acceso exclusivo de administradores",
+        "Históricos pendientes con procedencia, repetición y acceso exclusivo de administradores",
         async () => {
           const input = {
             fuente: `Ensayo histórico local ${run}`,
@@ -732,7 +773,7 @@ test(
                 tipo: type.slug,
                 fechaEvento: "2025-10-01",
                 ...point,
-                nivelRiesgo: 4,
+                nivelRiesgo: null,
                 descripcion:
                   "Registro ficticio para ensayo local; se elimina al terminar.",
                 referencia: run,
@@ -774,7 +815,10 @@ test(
           });
           historicalIds.push(...rows.map((row) => row.id));
           assert.equal(rows.length, 1);
-          assert.equal(rows[0].validacion, 1);
+          assert.equal(rows[0].validacion, 0);
+          assert.equal(rows[0].nivelRiesgo, null);
+          assert.equal(rows[0].evaluacion, "PENDIENTE");
+          assert.equal(rows[0].estado, "PENDIENTE");
           assert.equal(rows[0].totalReportes, 0);
           assert.equal(rows[0].historico, true);
           const repeated = await request("/history/import/commit", {

@@ -1,14 +1,16 @@
 'use client';
 
-import { useEffect, useId, useState, type KeyboardEvent } from 'react';
+import { useEffect, useId, useRef, useState, type KeyboardEvent } from 'react';
 import { api } from '@/lib/api';
 import { normalizePlaceQuery, startPlaceSearch, type PlaceResult, type PlaceSearchState } from '@/lib/place-search';
 
-export default function PlaceInput({ label, value, onChange }: {
+export default function PlaceInput({ label, value, onChange, shortcut }: {
     label: string;
     value: PlaceResult | null;
     onChange: (value: PlaceResult | null) => void;
+    shortcut?: { query: string; revision: number };
 }) {
+    const inputRef = useRef<HTMLInputElement>(null);
     const id = useId();
     const listId = `${id}-places`, statusId = `${id}-status`;
     const [query, setQuery] = useState('');
@@ -22,6 +24,16 @@ export default function PlaceInput({ label, value, onChange }: {
     const selected = expanded && active >= 0 && active < results.length ? active : -1;
     const searching = eligible && (!currentSearch || search.status === 'loading');
     const error = eligible && currentSearch && search.status === 'error' ? search.error : '';
+    useEffect(() => {
+        if (!shortcut) return;
+        let active = true;
+        void Promise.resolve().then(() => {
+            if (!active) return;
+            setQuery(shortcut.query); setOpen(true); setActive(-1);
+            inputRef.current?.focus(); inputRef.current?.scrollIntoView({ block: 'nearest' });
+        });
+        return () => { active = false; };
+    }, [shortcut]);
 
     useEffect(() => {
         if (value) return;
@@ -73,7 +85,7 @@ export default function PlaceInput({ label, value, onChange }: {
         }
     }}>
         <label htmlFor={id}>{label}</label>
-        <input id={id} aria-label={label} role="combobox" aria-autocomplete="list"
+        <input ref={inputRef} id={id} aria-label={label} role="combobox" aria-autocomplete="list"
             aria-expanded={expanded} aria-controls={expanded ? listId : undefined}
             aria-activedescendant={selected >= 0 ? `${listId}-${selected}` : undefined}
             aria-describedby={open && eligible ? statusId : undefined}

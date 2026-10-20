@@ -168,6 +168,8 @@ export interface Ruta {
   criterios?: RouteCriterion[];
   riesgoConocido?: boolean;
   llegadaEstimada?: string;
+  actualizadoEn?: string;
+  fuente?: string;
   copiaGuardada?: boolean;
   trafico?: {
     disponible: boolean;
@@ -175,6 +177,12 @@ export interface Ruta {
     actualizadoEn: string | null;
     demoraSegundos: number;
     motivo: string;
+  };
+  /** Mobile plans each leg through the real backend; the final destination is retained. */
+  paradaIntermedia?: Posicion & {
+    nombre: string;
+    destinoFinal: Posicion;
+    destinoFinalNombre?: string;
   };
 }
 

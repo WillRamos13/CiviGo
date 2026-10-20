@@ -1,0 +1,57 @@
+.page.page { padding: 12px 16px; --map-route-color: #1554d8; --map-route-outline: #fff; }
+:global(html[data-theme="dark"]) .page.page { --map-route-color: #19c9ff; --map-route-outline: #082d49; }
+.page.page :global(.map-workspace) { display: block; }
+.page.page :global(.map-column) { position: relative; min-width: 0; }
+.page.page :global(.map-frame) { position: relative; height: calc(100dvh - var(--shell-header-height, 90px) - 70px); min-height: 430px; border-radius: 24px; overflow: hidden; }
+.page.page .plannerPanel { position: absolute; top: 16px; right: 16px; bottom: auto; width: 350px; max-width: calc(100% - 32px); max-height: calc(100% - 32px); z-index: 5; display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: 25px; overflow: hidden; background: var(--surface); color: var(--ink); box-shadow: 0 8px 32px rgb(9 31 53 / 17%); }
+.page.page .plannerToggle { display: flex; flex: 0 0 auto; align-items: center; gap: 9px; width: 100%; min-height: 48px; padding: 11px 15px; border: 0; border-bottom: 1px solid var(--line); color: var(--brand); background: var(--surface-muted); text-align: left; }
+.plannerToggle > strong { flex: 1; min-width: 0; font-size: 11px; letter-spacing: 1.5px; }
+.plannerToggle > svg { flex: 0 0 auto; }
+.incidentCount { padding: 4px 7px; border: 1px solid var(--line); border-radius: 9px; color: var(--muted); font-size: 11px; font-weight: 600; white-space: nowrap; letter-spacing: 0; }
+.page.page .plannerBody { overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; padding: 15px; min-height: 0; scroll-padding-block: 15px 70px; }
+.plannerBody[hidden] { display: none; }
+.plannerPanel :global(.card) { background: transparent; border: 0; padding: 0; margin: 0; }
+.page.page .plannerPanel :global(.card-header) { display: flex; }
+.page.page .plannerPanel :global(.card-header) h2 { display: block; margin: 0; }
+.page.page :global(.map-controls) { left: 12px; top: 12px; width: 160px; border-radius: 18px; background: var(--surface); border: 1px solid var(--line); color: var(--ink); z-index: 6; }
+.page.page :global(.map-controls) > :global(.panel-toggle) { min-height: 44px; font-size: 12px; padding: 10px 12px; }
+.page.page :global(.map-controls):has(> button[aria-expanded="true"]) { width: min(270px, calc(100% - 76px)); z-index: 8; }
+.page.page :global(.map-controls) :global(.collapsible-panel-body) { padding: 0 12px 12px; max-height: min(420px, calc(100dvh - 190px)); }
+.page.page :global(.risk-legend) { left: 12px; top: 65px; bottom: auto; width: 142px; min-height: 42px; padding: 8px 9px; border-radius: 13px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); box-shadow: 0 3px 12px rgb(9 31 53 / 10%); pointer-events: none; }
+.page.page :global(.map-controls):has(> button[aria-expanded="true"]) ~ :global(.risk-legend) { visibility: hidden; }
+.page.page :global(.map-recenter), .page.page [data-map-control="orientation"] { top: 118px; bottom: auto; right: 12px; left: auto; background: var(--surface); border: 1px solid var(--line); border-radius: 14px; color: var(--ink); box-shadow: 0 3px 12px rgb(9 31 53 / 12%); }
+.page.page [data-map-control="orientation"] { top: 170px; }
+.page.page :global(.map-message) { top: 116px; bottom: auto; left: 12px; right: auto; max-width: min(280px, calc(100% - 80px)); font-size: 11px; z-index: 7; }
+.page.page :global(.map-reports-panel) { margin-top: 14px; border: 1px solid var(--line); background: var(--surface); box-shadow: none; }
+.page.page :global(.map-footer) { margin-top: 7px; border: 0; background: transparent; padding: 5px 2px; }
+.navigating.page :global(.map-controls) { left: 12px; top: 12px; }
+.navigating .plannerPanel { width: 370px; }
+.navigating .plannerBody { padding: 11px 14px; }
+.plannerToggle:focus-visible { outline: 3px solid var(--brand); outline-offset: -3px; }
+@media (min-width: 901px) {
+  .page.page :global(.map-recenter), .page.page [data-map-control="orientation"] { right: 382px; top: 16px; }
+  .page.page [data-map-control="orientation"] { top: 68px; }
+  .navigating.page :global(.map-recenter), .navigating.page [data-map-control="orientation"] { right: 402px; }
+}
+@media (min-width: 1600px) { .page.page .plannerPanel { width: 390px; } .page.page :global(.map-recenter), .page.page [data-map-control="orientation"] { right: 422px; } }
+@media (max-width: 900px) {
+  .page.page { padding: 8px; }
+  .page.page :global(.map-frame) { height: calc(var(--map-viewport-height, 100dvh) - var(--shell-header-height, 72px) - 22px); min-height: 340px; border-radius: 22px; }
+  .page.page .plannerPanel { top: auto; right: 0; left: 0; bottom: 0; width: 100%; max-width: 100%; max-height: 68%; border-radius: 26px 26px 0 0; box-shadow: 0 -5px 22px rgb(9 31 53 / 12%); }
+  .page.page .plannerToggle { min-height: 46px; padding: 10px 14px; }
+  .page.page .plannerBody { padding: 13px 14px calc(12px + env(safe-area-inset-bottom)); }
+  .navigating.page .plannerPanel { width: 100%; max-height: 65%; }
+  .navigating.page .plannerPanel[data-expanded="false"] { max-height: 230px; }
+  .navigating.page .plannerBody { padding: 9px 12px calc(9px + env(safe-area-inset-bottom)); }
+  .page.page :global(.map-recenter), .page.page [data-map-control="orientation"] { top: 12px; }
+  .page.page [data-map-control="orientation"] { top: 64px; }
+  .page.page :global(.map-controls) :global(.collapsible-panel-body) { max-height: calc(var(--map-viewport-height, 100dvh) - var(--shell-header-height, 72px) - 130px); }
+  .page.page :global(.map-message) { max-height: 100px; overflow-y: auto; }
+  .page.page :global(.external-traffic-detail) { top: 118px; left: 12px; max-height: 180px; overflow-y: auto; z-index: 8; }
+}
+@media (min-width: 701px) and (max-width: 900px) {
+  .page.page .plannerPanel { right: 14px; left: auto; top: 14px; bottom: auto; width: 330px; max-height: calc(100% - 28px); border-radius: 24px; }
+  .page.page :global(.map-recenter), .page.page [data-map-control="orientation"] { top: 14px; right: 358px; }
+  .page.page [data-map-control="orientation"] { top: 66px; }
+}
+@media (max-width: 420px) { .incidentCount { font-size: 10px; } .plannerToggle > strong { letter-spacing: 1px; } }

@@ -27,6 +27,36 @@ const record = {
   nivelRiesgo: 4,
   descripcion: "",
 };
+test("La gravedad pendiente se conserva sin inventar una evaluación y la referencia oficial no depende de la etiqueta del lote", () => {
+  const row = {
+    ...record,
+    nivelRiesgo: null,
+    referencia: "MININTER:ogc-denuncias:id_dgc:12345",
+  };
+  const make = (fuente) =>
+    prepareImport(
+      { formato: "json", fuente, contenido: JSON.stringify([row]) },
+      types,
+    );
+  const first = make("Consulta inicial"),
+    second = make("Consulta posterior");
+  assert.equal(first.totalValidos, 1);
+  assert.equal(first.registros[0].nivelRiesgo, null);
+  assert.equal(first.registros[0].fechaEventoPrecision, "dia");
+  assert.equal(first.registros[0].clave, second.registros[0].clave);
+  for (const value of [true, false, [], {}, "no sé", 0, 6])
+    assert.equal(
+      prepareImport(
+        {
+          formato: "json",
+          fuente: "Prueba",
+          contenido: JSON.stringify([{ ...row, nivelRiesgo: value }]),
+        },
+        types,
+      ).totalValidos,
+      0,
+    );
+});
 test("El CSV admite campos entre comillas, comas, saltos de línea y separador punto y coma", () => {
   const rows = csvRows(
     'tipo;fechaEvento;descripcion\nrobo;2025-10-01;"Texto; con coma, y\nsegunda línea"',

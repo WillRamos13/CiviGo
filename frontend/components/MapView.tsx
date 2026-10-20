@@ -16,6 +16,7 @@ import { trafficAffectsRoute, trafficFlowMessage } from '@/lib/traffic';
 import { syncTrafficLayer } from '@/lib/map-traffic-layers';
 import { resetMapOrientation } from '@/lib/map-camera';
 import styles from './MapView.module.css';
+import { CiviGoMapTheme } from '@/lib/map-theme';
 import RiskLegend, { TrafficLegend } from './RiskLegend';
 import OfflineRoute from './OfflineRoute';
 import CollapsiblePanel from './CollapsiblePanel';
@@ -26,6 +27,8 @@ type Props = {
     onSelect?: (incidente: Incidente) => void;
     onPosition?: (p: Posicion) => void | boolean;
     onLocate?: (p: LocationFix) => void;
+    onRequestLocation?: () => void;
+    compactLegend?: boolean;
     posicion?: Posicion | null;
     editor?: boolean;
     navigating?: boolean;
@@ -39,7 +42,7 @@ type Props = {
 const brandColor = (element: HTMLElement | null) => element ? getComputedStyle(element).getPropertyValue('--map-route-color').trim() || '#1554D8' : '#1554D8';
 const EMPTY_INCIDENTS: Incidente[] = [];
 type IncidentMarkerRecord = { marker: mapboxgl.Marker; incident: Incidente; signature: string };
-export default function MapView({ incidentes = EMPTY_INCIDENTS, ruta = null, onSelect, onPosition, onLocate, posicion = null, editor = false, typeFilter, navigating = false, heading, centerVersion = 0, focusPoint, onTrafficChange, onBounds }: Props) {
+export default function MapView({ incidentes = EMPTY_INCIDENTS, ruta = null, onSelect, onPosition, onLocate, onRequestLocation, compactLegend = false, posicion = null, editor = false, typeFilter, navigating = false, heading, centerVersion = 0, focusPoint, onTrafficChange, onBounds }: Props) {
     const container = useRef<HTMLDivElement>(null), mapRef = useRef<mapboxgl.Map | null>(null), markers = useRef<Map<number, IncidentMarkerRecord>>(new Map()), positionMarker = useRef<mapboxgl.Marker | null>(null);
     const callbacks = useRef({ onSelect, onPosition, onLocate, onBounds });
     const [loaded, setLoaded] = useState(false), [risk, setRisk] = useState(true), [events, setEvents] = useState(true), [zones, setZones] = useState(true), [error, setError] = useState(''), [roads, setRoads] = useState<GeoJSON.FeatureCollection>(EMPTY_MAP_DATA), [roadError, setRoadError] = useState('');
@@ -80,6 +83,16 @@ export default function MapView({ incidentes = EMPTY_INCIDENTS, ruta = null, onS
         const map = new mapboxgl.Map({ container: container.current, accessToken: token, style: MAP_STYLE, center: [posicion?.longitud ?? -75.7286, posicion?.latitud ?? -14.0678], zoom: editor ? 17 : 13.3, attributionControl: true });
         const incidentMarkers = markers.current;
         mapRef.current = map;
+        const mapTheme = new CiviGoMapTheme();
+        const applyTheme = () => {
+            if (!compactLegend || editor || !styleReady.current) return;
+            const dark = document.documentElement.dataset.theme === 'dark';
+            layerState.current = { ...layerState.current, brand: dark ? '#19c9ff' : '#1554d8', routeOutline: dark ? '#082d49' : '#fff' };
+            syncMapLayers(map, layerState.current);
+            mapTheme.apply(map, dark);
+        };
+        const themeObserver = new MutationObserver(applyTheme);
+        themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
         const stopMarkerZoom = bindIncidentMarkerZoom(map);
         // The main map uses wheel, pinch and keyboard gestures. Keep native
         // controls only in the report editor, where the location is confirmed.
@@ -97,6 +110,7 @@ export default function MapView({ incidentes = EMPTY_INCIDENTS, ruta = null, onS
         map.on('style.load', () => {
             styleReady.current = true;
             syncMapLayers(map, layerState.current);
+            applyTheme();
             if (!editor) syncTrafficLayer(map, trafficLayerState.current.enabled, trafficLayerState.current.url, trafficLayerState.current.bounds);
             setLoaded(true);
             setError('');
@@ -108,7 +122,7 @@ export default function MapView({ incidentes = EMPTY_INCIDENTS, ruta = null, onS
             setError('No se pudo cargar Mapbox. Revisa el token público y sus restricciones.'); });
         if (editor)
             map.on('click', e => callbacks.current.onPosition?.({ latitud: e.lngLat.lat, longitud: e.lngLat.lng }));
-        return () => { stopMarkerZoom(); styleReady.current = false; incidentMarkers.forEach(record => record.marker.remove()); incidentMarkers.clear(); externalMarkers.current.forEach(m => m.remove()); externalMarkers.current = []; positionMarker.current?.remove(); positionMarker.current = null; map.remove(); mapRef.current = null; };
+        return () => { themeObserver.disconnect(); stopMarkerZoom(); styleReady.current = false; incidentMarkers.forEach(record => record.marker.remove()); incidentMarkers.clear(); externalMarkers.current.forEach(m => m.remove()); externalMarkers.current = []; positionMarker.current?.remove(); positionMarker.current = null; map.remove(); mapRef.current = null; };
         // The map is initialized once. Later coordinate changes update its marker.
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [token, editor]);
@@ -286,9 +300,9 @@ export default function MapView({ incidentes = EMPTY_INCIDENTS, ruta = null, onS
                 <small>Filtra los marcadores, sus zonas y los reportes recientes. El riesgo de las calles considera todos los incidentes.</small>
             </div>}
         </CollapsiblePanel>
-        {traffic ? <TrafficLegend /> : <RiskLegend />}
-        {posicion && <button type="button" className="map-recenter icon-btn" aria-label="Centrar mi ubicación" title="Mi ubicación" onClick={centerOnPosition}><LocateFixed size={20}/></button>}
-        <button type="button" className={`${styles.orientation} ${posicion ? styles.besidePosition : ''} icon-btn`} aria-label="Restablecer orientación" title="Restablecer orientación del mapa" onClick={restoreOrientation} disabled={!loaded}><Compass size={20}/></button>
+        {traffic ? <TrafficLegend compact={compactLegend}/> : <RiskLegend compact={compactLegend}/>}
+        {(posicion || onRequestLocation) && <button type="button" className="map-recenter icon-btn" aria-label={posicion ? 'Centrar mi ubicación' : 'Usar mi ubicación'} title="Mi ubicación" onClick={posicion ? centerOnPosition : onRequestLocation}><LocateFixed size={20}/></button>}
+        <button type="button" data-map-control="orientation" className={`${styles.orientation} ${posicion ? styles.besidePosition : ''} icon-btn`} aria-label="Restablecer orientación" title="Restablecer orientación del mapa" onClick={restoreOrientation} disabled={!loaded}><Compass size={20}/></button>
         {traffic && trafficError && <div className="map-message notice notice-warning" role="status">{trafficError}</div>}
         {externalSelected && events && <div className="external-traffic-detail"><button className="icon-btn" aria-label="Cerrar aviso de tráfico" onClick={() => setExternalSelected(null)}>×</button><strong>{externalSelected.titulo}</strong><p>{externalSelected.descripcion}</p><small>TomTom · aviso temporal · no suma riesgo histórico</small></div>}
     </>}{(error || roadError && !editor) && <div className="map-message notice notice-warning">{error || `La capa vial no está disponible: ${roadError}`}</div>}</>;

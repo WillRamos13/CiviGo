@@ -10,6 +10,7 @@ import React,{useState} from 'react';
 import {createRoot} from 'react-dom/client';
 import {MyReportsPage} from './src/pages/MyReportsPage';
 import {ReportPage} from './src/pages/ReportPage';
+import './src/index.css';
 window.mediaLoads=[];window.mediaDisposed=[];window.auditCalls=[];
 window.auditUser={id:1,correoVerificado:true,bloqueado:false,rol:'USUARIO'};
 window.auditRows=Array.from({length:30},(_,i)=>({id:i+1,tipo:'bache',descripcion:'Caso aislado',estado:i===1?'FALSO':'EN_REVISION',
@@ -21,11 +22,12 @@ window.auditPost=async(path,body)=>{window.auditCalls.push({kind:'post',path,bod
  if(path.endsWith('/appeal')){row.apelaciones.push({id:2,motivo:body.motivo,estado:'PENDIENTE'});return{};}
  if(path.endsWith('/evidence')){row.adjuntos.push({id:'new-proof',nombre:'proof.pdf',url:'/api/uploads/new-proof',mimeType:'application/pdf',privado:true,tipo:'EVIDENCIA'});return structuredClone(row);}
  return{};};
-function Test(){const[view,setView]=useState('reports');window.auditOpenReport=()=>setView('report');return view==='reports'?<MyReportsPage onGoLogin={()=>{}} onGoRegister={()=>{}} onGoReport={()=>{}}/>:<ReportPage onGoLogin={()=>{}} onGoRegister={()=>{}} onGoVerify={()=>{}} onGoMyReports={()=>{}} onGoMap={()=>{}}/>;}
+function Test(){const[view,setView]=useState('reports');window.auditOpenReport=()=>setView('report');return <div className="app-container"><main className="app-main">{view==='reports'?<MyReportsPage onGoLogin={()=>{}} onGoRegister={()=>{}} onGoReport={()=>{}}/>:<ReportPage onGoLogin={()=>{}} onGoRegister={()=>{}} onGoVerify={()=>{}} onGoMyReports={()=>{}} onGoMap={()=>{}}/>}</main></div>;}
 createRoot(document.getElementById('root')).render(<Test/>);
 `;
 const bundle = await build({
   stdin: { contents: entry, resolveDir: process.cwd(), loader: 'tsx' }, bundle: true, write: false,
+  outdir: '.local/media-followup-ui-smoke-bundle',
   format: 'iife', platform: 'browser', target: 'es2020', define: { 'import.meta.env': '{}' },
   plugins: [{ name: 'isolated-media-followup-adapters', setup(builder) {
     builder.onResolve({ filter: /.*/ }, args => {
@@ -57,17 +59,18 @@ try {
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
   await page.route('**/*', handler => handler.abort());
-  await page.setContent('<style>article{min-height:260px}button,input,textarea{font-size:14px}</style><div id="root"></div>');
-  await page.addScriptTag({ content: bundle.outputFiles[0].text });
+  await page.setContent('<style>article{min-height:260px}</style><div id="root"></div>');
+  await page.addStyleTag({ content: bundle.outputFiles.filter(file => file.path.endsWith('.css')).map(file => file.text).join('\n') });
+  await page.addScriptTag({ content: bundle.outputFiles.find(file => file.path.endsWith('.js')).text });
   await page.waitForFunction(() => window.mediaLoads.length > 0);
   const initial = await page.evaluate(() => ({ loads: window.mediaLoads.length, hasVideo: window.mediaLoads.includes('/api/uploads/f0') }));
   assert.ok(initial.loads < 10, 'offscreen evidence must not eagerly load all 30 files');
   assert.equal(initial.hasVideo, false, 'a visible video needs a deliberate click before any download');
   await page.getByRole('button', { name: 'Cargar video', exact: true }).click();
   await page.waitForFunction(() => window.mediaLoads.includes('/api/uploads/f0'));
-  await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+  await page.evaluate(() => { const main = document.querySelector('.app-main'); main.scrollTo(0, main.scrollHeight); });
   await page.waitForFunction(() => window.mediaDisposed.includes('/api/uploads/f0'));
-  await page.evaluate(() => window.scrollTo(0, 0));
+  await page.evaluate(() => document.querySelector('.app-main').scrollTo(0, 0));
 
   const first = page.locator('article').first();
   await first.getByRole('button', { name: 'Solicitar revisión del reporte' }).click();
@@ -86,6 +89,7 @@ try {
 
   await page.evaluate(() => window.auditOpenReport());
   await page.getByText('Adjuntar foto o video', { exact: true }).waitFor();
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), true, 'El formulario con CSS real no desborda horizontalmente');
   assert.match(await page.locator('input[type="file"]').getAttribute('accept'), /video\/mp4/);
   assert.deepEqual(errors, []);
   console.log(JSON.stringify({ passed: true, checks: ['offscreen-media-deferred', 'video-by-click', 'offscreen-media-release', 'review-en-revision', 'pending-appeal-disabled', 'resolved-appeal-enabled', 'private-proof-upload', 'android-video-file-selector'], externalRequestsAllowed: 0 }));

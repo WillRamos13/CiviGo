@@ -1,0 +1,29 @@
+.guidance { min-width: 0; color: var(--ink); }
+.guidance .maneuver { display: flex; align-items: center; gap: 10px; margin: 0 0 10px; }
+.maneuver > svg { color: var(--brand); flex: 0 0 auto; width: 32px; height: 32px; }
+.maneuver > div { min-width: 0; }
+.maneuver strong { font-size: 19px; line-height: 1.15; }
+.maneuver p { font-size: 12px; line-height: 1.4; margin: 4px 0 0; overflow-wrap: anywhere; }
+.metrics { display: flex; gap: 10px; align-items: center; }
+.remaining { flex: 1; min-width: 0; }
+.remaining > strong { display: block; font-size: 29px; line-height: 1.15; letter-spacing: -.7px; }
+.remaining > span { display: block; font-size: 11px; color: var(--muted); margin-top: 4px; }
+.speed { flex: 0 0 auto; text-align: center; min-width: 32px; }
+.speed strong { display: block; font-size: 18px; }
+.speed small { display: block; color: var(--muted); font-size: 10px; }
+.finish { display: inline-flex; align-items: center; justify-content: center; gap: 5px; min-height: 42px; min-width: 58px; padding: 8px; border: 1px solid #d47983; color: #b4233b; background: #fff0f2; border-radius: 13px; font-size: 11px; flex-shrink: 0; }
+:global(html[data-theme="dark"]) .finish { color: #ffb6c1; background: #39202b; }
+.source { display: block; font-size: 10px; line-height: 1.4; color: var(--muted); margin-top: 7px; }
+.notice { font-size: 11px; line-height: 1.45; margin: 8px 0; overflow-wrap: anywhere; }
+.controls { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-top: 11px; }
+.controls button { min-height: 40px; border-radius: 12px; font-size: 11px; }
+.compact .maneuver { gap: 7px; margin-bottom: 7px; }
+.compact .maneuver > svg { width: 23px; height: 23px; }
+.compact .maneuver strong { font-size: 13px; }
+.compact .maneuver p { display: inline; font-size: 11px; margin-left: 5px; }
+.compact .maneuver > div { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.compact .remaining > strong { font-size: 24px; }
+.compact .controls { margin-top: 7px; }
+.compact .controls button { min-height: 32px; padding: 5px 8px; }
+.compact .notice { max-height: 42px; overflow-y: auto; margin: 5px 0; }
+.guidance button:focus-visible { outline: 3px solid var(--brand); outline-offset: 2px; }

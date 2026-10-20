@@ -21,11 +21,8 @@ export function updateIncidentMarker(
     image.alt = name;
   }
   const risk = incident.gravedad ?? incident.nivelRiesgo;
-  const pill = element.querySelector<HTMLElement>('.marker-risk-pill');
-  if (pill) {
-    pill.style.backgroundColor = risk !== null && risk !== undefined && Number.isFinite(risk)
-      ? RISK_COLORS[Math.min(5, Math.max(0, Math.round(risk)))] : '#64748b';
-    pill.textContent = '';
-  }
+  const halo = element.querySelector<HTMLElement>('.marker-risk-halo');
+  if (halo) halo.style.setProperty('--incident-risk-color', !incident.porEvaluar && risk !== null && risk !== undefined && Number.isFinite(risk)
+    ? RISK_COLORS[Math.min(5, Math.max(0, Math.round(risk)))] : '#64748b');
   element.onclick = (event) => { event.stopPropagation(); void triggerHaptic('light'); onSelect?.(incident); };
 }

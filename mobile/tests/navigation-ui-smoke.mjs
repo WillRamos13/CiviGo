@@ -8,18 +8,26 @@ const mapAdapter = `
 class Map {
   constructor(options) {
     this.options = options; this.handlers = {}; this.sources = {}; this.layers = {};
-    this.center = options.center; this.bounds = [-75.8, -14.1, -75.7, -14]; this.flyCalls = 0;
+    this.center = options.center; this.zoom = options.zoom; this.bounds = [-75.8, -14.1, -75.7, -14]; this.flyCalls = 0;
     window.auditMap = this; setTimeout(() => this.handlers.load?.(), 0);
   }
   on(name, callback) { this.handlers[name] = callback; return this; }
+  off(name, callback) { if (this.handlers[name] === callback) delete this.handlers[name]; return this; }
+  getZoom() { return this.zoom; } getContainer() { return this.options.container; }
+  getBearing() { return 0; }
+  getCenter() { return { lng: this.center[0], lat: this.center[1] }; } getPitch() { return 0; }
+  getStyle() { return { layers: [] }; }
+  zoomTo(value) { this.zoom = value; this.handlers.zoom?.(); }
   loaded() { return true; } areTilesLoaded() { return true; } isStyleLoaded() { return true; }
   getBounds() { return { getWest: () => this.bounds[0], getSouth: () => this.bounds[1], getEast: () => this.bounds[2], getNorth: () => this.bounds[3] }; }
   pan(bounds) { this.bounds = bounds; this.handlers.moveend?.(); }
-  addControl() {} resize() {} remove() {} triggerRepaint() {} resetNorthPitch() {} fitBounds() {}
+  addControl() {} resize() {} remove() {} triggerRepaint() {} resetNorthPitch() {} fitBounds() {} stop() {}
   addSource(name, options) { this.sources[name] = { data: options.data, setData: data => { this.sources[name].data = data; } }; }
   addLayer(layer) { this.layers[layer.id] = layer; }
   getSource(name) { return this.sources[name]; } getLayer(name) { return this.layers[name]; } setLayoutProperty() {}
-  flyTo(options) { this.center = options.center; this.flyCalls++; }
+  getPaintProperty(name, key) { return this.layers[name]?.paint?.[key]; } setPaintProperty(name, key, value) { if(this.layers[name]) (this.layers[name].paint??={})[key]=value; }
+  flyTo(options) { this.center = options.center; this.flyCalls++; if (options.zoom) this.zoomTo(options.zoom); }
+  easeTo(options) { this.center = options.center; if (options.zoom) this.zoomTo(options.zoom); }
 }
 class Marker {
   constructor(options) { this.element = options.element; }
@@ -36,6 +44,7 @@ export const post = async (path, body) => window.auditPost(path, body);
 export const del = async path => { window.auditFavorites = window.auditFavorites.filter(item => item.id !== Number(path.split('/').at(-1))); };
 export const distance = (a, b) => Math.hypot(a.latitud - b.latitud, a.longitud - b.longitud) * 111000;
 export const errorMessage = error => error.message;
+export const resolveApiUrl = path => 'https://civigo-production.up.railway.app/api' + path;
 `;
 const entry = `
 import React, { useState } from 'react';
@@ -53,6 +62,8 @@ window.auditDelete = id => NavigationService.removeFavorite(id);
 window.auditApi = async path => {
   window.auditCalls.push(['GET', path]);
   if (path === '/navigation/favorites') return structuredClone(window.auditFavorites);
+  if (path === '/navigation/traffic/status') return { configurado: true, habilitado: true, controlCuotaDisponible: true, cuotas: { tiles: { restantes: 100 } } };
+  if (path === '/navigation/traffic/incidents') return { incidentes: [], trafico: { disponible: true, fuente: 'TOMTOM', actualizadoEn: '2026-10-18T12:00:00.000Z', motivo: '' } };
   if (path === '/navigation/roads/risk') return { version: 'v1', revision: 'r1', values: [] };
   return { version: 'v1', type: 'FeatureCollection', features: [] };
 };
@@ -90,7 +101,7 @@ const bundle = await build({
     builder.onLoad({ filter: /.*/, namespace: 'audit' }, args => ({ loader: 'js', contents:
       args.path === 'map' ? mapAdapter : args.path === 'api' ? transportAdapter :
       args.path === 'auth' ? 'export const useAuth = () => ({ usuario: window.auditUser });' :
-      args.path === 'native' ? 'export const triggerHaptic = async () => {}; export const onNetworkChange = () => () => {};' :
+      args.path === 'native' ? 'export const triggerHaptic = async () => {}; export const onNetworkChange = () => () => {}; export const StorageService={get:async()=>null,set:async()=>{},remove:async()=>{}};' :
       args.path === 'spotify' ? 'export const SpotifyNavPlayer = () => null;' : '' }));
   } }],
 });
@@ -107,9 +118,22 @@ try {
   await page.route('**/*', handler => handler.abort());
   await page.setContent('<div id="root"></div>');
   await page.addScriptTag({ content: bundle.outputFiles[0].text });
+  await page.waitForFunction(() => window.auditMap?.sources['civigo-incidents']?.data.features.length === 3);
+  assert.equal(await page.locator('.incident-marker').count(), 0, 'province zoom does not allocate incident markers');
+  await page.evaluate(() => window.auditMap.zoomTo(14));
   await page.locator('[data-incident-id="1"]').waitFor();
   assert.equal(await page.locator('.incident-marker').count(), 2);
   assert.equal(await page.evaluate(() => window.auditMap.sources['civigo-incidents'].data.features.length), 3);
+  assert.equal(await page.evaluate(() => window.auditCalls.filter(([, path]) => path === '/navigation/traffic/incidents').length), 0, 'inactive traffic never consumes external-event queries');
+  await page.locator('.map-layer-panel > summary').click();
+  await page.getByLabel('Tráfico · TomTom', { exact: true }).check();
+  await page.waitForFunction(() => window.auditCalls.some(([, path]) => path === '/navigation/traffic/incidents'));
+  assert.equal(await page.evaluate(() => window.auditCalls.filter(([, path]) => path === '/navigation/traffic/incidents').length), 1);
+  assert.equal(await page.getByLabel('Riesgo por tramo', { exact: true }).isChecked(), false);
+  await page.getByLabel('Tráfico · TomTom', { exact: true }).uncheck();
+  await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  assert.equal(await page.evaluate(() => window.auditCalls.filter(([, path]) => path === '/navigation/traffic/incidents').length), 1, 'turning traffic off stops new external-event queries');
+  await page.locator('.map-layer-panel > summary').click();
   await page.getByRole('button', { name: 'Ubicar mi posición' }).click();
   await page.evaluate(() => window.auditResolveLocate({ latitud: -14.15, longitud: -75.9, accuracy: 5, timestamp: Date.now() }));
   await page.waitForFunction(() => window.auditMap.flyCalls === 1);
@@ -139,5 +163,5 @@ try {
   await page.waitForFunction(() => window.auditCalls.some(([method, path]) => method === 'POST' && path === '/navigation/favorites'));
   assert.equal(await page.evaluate(() => window.auditFavorites.length), 3);
   assert.deepEqual(errors, []);
-  console.log(JSON.stringify({ passed: true, checks: ['fresh-location-camera', 'marker-viewport-buffer', 'marker-updates-and-selection', 'complete-heatmap', 'retained-favorites-delete-and-save'], externalRequestsAllowed: 0 }));
+  console.log(JSON.stringify({ passed: true, checks: ['fresh-location-camera', 'marker-viewport-buffer', 'marker-updates-and-selection', 'complete-heatmap', 'traffic-demand-loading', 'retained-favorites-delete-and-save'], externalRequestsAllowed: 0 }));
 } finally { await browser.close(); }

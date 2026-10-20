@@ -196,13 +196,16 @@ test("tráfico cambia selección rápida y ETA sin cambiar riesgo ni geometría"
     new Date(+now + 500000).toISOString(),
   );
 });
-test("si falta una ETA o cuota se conserva comparación local completa", async () => {
+test("un candidato sin tráfico conserva su estimación sin descartar los otros candidatos", async () => {
   let calls = 0;
-  const failure = new Error("Sin tráfico actualizado: cuota agotada.");
+  const failure = Object.assign(
+    new Error("Sin tráfico actualizado: cuota agotada."),
+    { name: "TrafficUnavailable", code: "QUOTA_EXHAUSTED" },
+  );
   const client = {
     route: async (route) => {
       if (++calls === 2) throw failure;
-      return response(route, 9000);
+      return response(route, 10);
     },
   };
   const result = await planRoutesWithTraffic(input, [incident], {
@@ -210,21 +213,24 @@ test("si falta una ETA o cuota se conserva comparación local completa", async (
     roads,
     now,
   });
-  const local = planRoutes(input, [incident], now, roads);
-  assert.deepEqual(
-    result.rutas.map((route) => [
-      route.geometria,
-      route.duracion,
-      route.puntosRiesgo,
-    ]),
-    local.rutas.map((route) => [
-      route.geometria,
-      route.duracion,
-      route.puntosRiesgo,
-    ]),
-  );
-  assert.equal(result.trafico.disponible, false);
-  assert.match(result.trafico.motivo, /cuota/);
+  assert.ok(result.trafico.candidatosConTrafico > 0);
+  assert.equal(result.trafico.candidatosEvaluados, calls);
+  assert.ok(result.rutas.some((route) => route.trafico.disponible));
+  assert.ok(result.rutas.some((route) => !route.trafico.disponible));
+  for (const route of result.rutas) {
+    assert.match(
+      route.advertencias.join(" "),
+      /no son directamente comparables/,
+    );
+    assert.equal(
+      route.estimacion.fuente,
+      route.trafico.disponible ? "TOMTOM" : "OPENSTREETMAP",
+    );
+    if (!route.trafico.disponible) {
+      assert.match(route.trafico.motivo, /cuota/);
+      assert.equal(route.estimacion.motivoAlternativa, "QUOTA_EXHAUSTED");
+    }
+  }
 });
 test("tiempos por paso usan progreso TomTom y ETA parte de la consulta actual", () => {
   const route = planRoutes(input, [incident], now, roads, {
@@ -253,6 +259,28 @@ test("tiempos por paso usan progreso TomTom y ETA parte de la consulta actual", 
     roads,
   ).rutas[0];
   assert.equal(exactStart.pasos[0].tipo, "salida");
+});
+
+test("datos antiguos y trazados incompatibles conservan causas de fallback distintas", () => {
+  const route = planRoutes(input, [], now, roads).rutas[0];
+  const stale = response(route, 50);
+  stale.actualizadoEn = new Date(+now - 600001).toISOString();
+  assert.throws(
+    () => applyTraffic(route, stale),
+    (e) => e.code === "STALE_ROUTE_TRAFFIC",
+  );
+  const foreign = response(route, 50);
+  foreign.data.routes[0].path = {
+    type: "LineString",
+    coordinates: [
+      [-75.73, -14.06],
+      [-75.72, -14.06],
+    ],
+  };
+  assert.throws(
+    () => applyTraffic(route, foreign),
+    (e) => e.code === "ROUTE_GEOMETRY_MISMATCH",
+  );
 });
 test("TomTom no se consulta para caminar o bici y rutas ajenas al trazado se rechazan", async () => {
   const client = {

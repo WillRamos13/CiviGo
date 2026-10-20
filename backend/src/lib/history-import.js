@@ -136,19 +136,20 @@ function prepareImport(body, types, now = new Date()) {
       if (
         row.latitud === "" ||
         row.longitud === "" ||
-        row.nivelRiesgo === "" ||
         row.latitud == null ||
-        row.longitud == null ||
-        row.nivelRiesgo == null
+        row.longitud == null
       )
-        throw new Error("Faltan coordenadas o gravedad.");
+        throw new Error("Faltan coordenadas.");
       const numeric = (value) =>
         typeof value === "number" || (typeof value === "string" && value.trim())
           ? Number(value)
           : NaN;
       const latitud = numeric(row.latitud),
         longitud = numeric(row.longitud),
-        nivelRiesgo = numeric(row.nivelRiesgo);
+        nivelRiesgo =
+          row.nivelRiesgo == null || row.nivelRiesgo === ""
+            ? null
+            : numeric(row.nivelRiesgo);
       if (
         !Number.isFinite(latitud) ||
         !Number.isFinite(longitud) ||
@@ -157,8 +158,13 @@ function prepareImport(body, types, now = new Date()) {
         throw new Error(
           "Coordenadas fuera de la cobertura de la provincia de Ica.",
         );
-      if (!Number.isInteger(nivelRiesgo) || nivelRiesgo < 1 || nivelRiesgo > 5)
-        throw new Error("La gravedad debe ser un entero de 1 a 5.");
+      if (
+        nivelRiesgo !== null &&
+        (!Number.isInteger(nivelRiesgo) || nivelRiesgo < 1 || nivelRiesgo > 5)
+      )
+        throw new Error(
+          "La gravedad debe estar pendiente o ser un entero de 1 a 5.",
+        );
       if (row.descripcion != null && typeof row.descripcion !== "string")
         throw new Error("La descripción debe ser texto.");
       const descripcion = (row.descripcion || "").trim();
@@ -191,6 +197,8 @@ function prepareImport(body, types, now = new Date()) {
         referencia,
         distrito: districtFor({ latitud, longitud }),
         individual: type.individual === true,
+        fechaEventoPrecision:
+          row.fechaEvento.length === 10 ? "dia" : "fecha-hora",
       };
       const identity =
         referencia ||
@@ -205,7 +213,14 @@ function prepareImport(body, types, now = new Date()) {
       record.clave =
         "historical:" +
         createHash("sha256")
-          .update(body.fuente.trim() + "\n" + identity)
+          .update(
+            (referencia &&
+            /^MININTER:ogc-denuncias:id_dgc:\d+$/.test(referencia)
+              ? "MININTER:ogc-denuncias"
+              : body.fuente.trim()) +
+              "\n" +
+              identity,
+          )
           .digest("hex");
       if (seen.has(record.clave))
         throw new Error("Registro repetido dentro del archivo.");

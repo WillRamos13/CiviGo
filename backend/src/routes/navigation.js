@@ -11,6 +11,7 @@ const { config } = require("../lib/catalog");
 const { transaction } = require("../lib/workflows");
 const { publicIncidentEligibility } = require("../lib/publication");
 const { createTrafficService } = require("../lib/navigation-traffic");
+const { searchCorridor } = require("../lib/route-discovery");
 const router = express.Router();
 const traffic = createTrafficService({ db: prisma });
 const places = createPlaceService({ db: prisma });
@@ -92,6 +93,26 @@ router.get(
   asyncRoute(async (req, res) => {
     res.setHeader("Cache-Control", "no-store");
     res.json(await places.search(text(req.query.q, "Búsqueda", 160, 3)));
+  }),
+);
+router.post(
+  "/places/corridor",
+  auth,
+  asyncRoute(async (req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    res.json(searchCorridor(req.body, getRoads()));
+  }),
+);
+router.post(
+  "/itinerary",
+  auth,
+  asyncRoute(async (req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    res.json(
+      await traffic.itinerary(req.body, await incidents(), {
+        rules: await config(),
+      }),
+    );
   }),
 );
 router.post(

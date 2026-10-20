@@ -19,4 +19,14 @@
     <style name="AppTheme.NoActionBarLaunch" parent="Theme.SplashScreen">
         <item name="android:background">@drawable/splash</item>
     </style>
+
+    <!-- Attribute overlays used by both the live window and splash exit restoration. -->
+    <style name="CiviGoSystemChromeLight">
+        <item name="android:statusBarColor">#f5f8fe</item>
+        <item name="android:windowLightStatusBar">true</item>
+    </style>
+    <style name="CiviGoSystemChromeDark">
+        <item name="android:statusBarColor">#091320</item>
+        <item name="android:windowLightStatusBar">false</item>
+    </style>
 </resources>

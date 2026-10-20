@@ -3,38 +3,51 @@ import Link from 'next/link';
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { Footprints, Bike, Car, MapPin, Bookmark, Navigation, Square, ArrowDownUp, Search, ShieldCheck, Timer, Scale, ChevronRight, Check, AlertTriangle } from 'lucide-react';
 import { useAuth } from './AuthProvider';
-import { api, post, currentPosition, errorMessage, formatDate } from '@/lib/api';
+import { api, post, currentPosition as requestPosition, errorMessage, formatDate } from '@/lib/api';
 import type { Posicion, Ruta } from '@/lib/types';
 import { RISK_COLORS, RISK_NAMES } from '@/lib/types';
 import { readRouteCache, isPosition, isRoute, routeMode, type CachedRoute } from '@/lib/route-cache';
 import PlaceInput from './PlaceInput';
 import NavigationGuidance, {type GuidanceProps} from './NavigationGuidance';
 import styles from './RoutePlanner.module.css';
+import { routeTimeSource } from '@/lib/navigation-presentation';
 type Punto = Posicion & { nombre: string };
 type Saved = { id: number; nombre: string; modo: string; origen: Posicion; destino: Posicion; datos: Ruta; creadoEn: string };
-type Props = { onRoute: (r: Ruta | null) => void; active: Ruta | null; following: boolean; onFollow: (v: boolean) => void; recalculate?: number; guidance?: GuidanceProps; onLocate?: (position: Posicion) => void };
+type Props = { onRoute: (r: Ruta | null) => void; active: Ruta | null; following: boolean; onFollow: (v: boolean) => void; recalculate?: number; guidance?: GuidanceProps; onLocate?: (position: Posicion) => void; currentPosition?: Posicion | null; compact?: boolean };
 export default function RoutePlanner(props: Props) {
     const { usuario } = useAuth();
     return <AccountRoutePlanner key={usuario?.id ?? 'publico'} {...props} />;
 }
-function AccountRoutePlanner({ onRoute, active, following, onFollow, recalculate = 0, guidance, onLocate }: Props) {
+function AccountRoutePlanner({ onRoute, active, following, onFollow, recalculate = 0, guidance, onLocate, currentPosition, compact = false }: Props) {
     const { usuario, offline } = useAuth();
     const accountId = usuario?.id, premium = usuario?.premium === true;
     const [origin, setOrigin] = useState<Punto | null>(null), [destination, setDestination] = useState<Punto | null>(null), [mode, setMode] = useState('walking'), [routes, setRoutes] = useState<Ruta[]>([]), [error, setError] = useState(''), [message, setMessage] = useState(''), [busy, setBusy] = useState(false), [manual, setManual] = useState(false), [cached, setCached] = useState<CachedRoute[]>([]), [saved, setSaved] = useState<Saved[]>([]), [favoriteName, setFavoriteName] = useState(''), [favoriteTags, setFavoriteTags] = useState(''), [loadedCopy, setLoadedCopy] = useState(false);
     const [manualOrigin, setManualOrigin] = useState(['', '']), [manualDestination, setManualDestination] = useState(['', '']);
+    const [shortcut, setShortcut] = useState<{query: string; revision: number}>();
+    const [locating, setLocating] = useState(false);
+    const originTouched = useRef(false), gpsSeeded = useRef(false);
     const mounted = useRef(true), planEpoch = useRef(0), selectionEpoch = useRef(0), planRequest = useRef<AbortController | null>(null), requests = useRef(new Set<AbortController>());
     const cleanupRequests = useCallback(() => { mounted.current = false; planEpoch.current++; selectionEpoch.current++; requests.current.forEach(c => c.abort()); requests.current.clear(); }, []);
     useEffect(() => { mounted.current = true; return cleanupRequests; }, [cleanupRequests]);
     const newRequest = () => { const controller = new AbortController(); requests.current.add(controller); return controller; };
     const invalidate = () => { planEpoch.current++; selectionEpoch.current++; planRequest.current?.abort(); setRoutes([]); setBusy(false); setMessage(''); setError(''); setLoadedCopy(false); onRoute(null); onFollow(false); };
-    const changeOrigin = (value: Punto | null) => { invalidate(); setOrigin(value); setManualOrigin(value ? [String(value.latitud), String(value.longitud)] : ['', '']); };
+    const changeOrigin = (value: Punto | null) => { originTouched.current = true; invalidate(); setOrigin(value); setManualOrigin(value ? [String(value.latitud), String(value.longitud)] : ['', '']); };
     const changeDestination = (value: Punto | null) => { invalidate(); setDestination(value); setManualDestination(value ? [String(value.latitud), String(value.longitud)] : ['', '']); };
     const changeManual = (isOrigin: boolean, axis: number, text: string) => {
+        if (isOrigin) originTouched.current = true;
         const values = [...isOrigin ? manualOrigin : manualDestination]; values[axis] = text;
         (isOrigin ? setManualOrigin : setManualDestination)(values);
         const point = {latitud: Number(values[0]), longitud: Number(values[1]), nombre: isOrigin ? 'Origen' : 'Destino'};
         invalidate(); (isOrigin ? setOrigin : setDestination)(values.every(v => v.trim()) && isPosition(point) ? point : null);
     };
+    useEffect(() => {
+        if (gpsSeeded.current || originTouched.current || origin || !isPosition(currentPosition)) return;
+        const point = { ...currentPosition, nombre: 'Mi ubicación actual' };
+        void Promise.resolve().then(() => {
+            if (!mounted.current || originTouched.current || gpsSeeded.current) return;
+            gpsSeeded.current = true; setOrigin(point); setManualOrigin([String(point.latitud), String(point.longitud)]);
+        });
+    }, [currentPosition, origin]);
     useEffect(() => {
         if (!accountId) return;
         let current = true;
@@ -87,6 +100,7 @@ function AccountRoutePlanner({ onRoute, active, following, onFollow, recalculate
     const loadCopy = (r: Ruta, from: Posicion | null | undefined, to: Posicion | null | undefined, savedMode: unknown, notice: string) => {
         if (!isRoute(r)) return setError('La copia del recorrido está incompleta. Busca un recorrido nuevo.');
         invalidate();
+        originTouched.current = true;
         const first = r.geometria.coordinates[0], last = r.geometria.coordinates[r.geometria.coordinates.length - 1];
         setOrigin({...isPosition(from) ? from : {latitud: first[1], longitud: first[0]}, nombre: 'Origen guardado'});
         setDestination({...isPosition(to) ? to : {latitud: last[1], longitud: last[0]}, nombre: 'Destino guardado'});
@@ -106,56 +120,62 @@ function AccountRoutePlanner({ onRoute, active, following, onFollow, recalculate
         finally { requests.current.delete(controller); if (mounted.current) setBusy(false); }
     };
     const locate = async () => {
+        setLocating(true);
         try {
             const epoch = planEpoch.current;
-            const point = await currentPosition();
+            const point = await requestPosition();
             if (!mounted.current || epoch !== planEpoch.current) return;
             changeOrigin({ ...point, nombre: 'Mi ubicación actual' });
             onLocate?.(point);
             setError('');
         } catch (e) {
             if (mounted.current) setError(errorMessage(e));
-        }
+        } finally { if (mounted.current) setLocating(false); }
     };
     const swapPoints = () => {
+        originTouched.current = true;
         invalidate();
         setOrigin(destination);
         setDestination(origin);
         setManualOrigin(manualDestination);
         setManualDestination(manualOrigin);
     };
-    if (following && active && guidance) return <NavigationGuidance route={active} onFinish={() => onFollow(false)} {...guidance}/>;
+    if (following && active && guidance) return <NavigationGuidance route={active} onFinish={() => onFollow(false)} compact={compact} {...guidance}/>;
     if (!usuario) {
         return <div className={'card ' + styles.planner}>
-            <div className="card-header"><h2>Tu próximo recorrido</h2><Navigation size={18} aria-hidden="true"/></div>
+            <div className="card-header"><h2>¿A dónde vamos?</h2><Navigation size={18} aria-hidden="true"/></div>
             <p className={'muted ' + styles.intro}>Crea una cuenta para comparar recorridos a pie, en bicicleta o en automóvil.</p>
             <Link href="/ingresar" className={'btn btn-primary ' + styles.fullWidth}>Ingresar para calcular rutas</Link>
         </div>;
     }
     return <div className={'card ' + styles.planner}>
         <div className="card-header"><h2>¿A dónde vamos?</h2><Navigation size={18} aria-hidden="true"/></div>
-        <p className={'muted ' + styles.intro}>Más segura, más rápida o equilibrada. Elige entre los trazados disponibles.</p>
+        <p className={'muted ' + styles.intro}>Rutas desde tu ubicación GPS.</p>
         <div className={'route-mode ' + styles.modes} role="group" aria-label="Modo de recorrido">
             {[{ id: 'walking', name: 'A pie', icon: Footprints }, { id: 'cycling', name: 'Bicicleta', icon: Bike }, { id: 'driving', name: 'Auto', icon: Car }].map(({ id, name, icon: Icon }) =>
                 <button type="button" aria-pressed={mode === id} className={mode === id ? 'selected' : ''} key={id} onClick={() => { invalidate(); setMode(id); }}>
                     <Icon size={20} aria-hidden="true"/><span>{name}</span>
                 </button>)}
         </div>
+        <details className={styles.originDetails}>
+            <summary><MapPin size={14} aria-hidden="true"/><span>Origen: {origin?.nombre ?? 'elige tu ubicación'}</span><span>Cambiar</span></summary>
         <div className={styles.placeField}>
             <Search className={styles.searchIcon} size={16} aria-hidden="true"/>
             <PlaceInput label="Origen" value={origin} onChange={changeOrigin}/>
         </div>
         <div className={styles.pointActions}>
-            <button type="button" className={'btn btn-quiet btn-small ' + styles.location} onClick={locate}>
-                <MapPin size={15} aria-hidden="true"/>Usar mi ubicación
+            <button type="button" className={'btn btn-quiet btn-small ' + styles.location} disabled={locating} onClick={locate}>
+                <MapPin size={15} aria-hidden="true"/>{locating ? 'Buscando tu ubicación…' : 'Usar mi ubicación'}
             </button>
             <button type="button" className={styles.swap} aria-label="Intercambiar origen y destino" title="Intercambiar origen y destino" disabled={!origin && !destination} onClick={swapPoints}>
                 <ArrowDownUp size={17} aria-hidden="true"/>
             </button>
         </div>
+        </details>
+        {!origin && <button type="button" className={'btn btn-secondary btn-small ' + styles.fullWidth} disabled={locating} onClick={locate}><MapPin size={15} aria-hidden="true"/>{locating ? 'Buscando tu ubicación…' : 'Usar mi ubicación'}</button>}
         <div className={styles.placeField}>
             <Search className={styles.searchIcon} size={16} aria-hidden="true"/>
-            <PlaceInput label="Destino" value={destination} onChange={changeDestination}/>
+            <PlaceInput label="Destino" value={destination} onChange={changeDestination} shortcut={shortcut}/>
         </div>
         <button type="button" className={'btn btn-quiet btn-small ' + styles.manualToggle} aria-expanded={manual} onClick={() => setManual(!manual)}>
             {manual ? 'Ocultar' : 'Ingresar'} coordenadas manualmente
@@ -170,6 +190,10 @@ function AccountRoutePlanner({ onRoute, active, following, onFollow, recalculate
                     </div>
                 </div>)}
         </div>}
+        <div className={styles.shortcuts} aria-label="Destinos rápidos">
+            {['Plaza de Armas de Ica', 'Huacachina', 'Hospital Regional de Ica', 'Terminal Terrestre Ica'].map(name => <button type="button" key={name} onClick={() => { changeDestination(null); setShortcut(previous => ({query: name, revision: (previous?.revision ?? 0) + 1})); }}><MapPin size={13} aria-hidden="true"/>{name}</button>)}
+            {saved.slice(0, 8).map(item => <button type="button" key={`saved-${item.id}`} onClick={() => loadCopy(item.datos, item.origen, item.destino, item.modo, 'Favorito cargado. Actualiza sus condiciones antes de iniciar.')}><Bookmark size={13} aria-hidden="true"/>{item.nombre}</button>)}
+        </div>
         <div className={'route-planner-search ' + styles.searchAction}>
             <button type="button" className={'btn btn-primary ' + styles.fullWidth} disabled={busy || offline || !origin || !destination} onClick={plan}>
                 <Navigation size={16} aria-hidden="true"/>{busy ? 'Calculando alternativas…' : 'Buscar recorridos'}
@@ -205,12 +229,10 @@ function AccountRoutePlanner({ onRoute, active, following, onFollow, recalculate
                             <span key={color} style={{ background: color, opacity: level === r.nivelRiesgo ? 1 : 0.25 }}/>)}</span>
                         <span>{Number(r.puntosRiesgo).toFixed(2)} puntos de exposición</span>
                     </span>}
-                    {r.trafico && <span className={styles.traffic}>
+                    <span className={styles.traffic}>
                         <Timer size={13} aria-hidden="true"/>
-                        <span>{r.trafico.disponible
-                            ? 'Tiempo con tráfico' + (r.trafico.demoraSegundos > 0 ? ' · +' + Math.max(1, Math.round(r.trafico.demoraSegundos / 60)) + ' min de demora' : '')
-                            : r.trafico.motivo || 'Sin tráfico en tiempo real'}</span>
-                    </span>}
+                        <span>{routeTimeSource(r)}{r.trafico?.disponible && r.trafico.demoraSegundos > 0 ? ` · +${Math.max(1, Math.round(r.trafico.demoraSegundos / 60))} min de demora` : ''}</span>
+                    </span>
                     {r.advertencias?.length > 0 && <span className={styles.warning}>
                         <AlertTriangle size={13} aria-hidden="true"/>{r.advertencias.length} aviso{r.advertencias.length > 1 ? 's' : ''} sobre el recorrido
                     </span>}

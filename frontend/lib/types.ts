@@ -158,6 +158,8 @@ export interface Ruta {
     riesgoConocido?: boolean;
     llegadaEstimada?: string;
     copiaGuardada?: boolean;
+    fuente?: string;
+    estimacion?: { fuente: string; actualizadoEn?: string; incluyeTrafico?: boolean; modelo?: string; advertencias?: string[] };
     trafico?: { disponible: boolean; fuente: string | null; actualizadoEn: string | null; demoraSegundos: number; motivo: string };
 }
 export interface Mensaje {

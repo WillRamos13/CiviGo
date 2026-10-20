@@ -60,9 +60,14 @@ describe('Real session lifecycle with isolated storage and transport', () => {
     await f.controller.refresh();
     f.data.set('civigo:report-draft:7', JSON.stringify({ description: 'private current account draft' }));
     f.data.set('civigo:report-draft:8', JSON.stringify({ description: 'another account draft' }));
+    f.data.set('civigo:active-trip:v1:user:7', 'private active trip');
+    f.data.set('civigo:active-trip:v1:user:8', 'another account trip');
     f.setOnline(false);
     const logout = f.controller.logout();
     assert.equal(f.state.usuario, null);
+    await logout;
+    assert.equal(f.data.has('civigo:active-trip:v1:user:7'), false);
+    assert.equal(f.data.get('civigo:active-trip:v1:user:8'), 'another account trip');
     await logout;
     assert.equal(f.data.get('civigo:logout-pending'), 'true');
     assert.equal(f.data.has('civigo:offline-account'), false);

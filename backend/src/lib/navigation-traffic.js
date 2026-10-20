@@ -6,6 +6,7 @@ const { getRoads } = require("./roads");
 const { createTomTomClient, unavailable } = require("./tomtom");
 const { createDatabaseQuota } = require("./traffic-quota");
 const { closureExclusions } = require("./navigation-closures");
+const { itineraryPoints } = require("./route-discovery");
 const {
   normalizeTrafficIncidents,
   deduplicateTrafficAlerts,
@@ -71,13 +72,14 @@ function pathMatches(local, provider) {
 function applyTraffic(route, response) {
   const provider = response.data?.routes?.[0];
   const seconds = Number(provider?.summary?.travelDurationInSeconds);
-  if (
-    !provider ||
-    !Number.isFinite(seconds) ||
-    seconds <= 0 ||
-    !pathMatches(route, provider)
-  )
+  if (!provider || !Number.isFinite(seconds) || seconds <= 0)
     throw unavailable("PROVIDER_UNAVAILABLE");
+  if (!pathMatches(route, provider))
+    throw unavailable("ROUTE_GEOMETRY_MISMATCH");
+  const age =
+    Date.parse(route.actualizadoEn) - Date.parse(response.actualizadoEn);
+  if (!Number.isFinite(age) || age < -60000 || age > 600000)
+    throw unavailable("STALE_ROUTE_TRAFFIC");
   const delay = Math.min(
     seconds,
     Math.max(0, Number(provider.summary.trafficDelayDurationInSeconds) || 0),
@@ -104,6 +106,14 @@ function applyTraffic(route, response) {
       demoraSegundos: delay,
       motivo:
         "Duración con tráfico TomTom; riesgo calculado únicamente con incidentes CiviGo.",
+    },
+    estimacion: {
+      fuente: "TOMTOM",
+      actualizadoEn: response.actualizadoEn,
+      incluyeTrafico: true,
+      cobertura:
+        "Geometría contrastada con el recorrido local (tolerancia 15 m)",
+      geometriaId: route.id,
     },
   };
 }
@@ -142,7 +152,6 @@ async function planRoutesWithTraffic(
     };
   }
   const evaluated = [];
-  let failure = null;
   // Two batches of three leave room for the closure lookup inside the browser's
   // request deadline. The provider still bounds concurrency and total quota.
   for (let index = 0; index < local.candidates.length; index += 3) {
@@ -152,24 +161,46 @@ async function planRoutesWithTraffic(
         applyTraffic(route, await client.route(route)),
       ),
     );
-    for (const outcome of outcomes) {
+    for (const [position, outcome] of outcomes.entries()) {
       if (outcome.status === "fulfilled") evaluated.push(outcome.value);
-      else failure ||= outcome.reason;
+      else
+        evaluated.push({
+          ...batch[position],
+          trafico: {
+            ...batch[position].trafico,
+            motivo:
+              outcome.reason?.name === "TrafficUnavailable"
+                ? outcome.reason.message
+                : "No se pudo comprobar el tráfico de este recorrido.",
+          },
+          estimacion: {
+            ...batch[position].estimacion,
+            motivoAlternativa: outcome.reason?.code || "PROVIDER_UNAVAILABLE",
+          },
+        });
     }
-    if (failure) break;
   }
-  const { candidates, ...meta } = local;
-  const usable = failure
-    ? candidates.map((route) => ({
-        ...route,
-        trafico: {
-          ...route.trafico,
-          motivo: failure.message || "Sin tráfico actualizado.",
-        },
-      }))
-    : evaluated;
+  const { candidates: _candidates, ...meta } = local;
+  const usable = evaluated;
+  const withTraffic = usable.filter((route) => route.trafico.disponible).length;
+  if (withTraffic && withTraffic < usable.length)
+    for (const route of usable)
+      route.advertencias.push(
+        "Las alternativas combinan tiempos con tráfico y estimaciones locales; sus duraciones no son directamente comparables.",
+      );
   const selection = selectRoutes(usable, input.criterio);
-  return { ...meta, ...selection, trafico: usable[0]?.trafico };
+  return {
+    ...meta,
+    ...selection,
+    trafico: {
+      ...(
+        usable.find((route) => route.id === selection.seleccionadaId) ||
+        usable[0]
+      )?.trafico,
+      candidatosConTrafico: withTraffic,
+      candidatosEvaluados: usable.length,
+    },
+  };
 }
 function provinceBounds(roads) {
   const coordinates = roads.boundary.outer.flat();
@@ -250,6 +281,47 @@ function createTrafficService({
           );
         }
       return result;
+    },
+    async itinerary(input, civic, options = {}) {
+      const points = itineraryPoints(input),
+        snapshot = now();
+      const alerts =
+        input.modo === "driving" ? await service.incidents() : null;
+      const legs = [];
+      for (let index = 1; index < points.length; index++) {
+        const planned = await planRoutesWithTraffic(
+          { ...input, origen: points[index - 1], destino: points[index] },
+          civic,
+          {
+            client: provider,
+            roads: network(),
+            ...options,
+            now: snapshot,
+            trafficIncidents: alerts?.incidentes || [],
+          },
+        );
+        const route =
+          planned.rutas.find((r) => r.id === planned.seleccionadaId) ||
+          planned.rutas[0];
+        if (alerts && !alerts.trafico.disponible)
+          route.advertencias.push(
+            "No se pudieron comprobar los cierres externos actuales. Respeta la señalización.",
+          );
+        legs.push({ indice: index - 1, ruta: route });
+      }
+      return {
+        tramos: legs,
+        paradas: points.slice(1, -1),
+        origen: points[0],
+        destino: points.at(-1),
+        actualizadoEn: snapshot.toISOString(),
+        distancia: legs.reduce((sum, l) => sum + l.ruta.distancia, 0),
+        duracion: legs.reduce((sum, l) => sum + l.ruta.duracion, 0),
+        ordenOptimizado: false,
+        advertencias: [
+          "Se respeta el orden de las paradas; no se optimiza el itinerario completo. Los tiempos no incluyen esperas y el tráfico puede cambiar antes de los tramos posteriores.",
+        ],
+      };
     },
     async incidents(civic = [], requestedBounds = null) {
       const currentRoads = network();

@@ -7,8 +7,9 @@ import { Network, type ConnectionStatus } from '@capacitor/network';
 import { App } from '@capacitor/app';
 import type { Posicion, LocationFix } from '../types';
 import { subscribeAsync } from './native-lifecycle';
-import { normalizeGeolocationError } from './geolocation-consent';
+import { isGeolocationDenial, normalizeGeolocationError } from './geolocation-consent';
 import { ReportCameraRecovery, type RecoveredReportPhoto } from './cameraRecovery';
+import { ResilientStorage, type JournalStorage, type PreferenceDriver } from './resilientStorage';
 
 export const isNative = Capacitor.isNativePlatform();
 
@@ -90,11 +91,14 @@ export function watchDevicePosition(
       const id = await Geolocation.watchPosition(
       { enableHighAccuracy: true },
       (pos, err) => {
-        if (!isActive()) return;
         if (err) {
-          onError?.(normalizeGeolocationError(err));
+          const failure = normalizeGeolocationError(err);
+          // Consent may finish after a foreground watch was stopped. Only a
+          // denial reaches the consent policy; closed views still receive no fix.
+          if (isActive() || isGeolocationDenial(failure)) onError?.(failure);
           return;
         }
+        if (!isActive()) return;
         if (pos) {
           onSuccess({
             latitud: pos.coords.latitude,
@@ -126,7 +130,10 @@ export function watchDevicePosition(
           timestamp: p.timestamp,
         });
       },
-      (err) => { if (active) onError?.(normalizeGeolocationError(err)); },
+      (err) => {
+        const failure = normalizeGeolocationError(err);
+        if (active || isGeolocationDenial(failure)) onError?.(failure);
+      },
       { enableHighAccuracy: true, timeout: 10000, maximumAge: 3000 }
     );
     return () => {
@@ -176,42 +183,24 @@ export async function capturePhotoOrVideo(
 
 /* --- PERSISTENT STORAGE (Preferences) --- */
 const memoryStore = new Map<string, string>();
-
-export const StorageService = {
-  async get(key: string): Promise<string | null> {
-    try {
-      const { value } = await Preferences.get({ key });
-      return value;
-    } catch {
-      if (typeof localStorage !== 'undefined') {
-        return localStorage.getItem(key);
-      }
-      return memoryStore.get(key) ?? null;
-    }
-  },
-  async set(key: string, value: string): Promise<void> {
-    try {
-      await Preferences.set({ key, value });
-    } catch {
-      if (typeof localStorage !== 'undefined') {
-        localStorage.setItem(key, value);
-      } else {
-        memoryStore.set(key, value);
-      }
-    }
-  },
-  async remove(key: string): Promise<void> {
-    try {
-      await Preferences.remove({ key });
-    } catch {
-      if (typeof localStorage !== 'undefined') {
-        localStorage.removeItem(key);
-      } else {
-        memoryStore.delete(key);
-      }
-    }
-  },
+const memoryFallback: JournalStorage = {
+  getItem: key => memoryStore.get(key) ?? null,
+  setItem: (key, value) => { memoryStore.set(key, value); },
+  removeItem: key => { memoryStore.delete(key); },
 };
+const memoryPreferences: PreferenceDriver = {
+  get: async ({ key }) => ({ value: memoryStore.get('CapacitorStorage.' + key) ?? null }),
+  set: async ({ key, value }) => { memoryStore.set('CapacitorStorage.' + key, value); },
+  remove: async ({ key }) => { memoryStore.delete('CapacitorStorage.' + key); },
+};
+const storagePreferences = !isNative && typeof window === 'undefined' && typeof document === 'undefined' ? memoryPreferences : Preferences;
+export const StorageService = new ResilientStorage(storagePreferences, () => {
+  if (typeof localStorage !== 'undefined') return localStorage;
+  // Memory is only a server/test fallback. A native device or browser must not
+  // report a durable logout/trip deletion when storage is inaccessible.
+  if (isNative || typeof document !== 'undefined') throw new Error('No se pudo acceder al almacenamiento local de CiviGo.');
+  return memoryFallback;
+});
 
 const reportCameraRecovery = new ReportCameraRecovery(StorageService, typeof location === 'undefined' ? 'https://localhost' : location.origin);
 export const getRecoveredReportPhoto = (ownerId: number | undefined) => reportCameraRecovery.read(ownerId);

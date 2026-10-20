@@ -597,11 +597,11 @@ async function commonShellScenarios() {
     stages.push({test:`Shell ${width}×${height} anónimo: menú abre/cierra, logo/tema/controles visibles y ficha de negocio sin abandonar /ingresar`,passed:true});
   }
 }
-async function createClient(index, width, height, {route='/mapa',mapReady=true} = {}) {
+async function createClient(index, width, height, {route='/mapa',mapReady=true,mapbox=false,offscreen=false} = {}) {
   const expectedAuthentication = authenticated;
   const window = new BrowserWindow({
     show: false, width, height, useContentSize: true,
-    webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false,
+    webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false, offscreen,
       backgroundThrottling: false, partition: `map-live-fixture-${index}` },
   });
   windows.push(window);
@@ -624,6 +624,7 @@ async function createClient(index, width, height, {route='/mapa',mapReady=true} 
       const url = new URL(details.url);
       allowed = (url.origin === origin && ['http:', 'ws:'].includes(url.protocol))
         || (url.hostname === '127.0.0.1' && url.port === String(frontendPort) && url.protocol === 'ws:')
+        || (mapbox && url.protocol === 'https:' && (url.hostname === 'api.mapbox.com' || url.hostname === 'events.mapbox.com' || url.hostname.endsWith('.tiles.mapbox.com')))
         || url.protocol === 'data:' || url.protocol === 'blob:';
       if (!allowed) blockedHosts.add(url.hostname || url.protocol);
     } catch { allowed = false; }
@@ -657,7 +658,7 @@ async function createClient(index, width, height, {route='/mapa',mapReady=true} 
     : `!!document.querySelector('.app-header a[href="/registro"]') && !document.querySelector('.sidebar-account')`);
   if (mapReady) {
     await waitUntil(window, `!!document.querySelector('.nearby-location-notice button')`);
-    assert.equal(await window.webContents.executeJavaScript(`document.querySelectorAll('.map-recenter').length`),0,'El botón de centrar no usa una ubicación inventada antes del GPS');
+    assert.equal(await window.webContents.executeJavaScript(`document.querySelectorAll('.map-recenter').length`),1,'El botón de centrar permite solicitar GPS sin inventar ubicación');
     await window.webContents.executeJavaScript(`
       window.__nearbyPosition = {coords:{latitude:-14.0678,longitude:-75.7286,accuracy:10},timestamp:Date.now()};
       window.__nearbyWatchers = new Map(); window.__nearbyWatchId = 0;
@@ -1053,7 +1054,7 @@ async function run() {
   await commonShellScenarios();
   await finishShellValidation();
 }
-run().then(() => app.exit(0)).catch(async error => {
+if (require.main === module) run().then(() => app.exit(0)).catch(async error => {
   console.error(error.stack || String(error));
   for (const [index,window] of windows.entries()) if (!window.isDestroyed()) await capture(window,`fallo-cliente-${index+1}.png`).catch(()=>{});
   await fs.writeFile(path.join(local, 'fallo.json'), JSON.stringify({ error: String(error), failedScripts,rendererConsoleErrors,stages, headerLayouts, navigations: requests.filter(request => request.navigation) }, null, 2));
@@ -1062,3 +1063,5 @@ run().then(() => app.exit(0)).catch(async error => {
   for (const window of windows) if (!window.isDestroyed()) window.destroy();
   server.close();
 });
+module.exports = {app,server,windows,requests,errors,rendererConsoleErrors,blockedHosts,createClient,waitUntil,delay,
+  setIncidents(rows) {incidents=rows;revision++;}, incident};

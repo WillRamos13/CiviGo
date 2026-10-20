@@ -64,7 +64,8 @@ export const NavigationService = {
       { origen, destino, modo },
       { signal }
     );
-    if (!Array.isArray(res?.rutas) || !res.rutas.every(isRoute)) {
+    if (!Array.isArray(res?.rutas) || !res.rutas.every(isRoute) || res.rutas.some(route =>
+      route.modo !== undefined && route.modo !== modo || modo !== 'driving' && route.trafico?.disponible === true)) {
       throw new Error('El servidor devolvió una ruta incompleta. Inténtalo de nuevo.');
     }
     return res.rutas.map((route) => ({ ...route, advertencias: route.advertencias || [] }));
@@ -138,6 +139,7 @@ export function isRoute(value: unknown): value is Ruta {
   const r = value as Partial<Ruta>;
   return (
     typeof r.id === 'string' && r.id.length > 0 &&
+    (r.modo === undefined || ['walking', 'cycling', 'driving'].includes(r.modo)) &&
     Number.isFinite(r.distancia) && r.distancia! >= 0 &&
     Number.isFinite(r.duracion) && r.duracion! >= 0 &&
     r.geometria?.type === 'LineString' &&
@@ -150,7 +152,18 @@ export function isRoute(value: unknown): value is Ruta {
       step.distanciaAcumulada >= 0 && Number.isFinite(step.distancia) && step.distancia >= 0 &&
       Number.isFinite(step.duracion) && step.duracion >= 0 && Number.isFinite(step.duracionAcumulada) && step.duracionAcumulada >= 0))) &&
     (r.advertencias === undefined || (Array.isArray(r.advertencias) && r.advertencias.every((warning) =>
-      typeof warning === 'string' || (!!warning && typeof warning.mensaje === 'string'))))
+      typeof warning === 'string' || (!!warning && typeof warning.mensaje === 'string')))) &&
+    (r.fuente === undefined || typeof r.fuente === 'string') &&
+    (r.actualizadoEn === undefined || typeof r.actualizadoEn === 'string') &&
+    (r.llegadaEstimada === undefined || typeof r.llegadaEstimada === 'string') &&
+    (r.trafico === undefined || (!!r.trafico && typeof r.trafico.disponible === 'boolean' &&
+      (r.trafico.fuente === null || typeof r.trafico.fuente === 'string') &&
+      (r.trafico.actualizadoEn === null || typeof r.trafico.actualizadoEn === 'string') &&
+      Number.isFinite(r.trafico.demoraSegundos) && r.trafico.demoraSegundos >= 0 && typeof r.trafico.motivo === 'string')) &&
+    (r.paradaIntermedia === undefined || (!!r.paradaIntermedia && isPosition(r.paradaIntermedia) &&
+      typeof r.paradaIntermedia.nombre === 'string' && r.paradaIntermedia.nombre.trim().length > 0 && r.paradaIntermedia.nombre.length <= 250 &&
+      isPosition(r.paradaIntermedia.destinoFinal) &&
+      (r.paradaIntermedia.destinoFinalNombre === undefined || typeof r.paradaIntermedia.destinoFinalNombre === 'string' && r.paradaIntermedia.destinoFinalNombre.length <= 250)))
   );
 }
 
@@ -193,47 +206,7 @@ export class AutoRerouteGuard {
   }
 }
 
-/** Project a GPS fix onto the route; remote/poor fixes never advance guidance. */
-export function getRouteProgress(route: Ruta, position?: LocationFix | null, now = Date.now()) {
-  const coordinates = route.geometria.coordinates;
-  let traveled = 0;
-  let total = 0;
-  let nearest = Infinity;
-  if (isUsableFix(position, now)) {
-    const scaleX = 111320 * Math.cos(position.latitud * Math.PI / 180);
-    const scaleY = 111320;
-    for (let i = 1; i < coordinates.length; i++) {
-      const a = coordinates[i - 1], b = coordinates[i];
-      const ax = (a[0] - position.longitud) * scaleX, ay = (a[1] - position.latitud) * scaleY;
-      const dx = (b[0] - a[0]) * scaleX, dy = (b[1] - a[1]) * scaleY;
-      const length = distance({ longitud: a[0], latitud: a[1] }, { longitud: b[0], latitud: b[1] });
-      const ratio = dx * dx + dy * dy > 0 ? Math.max(0, Math.min(1, -(ax * dx + ay * dy) / (dx * dx + dy * dy))) : 0;
-      const offset = Math.hypot(ax + ratio * dx, ay + ratio * dy);
-      if (offset < nearest) { nearest = offset; traveled = total + length * ratio; }
-      total += length;
-    }
-  }
-  const offRoute = Number.isFinite(nearest) && nearest > Math.max(50, (position?.accuracy || 0) * 1.5);
-  const hasFix = isUsableFix(position, now);
-  const covered = hasFix && !offRoute && total > 0 ? Math.min(route.distancia, traveled / total * route.distancia) : 0;
-  const steps = (route.pasos || []).filter((step) => Number.isFinite(step.distanciaAcumulada) && typeof step.instruccion === 'string');
-  let index = 0;
-  for (let i = 0; i < steps.length; i++) {
-    if (steps[i].distanciaAcumulada <= covered + 3) index = i;
-  }
-  const step = steps[index];
-  const nextStep = steps[index + 1];
-  const remainingDistance = Math.max(0, route.distancia - covered);
-  let elapsed = route.distancia > 0 ? covered / route.distancia * route.duracion : 0;
-  if (step && Number.isFinite(step.duracionAcumulada) && Number.isFinite(step.duracion) && step.distancia > 0) {
-    elapsed = step.duracionAcumulada + Math.max(0, Math.min(1, (covered - step.distanciaAcumulada) / step.distancia)) * step.duracion;
-  }
-  return { hasFix, offRoute, step, nextStep, remainingDistance,
-    remainingDuration: Math.max(0, route.duracion - elapsed),
-    distanceToNext: nextStep ? Math.max(0, nextStep.distanciaAcumulada - covered) : remainingDistance,
-    arrived: hasFix && !offRoute && remainingDistance <= 20 &&
-      !!position && distance(position, { longitud: coordinates[coordinates.length - 1][0], latitud: coordinates[coordinates.length - 1][1] }) <= 20 };
-}
+export { getRouteProgress } from './navigationProgress';
 
 export function routeWarnings(route: Ruta): string[] {
   const warnings = (route.advertencias || []).map((warning) => typeof warning === 'string' ? warning : warning?.mensaje).filter(Boolean);
