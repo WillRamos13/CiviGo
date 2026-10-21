@@ -165,8 +165,8 @@ function AccountMap() {
                             <RoutePlanner onShowPlace={place=>{setSelected(null);setFocusPoint(current=>({posicion:place,label:place.nombre,version:(current?.version??0)+1}));setPanelExpanded(false);}} onRoute={changeRoute} active={route} following={following} onFollow={changeFollowing} guidance={navigation} onLocate={location.acceptPosition} currentPosition={position} compact={following && !panelExpanded}/>
                         </div>
                     </section>
+                    {selected && <IncidentPanel key={selected.id} incidente={selected} variant="map-card" onClose={() => setSelected(null)} onRefresh={refreshAll} onShowOnMap={() => { focusIncident(selected); setSelected(null); if (!fullscreen.active) document.querySelector('.map-column')?.scrollIntoView({block: 'start'}); }}/>}
                 </div>
-                {selected && <IncidentPanel key={selected.id} incidente={selected} variant="map-card" onClose={() => setSelected(null)} onRefresh={refreshAll} onShowOnMap={() => { focusIncident(selected); setSelected(null); document.querySelector('.map-column')?.scrollIntoView({block: 'start'}); }}/>}
                 <div className="map-footer"><span className="online-state"><span/>Provincia de Ica</span><span>{updated ? `Actualizados ${updated}` : 'Conectando…'}</span><Signal size={17} aria-hidden="true"/></div>
             </div>
                 <CollapsiblePanel title="Reportes recientes" className="map-side-panel map-reports-panel" defaultOpen>

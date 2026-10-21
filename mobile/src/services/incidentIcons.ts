@@ -15,6 +15,7 @@ const ICON_MAP: Record<string, string> = {
   'inundacion': '/iconos/inundacion.png',
   'robo': '/iconos/robo.png',
   'hurto': '/iconos/hurto.png',
+  'extorsion': '/iconos/extorsion.png',
   'semaforo': '/iconos/semaforo.png',
   'semaforo-danado': '/iconos/semaforo.png',
   'persona-sospechosa': '/iconos/sospechoso.png',

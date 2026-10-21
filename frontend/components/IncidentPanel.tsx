@@ -63,7 +63,7 @@ export default function IncidentPanel({ incidente, onClose, onRefresh, variant =
         if (!compact) document.body.style.overflow='hidden';
         panelRef.current?.querySelector<HTMLButtonElement>('button')?.focus();
         const keyboard=(event:KeyboardEvent)=>{
-            if(event.key==='Escape' && (!compact || panelRef.current?.contains(document.activeElement))){closeRef.current();return;}
+            if(event.key==='Escape' && (!compact || panelRef.current?.contains(document.activeElement))){event.preventDefault();closeRef.current();return;}
             if(event.key!=='Tab' || compact)return;
             const nodes=panelRef.current?.querySelectorAll<HTMLElement>('button:not([disabled]),a[href],input:not([disabled]),textarea:not([disabled]),select:not([disabled])');
             if(!nodes?.length)return;

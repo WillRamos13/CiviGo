@@ -29,6 +29,7 @@
 .plannerToggle:focus-visible { outline: 3px solid var(--brand); outline-offset: -3px; }
 .page.page :global(.map-frame).fullscreenFrame { position: fixed; inset: 0; z-index: 1500; width: 100vw; height: 100dvh; min-height: 0; border-radius: 0; margin: 0; }
 .fullscreenButton { position: absolute; z-index: 7; left: 12px; top: 120px; width: 44px; height: 44px; min-width: 44px; background: var(--surface); color: var(--ink); border: 1px solid var(--line); border-radius: 14px; }
+.page.page :global(.map-frame):has([aria-labelledby="incident-title"]) .fullscreenButton { left: calc(50% - 22px); top: 12px; z-index: 10; }
 .page.page .fullscreenFrame .plannerPanel { --map-viewport-height: 100dvh; }
 .page.page :global(.map-controls):has(> button[aria-expanded="true"]) { z-index: 8; }
 @media (min-width: 901px) {

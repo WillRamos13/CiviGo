@@ -9,3 +9,11 @@ test('Hurto has a dedicated bundled PNG with alpha instead of the generic alert 
     assert.equal(png.subarray(0,8).toString('hex'),'89504e470d0a1a0a');
     assert.equal(png.readUInt32BE(16),256);assert.equal(png.readUInt32BE(20),256);assert.equal(png[25],6);
 });
+
+test('Extorsión normalizes accents and uses its dedicated transparent PNG',()=>{
+    assert.equal(getIncidentIconPath('Extorsión'),'/iconos/extorsion.png');
+    assert.equal(getIncidentIconPath(undefined,'extorsion'),'/iconos/extorsion.png');
+    const png=readFileSync('public/iconos/extorsion.png');
+    assert.equal(png.subarray(0,8).toString('hex'),'89504e470d0a1a0a');
+    assert.equal(png.readUInt32BE(16),256);assert.equal(png.readUInt32BE(20),256);assert.equal(png[25],6);
+});

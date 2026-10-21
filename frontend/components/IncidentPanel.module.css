@@ -1,6 +1,6 @@
 .card { display: flex; flex-direction: column; border: 1px solid var(--map-panel-border); border-radius: 18px; background: var(--map-panel); color: var(--ink); padding: 0; overflow: hidden; box-shadow: 0 8px 30px rgb(0 30 55 / 28%), 0 0 0 1px rgb(35 189 235 / 18%); }
-.mapCardPosition { position: absolute; top: 80px; left: 22px; z-index: 5; width: min(355px, calc(100% - 44px)); max-height: calc(100% - 150px); pointer-events: none; }
-.mapCard { display: flex; flex-direction: column; max-height: min(660px, calc(100dvh - 230px)); pointer-events: auto; border-color: color-mix(in srgb, var(--brand-cyan) 65%, var(--map-panel-border)); box-shadow: 0 0 0 1px rgb(35 189 235 / 16%), 0 8px 30px rgb(0 30 55 / 28%); }
+.mapCardPosition { position: absolute; top: 80px; bottom: 16px; left: 22px; z-index: 9; width: min(355px, calc(100% - 44px)); pointer-events: none; display: flex; align-items: flex-start; }
+.mapCard { display: flex; flex-direction: column; max-height: min(660px, 100%); width: 100%; pointer-events: auto; border-color: color-mix(in srgb, var(--brand-cyan) 65%, var(--map-panel-border)); box-shadow: 0 0 0 1px rgb(35 189 235 / 16%), 0 8px 30px rgb(0 30 55 / 28%); }
 .heading { display: flex; align-items: center; gap: 11px; padding: 14px; background: linear-gradient(125deg, var(--map-panel-glow), var(--map-panel)); border-bottom: 1px solid var(--map-panel-border); flex-shrink: 0; }
 .heading > div { flex: 1; min-width: 0; }
 .heading h2 { font-size: 17px; line-height: 1.25; margin: 0 0 5px; overflow-wrap: anywhere; }
@@ -32,4 +32,4 @@
 .participation p, .conversation > p { font-size: 11px; line-height: 1.5; }
 .conversation h3 { display: flex; align-items: center; gap: 6px; }
 @media (max-width: 900px) { .mapCardPosition { left: 15px; top: 78px; } }
-@media (max-width: 600px) { .mapCardPosition { top: 64px; left: 9px; width: calc(100% - 18px); max-height: none; } .mapCard { max-height: min(480px, calc(100dvh - 145px)); } .heading { padding: 11px; } .body { padding: 11px; } }
+@media (max-width: 600px) { .mapCardPosition { top: 64px; left: 9px; width: calc(100% - 18px); } .mapCard { max-height: min(480px, 100%); } .heading { padding: 11px; } .body { padding: 11px; } }
