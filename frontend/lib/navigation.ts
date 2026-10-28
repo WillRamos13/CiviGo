@@ -1,6 +1,7 @@
 import type { Incidente, Posicion, Ruta, LocationFix } from './types';
 import { isHistoricalAntecedent } from './incidents';
 import { isPosition } from './route-cache';
+import { gpsProblem } from './gps-quality';
 
 export function nearRoute(p: Posicion, r: Ruta, limit = 100) {
     const coords = r.geometria.coordinates, scale = Math.cos(p.latitud * Math.PI / 180);
@@ -19,6 +20,7 @@ export function isRouteWarning(incident: Incidente) {
 
 export function watchRoutePosition(geolocation: Pick<Geolocation, 'watchPosition' | 'clearWatch'> | undefined, onPosition: (point: LocationFix) => void, onUnavailable: (message: string) => void, onWaiting: (message: string) => void = () => {}) {
     let active = true, watch: number | undefined;
+    let previous: LocationFix | null = null;
     const stop = () => { active = false; if (watch !== undefined) { geolocation?.clearWatch(watch); watch = undefined; } };
     const fail = (message: string) => { if (!active) return; stop(); onUnavailable(message); };
     if (!geolocation) { fail('Este navegador no permite seguir el recorrido por GPS.'); return stop; }
@@ -26,15 +28,18 @@ export function watchRoutePosition(geolocation: Pick<Geolocation, 'watchPosition
         watch = geolocation.watchPosition(position => {
             if (!active) return;
             const point: LocationFix = {latitud: position.coords.latitude, longitud: position.coords.longitude};
-            for (const key of ['accuracy', 'heading', 'speed'] as const) if (typeof position.coords[key] === 'number' && Number.isFinite(position.coords[key])) point[key] = position.coords[key]!;
-            if (Number.isFinite(position.timestamp)) point.timestamp = position.timestamp;
+            for (const key of ['accuracy', 'heading', 'speed'] as const) if (typeof position.coords[key] === 'number' && (key === 'accuracy' || Number.isFinite(position.coords[key]))) point[key] = position.coords[key]!;
+            if (typeof position.timestamp === 'number') point.timestamp = position.timestamp;
             if (!isPosition(point)) { fail('El GPS devolvió una ubicación inválida. El recorrido se detuvo.'); return; }
+            const problem = gpsProblem(point, previous);
+            if (problem) { onWaiting(problem); return; }
+            previous = point;
             onPosition(point);
         }, error => {
             if (!active) return;
             if (error.code === 1) fail('No se inició el seguimiento porque el acceso al GPS fue rechazado.');
             else onWaiting('GPS temporalmente no disponible. Conservamos el recorrido y esperamos una nueva ubicación.');
-        }, {enableHighAccuracy: true, maximumAge: 5000, timeout: 20000});
+        }, {enableHighAccuracy: true, maximumAge: 0, timeout: 20000});
         if (!active && watch !== undefined) stop();
     } catch { fail('No se pudo iniciar el seguimiento por GPS en este navegador.'); }
     return stop;

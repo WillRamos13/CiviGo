@@ -25,6 +25,7 @@ test('el PATCH real no deshace un bloqueo ni permisos revocados entre abrir y gu
   const admin = { id: 1, rol: 'ADMIN', bloqueado: false, correoVerificado: true };
   let account = { ...original }, updates = [], audits = [];
   const db = {
+    appConfig: {findUnique: async () => null},
     session: { findUnique: async () => ({ id: 'fixture-session', expiresAt: new Date(Date.now() + 60000), usuario: admin }) },
     user: {
       findUnique: async ({ where }) => where.id === admin.id ? admin : account,

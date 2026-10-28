@@ -1,7 +1,7 @@
 'use client';
 import { useState } from 'react';
 import Image from 'next/image';
-import { ChevronLeft, ChevronRight, ExternalLink, Megaphone } from 'lucide-react';
+import { ChevronLeft, ChevronRight, ExternalLink } from 'lucide-react';
 import { API_URL } from '@/lib/api';
 import { announcementImagePath, announcementLink, BUSINESS_DETAILS_EVENT } from '@/lib/announcements';
 import { useAnnouncements } from '@/lib/use-announcements';
@@ -20,7 +20,8 @@ export default function ReportAdvertisement() {
   const content = current ? <>
     {imagePath && current.imagen && <span className={styles.media} style={{ aspectRatio: imageRatio.key === imageKey ? imageRatio.value : 7 / 9 }}><Image key={imageKey} className={styles.image} src={API_URL + imagePath} alt={current.imagen.alt || current.titulo} fill sizes="(max-width: 1050px) 100vw, 32vw" unoptimized onLoad={event => { const image = event.currentTarget; if (image.naturalWidth && image.naturalHeight) setImageRatio({ key: imageKey, value: image.naturalWidth / image.naturalHeight }); }} onError={() => setFailedImage(imageKey)}/></span>}
     <span className={styles.copy}><strong>{current.titulo}</strong>{current.mensaje && <span>{current.mensaje}</span>}{(link || current.negocio) && <span className={styles.action}>{current.negocio ? 'Conocer el negocio' : 'Ver más'}<ExternalLink size={15} aria-hidden="true"/></span>}</span>
-  </> : <div className={styles.empty}><Megaphone size={26} aria-hidden="true"/><p>Anuncios y novedades de CiviGo</p></div>;
+  </> : null;
+  if(!current)return null;
   return <section className={styles.panel} aria-label="Anuncios de Reportar" onMouseEnter={() => setPaused(true)} onMouseLeave={() => setPaused(false)} onFocusCapture={() => setPaused(true)} onBlurCapture={event => { if (!event.currentTarget.contains(event.relatedTarget)) setPaused(false); }}>
     <div className={styles.heading}><span>{current?.tipo === 'NEGOCIO' ? 'Publicidad' : 'Anuncios y novedades'}</span>{count > 1 && <div className={styles.controls}><button type="button" aria-label="Banner anterior" onClick={previous}><ChevronLeft size={17}/></button><button type="button" aria-label="Banner siguiente" onClick={next}><ChevronRight size={17}/></button></div>}</div>
     {current?.tipo === 'NEGOCIO' && current.negocio ? <button type="button" className={styles.content} onClick={openBusiness}>{content}</button> : link ? <a className={styles.content} href={link} target="_blank" rel="noopener noreferrer">{content}</a> : <div className={styles.content}>{content}</div>}

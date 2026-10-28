@@ -9,6 +9,7 @@ export interface Usuario {
   correoVerificado: boolean;
   rol: string;
   premium: boolean;
+  premiumHasta?: string | null;
   credibilidad: number | null;
   monedas: number;
   permisos?: string[];
@@ -248,6 +249,9 @@ export interface RankingEntry {
 }
 
 export interface RewardItem {
+  imagen?: string;
+  marca?: string;
+  valorSoles?: number | null;
   id: number;
   nombre: string;
   descripcion: string;

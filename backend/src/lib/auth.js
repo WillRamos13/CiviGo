@@ -23,7 +23,7 @@ async function loadUser(req) {
   });
   if (!session || session.expiresAt <= new Date()) return null;
   req.sessionId = session.id;
-  req.user = session.usuario;
+  req.user = await require("./payments").withPaidPremium(session.usuario, prisma);
   return req.user;
 }
 const optionalAuth = asyncRoute(async (req, res, next) => {
@@ -139,7 +139,7 @@ async function createSession(user, res, { passwordHash } = {}) {
     expires: expiresAt,
     path: "/",
   });
-  return current;
+  return require("./payments").withPaidPremium(current, prisma);
 }
 module.exports = {
   auth,

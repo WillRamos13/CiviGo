@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { AuthProvider } from './hooks/useAuth';
 import { ThemeProvider } from './hooks/useTheme';
 import { MobileHeader } from './components/layout/MobileHeader';
+import {MobileAnnouncements} from './components/layout/MobileAnnouncements';
 import { BottomNavigation, type TabId } from './components/layout/BottomNavigation';
 import { onHardwareBackButton, triggerHaptic, minimizeAndroidApp } from './services/native';
 import { handleAppBack } from './services/backNavigation';
@@ -77,6 +78,17 @@ export const AppContent: React.FC = () => {
     });
     return () => unsub();
   }, [viewMode, activeTab, handleBack]);
+
+  const handleAnnouncementNavigation = (path: string) => {
+    if (path === '/registro') return navigateTo('register');
+    if (path === '/ingresar') return navigateTo('login');
+    if (path === '/contactanos') { window.open('https://civigo.online/contactanos', '_blank', 'noopener,noreferrer'); return; }
+    if (['/ranking', '/recompensas', '/comunidad'].includes(path)) return navigateTo('community');
+    setViewHistory([]); setViewMode('tab');
+    setActiveTab(path === '/reportar' ? 'report' : ['/perfil', '/premium'].includes(path) ? 'profile' : path === '/alertas' ? 'alerts' : path === '/mis-reportes' ? 'reports' : 'map');
+    const id = path.match(/^\/incidentes\/(\d+)$/)?.[1];
+    if (id) setNotificationIncidentId(Number(id));
+  };
 
   const renderContent = () => {
     switch (viewMode) {
@@ -203,9 +215,10 @@ export const AppContent: React.FC = () => {
         onOpenAgent={() => navigateTo('agent')}
       />}
 
+      {!navigationFullscreen && <MobileAnnouncements onNavigate={handleAnnouncementNavigation}/>}
       <main className="app-main" ref={mainRef}>
         {(mapVisited || mapVisible) && <div className="retained-map-view" hidden={!mapVisible} style={{ height: '100%' }}><MapPage visible={mapVisible} onGoReport={() => setActiveTab('report')} onNavigationChange={setNavigationActive} /></div>}
-        <div className="other-app-view" hidden={mapVisible}>{renderContent()}</div>
+        <div className="other-app-view" hidden={mapVisible}>{viewMode==='tab'&&activeTab==='report'&&<MobileAnnouncements placement="REPORTAR" onNavigate={handleAnnouncementNavigation}/>} {renderContent()}</div>
       </main>
 
       {notificationIncidentId !== null && <IncidentFromAlert key={notificationIncidentId} id={notificationIncidentId} onClose={() => setNotificationIncidentId(null)} />}

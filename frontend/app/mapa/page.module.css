@@ -59,3 +59,11 @@
   .page.page [data-map-control="orientation"] { top: 66px; }
 }
 @media (max-width: 420px) { .incidentCount { font-size: 10px; } .plannerToggle > strong { letter-spacing: 1px; } }
+
+
+/* Compact controls preserve their 44px touch targets. */
+.page.page .plannerPanel{width:273px;border-radius:20px;max-height:calc(100% - 24px)}
+.page.page .plannerBody{padding:10px}.page.page .plannerToggle{min-height:44px;padding:8px 10px}.plannerToggle>strong{font-size:10px;letter-spacing:.8px}
+.page.page :global(.map-controls){top:auto;bottom:78px;width:150px}.page.page :global(.risk-legend){top:auto;bottom:16px;left:12px}
+@media(min-width:901px){.page.page :global(.map-recenter),.page.page [data-map-control="orientation"]{right:301px}.navigating.page .plannerPanel{width:273px}.navigating.page :global(.map-recenter),.navigating.page [data-map-control="orientation"]{right:301px}}
+@media(max-width:700px){.page.page .plannerPanel{width:100%;max-height:45%;border-radius:20px 20px 0 0}.page.page :global(.risk-legend){bottom:calc(var(--route-panel-height,48px) + 12px)}.page.page :global(.map-controls){bottom:calc(var(--route-panel-height,48px) + 72px)}.navigating.page .plannerPanel{width:100%;max-height:45%}}

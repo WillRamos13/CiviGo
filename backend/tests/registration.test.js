@@ -39,6 +39,7 @@ test("Registro HTTP y errores internos sin base de datos ni proveedores", async 
     // db.js permite inyectar el cliente; los delegados planos evitan que los
     // proxies de Prisma impidan usar mock.method y nunca abren conexiones.
     globalThis.__civigoPrisma = {
+      appConfig: {findUnique: async () => null},
       $connect: unexpectedDatabaseCall,
       user: { create: unexpectedDatabaseCall },
       session: {

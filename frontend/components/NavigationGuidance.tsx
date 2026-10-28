@@ -5,6 +5,7 @@ import type { Ruta } from '@/lib/types';
 import { reliableSpeed, routeTimeSource } from '@/lib/navigation-presentation';
 import { useEffect, useState } from 'react';
 import styles from './NavigationGuidance.module.css';
+import {formatDuration} from '@/lib/duration';
 export type GuidanceProps = {progress: NavigationProgress | null; notice: string; recalculating: boolean; muted: boolean; toggleMuted: () => void; recenter: () => void; recalculate?: (reason: string) => void};
 export default function NavigationGuidance({route, onFinish, progress, notice, recalculating, muted, toggleMuted, recenter, recalculate, compact = false}: GuidanceProps & {route: Ruta; onFinish: () => void; compact?: boolean}) {
     const [now, setNow] = useState(() => Date.now());
@@ -15,7 +16,7 @@ export default function NavigationGuidance({route, onFinish, progress, notice, r
     return <section className={`navigation-guidance ${styles.guidance} ${compact ? styles.compact : ''}`} aria-label="Navegación del recorrido" data-compact={compact}>
         {route.copiaGuardada && <p className="navigation-notice">Copia guardada: tiempos y condiciones anteriores. Se intentará actualizar desde tu ubicación cuando haya conexión.</p>}
         <div className={`next-maneuver ${styles.maneuver}`}><Icon size={30} aria-hidden="true"/><div title={progress?.instruction}><strong>{progress ? formatMeters(progress.distanceToTurn) : 'Esperando GPS…'}</strong><p>{progress?.instruction ?? 'Permite el acceso a tu ubicación para iniciar.'}</p></div></div>
-        <div className={styles.metrics}><div className={styles.remaining}><strong>{Math.max(1, Math.ceil((progress?.secondsRemaining ?? route.duracion) / 60))} min</strong><span>{formatMeters(progress?.distanceRemaining ?? route.distancia)} · {arrival && Number.isFinite(arrival.getTime()) ? `Llegada ${arrival.toLocaleTimeString('es-PE', {hour: '2-digit', minute: '2-digit', timeZone: 'America/Lima'})}` : 'Llegada pendiente del GPS'}</span></div>
+        <div className={styles.metrics}><div className={styles.remaining}><strong>{formatDuration(progress?.secondsRemaining ?? route.duracion)}</strong><span>{formatMeters(progress?.distanceRemaining ?? route.distancia)} · {arrival && Number.isFinite(arrival.getTime()) ? `Llegada ${arrival.toLocaleTimeString('es-PE', {hour: '2-digit', minute: '2-digit', timeZone: 'America/Lima'})}` : 'Llegada pendiente del GPS'}</span></div>
             {speed !== null && <div className={styles.speed} aria-label={`Velocidad GPS ${speed} kilómetros por hora`}><strong>{speed}</strong><small>km/h</small></div>}
             <button type="button" className={styles.finish} onClick={onFinish}><Square size={12} aria-hidden="true"/>Finalizar</button>
         </div>

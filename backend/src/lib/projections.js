@@ -19,6 +19,7 @@ function ownUser(u) {
     telefono: u.telefono,
     correoVerificado: u.correoVerificado,
     premium: u.premium,
+    premiumHasta: u.premiumHasta ?? null,
     ocultarAnuncios: u.ocultarAnuncios,
     monedas: u.monedas,
     faltas: u.faltas,

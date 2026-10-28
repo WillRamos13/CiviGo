@@ -40,7 +40,7 @@ function safeLink(value) {
   if (value === undefined || value === null || value === "") return null;
   const candidate = text(value, "Enlace", 500);
   if (
-    /^\/(?:mapa|comunidad|ranking|alertas|recompensas|premium|reportar|mis-reportes|perfil|incidentes\/[1-9]\d*)$/.test(
+    /^\/(?:mapa|registro|ingresar|contactanos|comunidad|ranking|alertas|recompensas|premium|reportar|mis-reportes|perfil|incidentes\/[1-9]\d*)$/.test(
       candidate,
     )
   )

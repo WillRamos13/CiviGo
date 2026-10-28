@@ -950,3 +950,5 @@ small {
     max-height: min(54%, 210px);
   }
 }
+
+.map-appearance-control{border:0;padding:10px 0;margin:0;min-width:0;display:grid;gap:8px;font-size:12px}.map-appearance-control legend{font-weight:700}.map-appearance-control label{display:grid;gap:5px}.map-appearance-control select{width:100%;min-height:40px;border:1px solid var(--line,#42617a);border-radius:10px;background:var(--surface,#11263a);color:var(--ink,#fff);padding:7px}.map-appearance-control small{font-size:10px;line-height:1.4}

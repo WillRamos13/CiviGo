@@ -422,3 +422,5 @@
         transition: none;
     }
 }
+
+.planner :global(.card-header) h2{font-size:17px}.planner .intro{font-size:11px;margin-bottom:7px}.planner.planner .modes{margin:7px 0;gap:5px}.planner.planner .modes>button{min-height:46px;gap:3px;padding:6px 2px;font-size:11px}.planner.planner .modes>button svg{width:18px;height:18px}.destinationButton{min-height:44px;font-size:12px}.shortcuts{padding:4px 0}.shortcuts>button{min-height:36px}.planner .originDetails{margin-bottom:6px}

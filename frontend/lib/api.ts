@@ -1,3 +1,4 @@
+import {gpsProblem} from './gps-quality';
 export const API_URL = (process.env.NEXT_PUBLIC_API_URL || '/api').replace(/\/$/, '');
 export class ApiError extends Error {
     constructor(message: string, public status: number, public code?: string) { super(message); this.name = 'ApiError'; }
@@ -55,7 +56,7 @@ export function currentPosition(): Promise<import('./types').Posicion> {
     return new Promise((resolve, reject) => {
         if (!navigator.geolocation)
             return reject(new Error('Este navegador no permite obtener tu ubicación.'));
-        navigator.geolocation.getCurrentPosition(p => resolve({ latitud: p.coords.latitude, longitud: p.coords.longitude }), () => reject(new Error('No se pudo obtener tu ubicación. Permite el acceso al GPS e inténtalo de nuevo.')), { enableHighAccuracy: true, timeout: 15000, maximumAge: 10000 });
+        navigator.geolocation.getCurrentPosition(p => {const point={latitud:p.coords.latitude,longitud:p.coords.longitude,accuracy:p.coords.accuracy,timestamp:p.timestamp};const problem=gpsProblem(point);if(problem)reject(new Error(problem));else resolve(point);}, () => reject(new Error('No se pudo obtener tu ubicación. Permite el acceso al GPS e inténtalo de nuevo.')), { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 });
     });
 }
 export function distance(a: import('./types').Posicion, b: import('./types').Posicion) { const rad = (v: number) => v * Math.PI / 180; const p = rad(b.latitud - a.latitud), q = rad(b.longitud - a.longitud); return 6371000 * 2 * Math.asin(Math.sqrt(Math.sin(p / 2) ** 2 + Math.cos(rad(a.latitud)) * Math.cos(rad(b.latitud)) * Math.sin(q / 2) ** 2)); }

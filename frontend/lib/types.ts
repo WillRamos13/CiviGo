@@ -9,6 +9,7 @@ export interface Usuario {
     correoVerificado: boolean;
     rol: string;
     premium: boolean;
+    premiumHasta?: string | null;
     credibilidad: number | null;
     monedas: number;
     permisos?: string[];

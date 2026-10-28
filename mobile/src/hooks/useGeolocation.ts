@@ -1,3 +1,4 @@
+import {gpsProblem} from '../services/gpsQuality';
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { getCurrentDevicePosition, watchDevicePosition } from '../services/native';
 import type { LocationFix } from '../types';
@@ -14,6 +15,7 @@ export function useGeolocation(autoWatch = false) {
   const active = useRef(true);
   const requestId = useRef(0);
   const latestTimestamp = useRef(0);
+  const lastReliableFix = useRef<LocationFix | null>(null);
   const accessPolicy = useRef(new GeolocationAccessPolicy());
   const stopWatching = useRef<(() => void) | null>(null);
   const [watchAttempt, setWatchAttempt] = useState(0);
@@ -24,11 +26,14 @@ export function useGeolocation(autoWatch = false) {
 
   const acceptPosition = useCallback((fix: LocationFix) => {
     if (!active.current || !getAppActivity() || !isPosition(fix)) return false;
+    const problem=gpsProblem(fix,lastReliableFix.current);
+    if(problem){setError(problem);return false;}
     const timestamp = fix.timestamp ?? Date.now();
     if (!Number.isFinite(timestamp) || timestamp > Date.now() + 5000 || timestamp < Date.now() - 30000 ||
       (fix.accuracy !== undefined && (!Number.isFinite(fix.accuracy) || fix.accuracy < 0))) return false;
     if (timestamp < latestTimestamp.current) return false;
     latestTimestamp.current = timestamp;
+    lastReliableFix.current={...fix,timestamp};
     setPosition({ ...fix, timestamp });
     setError('');
     return true;

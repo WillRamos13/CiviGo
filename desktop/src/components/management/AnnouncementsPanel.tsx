@@ -1,4 +1,7 @@
 import { useRef, useState } from 'react';
+import headerTemplate from '../../../public/banners/rewards-header.webp?inline';
+import wideTemplate from '../../../public/banners/rewards-wide.webp?inline';
+import portraitTemplate from '../../../public/banners/rewards-portrait.webp?inline';
 import EditorPanel from '@/components/EditorPanel';
 import AnnouncementImagePreview from '@/components/AnnouncementImagePreview';
 import { api, upload } from '@/lib/api';
@@ -52,6 +55,21 @@ export default function AnnouncementsPanel() {
       }
     } catch (error) { setFailure(message(error)); } finally { setPending(false); }
   }
+  async function chooseTemplate(name: string) {
+    if(!draft||pending)return;
+    setPending(true);setFailure('');
+    try {
+      const source=({'rewards-header.webp':headerTemplate,'rewards-wide.webp':wideTemplate,'rewards-portrait.webp':portraitTemplate} as Record<string,string>)[name];
+      if(!source?.startsWith('data:image/webp;base64,'))throw new Error('No se pudo leer la plantilla.');
+      const bytes=Uint8Array.from(atob(source.split(',')[1]),character=>character.charCodeAt(0));
+      const file=new File([bytes],name,{type:'image/webp'});
+      validateAnnouncementImage(file);
+      const image=await upload(file,false,'ANUNCIO');stagedImages.current.add(image.id);
+      const previousId=draft.imagenId;
+      setDraft(current=>current?{...current,imagenId:image.id,imagenAlt:name.includes('portrait')?'Tu aporte cuenta. Reporta, participa y suma puntos.':'Participa, suma puntos y descubre recompensas en CiviGo.',titulo:'Tu aporte cuenta',mensaje:'Participa en tu comunidad y descubre recompensas.',enlace:'/registro'}:current);
+      if(previousId&&stagedImages.current.has(previousId)){try{await api('/uploads/'+previousId,{method:'DELETE'});stagedImages.current.delete(previousId);}catch{/* Cleanup retries on save. */}}
+    }catch(reason){setFailure(message(reason));}finally{setPending(false);}
+  }
   async function cancel() {
     if (pending) return;
     setPending(true); await cleanupStaged(); setDraft(null); setPending(false);
@@ -101,7 +119,7 @@ export default function AnnouncementsPanel() {
       <h2 className="font-bold text-xl mb-4">{draft.id ? 'Editar anuncio' : 'Nuevo anuncio'}</h2>
       <label className="field mb-4">Ubicación del anuncio<select value={draft.ubicacion} disabled={pending} onChange={event => setDraft({ ...draft, ubicacion: event.target.value as AnnouncementPlacement })}><option value="CABECERA">Barra superior</option><option value="REPORTAR">Lateral de Reportar</option></select><small>El banner lateral acompaña el formulario de Reportar; los anuncios existentes permanecen en la barra superior.</small></label>
       <div className="grid-2"><label className="field">Tipo<select value={draft.tipo} disabled={pending} onChange={event => setDraft({ ...draft, tipo: event.target.value as Draft['tipo'] })}><option value="NOVEDAD">Novedad de CiviGo</option><option value="NEGOCIO">Anuncio de negocio</option></select></label><label className="field">Orden de aparición<input required type="number" min={0} max={10000} step={1} value={draft.orden} disabled={pending} onChange={event => setDraft({ ...draft, orden: Number(event.target.value) })}/></label></div>
-      <label className="field mt-4">Título<input required maxLength={120} value={draft.titulo} disabled={pending} onChange={event => setDraft({ ...draft, titulo: event.target.value })}/></label>
+      <div className="announcement-templates"><strong>Plantillas de CiviGo</strong><div className="actions"><button type="button" className="btn btn-secondary" disabled={pending} onClick={()=>void chooseTemplate('rewards-header.webp')}>Cabecera</button><button type="button" className="btn btn-secondary" disabled={pending} onClick={()=>void chooseTemplate('rewards-wide.webp')}>Horizontal</button><button type="button" className="btn btn-secondary" disabled={pending} onClick={()=>void chooseTemplate('rewards-portrait.webp')}>Lateral / celular</button></div><small>Selecciona la ubicación del anuncio y guarda para publicarlo.</small></div><label className="field">Título<input required maxLength={120} value={draft.titulo} disabled={pending} onChange={event => setDraft({ ...draft, titulo: event.target.value })}/></label>
       <label className="field mt-4">Mensaje<textarea rows={3} maxLength={500} value={draft.mensaje} disabled={pending} onChange={event => setDraft({ ...draft, mensaje: event.target.value })}/></label>
       <fieldset className="mt-5"><legend className="font-bold mb-3">Imagen publicitaria opcional</legend>
         <label className="field">{draft.imagenId ? 'Reemplazar imagen' : 'Agregar imagen'}<input type="file" accept="image/jpeg,image/png,image/webp,image/gif" disabled={pending} onChange={event => { const file = event.target.files?.[0]; event.target.value = ''; void chooseImage(file); }}/><small>JPEG, PNG, WebP o GIF, hasta 5 MB. {draft.ubicacion === 'REPORTAR' ? 'Para el lateral puedes usar un banner vertical.' : 'Para la barra superior usa una imagen horizontal.'} Se mostrará completa.</small></label>

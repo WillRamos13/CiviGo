@@ -39,6 +39,7 @@ test("La revocación entre autenticación y transacción impide mensajes, prueba
     return value;
   };
   const db = {
+    appConfig: {findUnique: async () => null},
     $transaction: async (work) => work(db),
     session: {
       findUnique: async () => ({

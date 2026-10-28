@@ -9,6 +9,7 @@ import { PlacePreferencesController, emptyPlacePreferences, type PlacePreference
 import { useDialog } from '@/lib/use-dialog';
 import type { Posicion, Ruta } from '@/lib/types';
 import styles from './DestinationExplorer.module.css';
+import PlaceDetails from './PlaceDetails';
 type Props = { open: boolean; onClose: () => void; ownerId: number | null; currentPosition?: Posicion | null; route?: Ruta | null; initialQuery?: string; onChoose: (place: PlaceResult) => void; onShowPlace?: (place: PlaceResult) => void; };
 export default function DestinationExplorer(props: Props) { return <Explorer key={props.ownerId ?? 'guest'} {...props}/>; }
 function Explorer({open,onClose,ownerId,currentPosition,route,initialQuery='',onChoose,onShowPlace}: Props) {
@@ -61,7 +62,7 @@ function Explorer({open,onClose,ownerId,currentPosition,route,initialQuery='',on
                     <dl><dt>Ubicación</dt><dd>{selected.latitud.toFixed(6)}, {selected.longitud.toFixed(6)}</dd>{lineDistance!==null&&<><dt>Distancia en línea recta</dt><dd>{(lineDistance/1000).toFixed(2)} km</dd></>}</dl>
                     <div className={styles.actions}><button type="button" className="btn btn-primary" onClick={()=>{onChoose(selected);onClose();}}>Elegir destino</button>{onShowPlace&&<button type="button" className="btn btn-secondary" onClick={()=>{onShowPlace(selected);onClose();}}>Ver en el mapa</button>}<button type="button" className="btn btn-secondary" onClick={()=>void share()}><Share2 size={16}/>Compartir</button></div>
                     {ownerId&&<><div className={styles.actions}><button type="button" className="btn btn-secondary" disabled={saving} onClick={()=>save('saved')}><Bookmark size={16}/>{saved.saved.some(item=>item.label==='saved'&&placeKey(item.place)===placeKey(selected))?'Guardado':'Guardar'}</button><button type="button" className="btn btn-secondary" disabled={saving} onClick={()=>save('home')}><Home size={16}/>Casa</button><button type="button" className="btn btn-secondary" disabled={saving} onClick={()=>save('work')}><BriefcaseBusiness size={16}/>Trabajo</button></div><button type="button" className="btn btn-quiet" disabled={saving} onClick={()=>void changeSaved(()=>preferences.remove(selected))}>Quitar de guardados</button></>}
-                    {shareStatus&&<p role="status">{shareStatus}</p>}<p className="muted">Esta fuente no incluye horarios, teléfono, valoraciones ni fotografías del lugar.</p>
+                    {shareStatus&&<p role="status">{shareStatus}</p>}<PlaceDetails key={`${selected.latitud}:${selected.longitud}:${selected.nombre}`} place={selected}/>
                 </article>:<>
                     <div className={styles.chips} aria-label="Categorías de lugares">{PLACE_CATEGORIES.map(category=><button type="button" key={category.id} onClick={()=>setQuery(category.query)}>{category.label}</button>)}</div>
                     {route&&<label className={styles.corridor}><input type="checkbox" checked={nearRoute} onChange={event=>setNearRoute(event.target.checked)}/>Sólo resultados a 500 m del recorrido<small>Distancia geométrica; no mide el desvío por carretera.</small></label>}

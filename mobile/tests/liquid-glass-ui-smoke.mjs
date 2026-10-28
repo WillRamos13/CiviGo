@@ -55,6 +55,7 @@ class Map {
     this.sources[name]={...options,setData:data=>{this.sources[name].data=data;this.resize();},setTiles:tiles=>{this.sources[name].tiles=tiles;deliver();}};
     deliver();
   }
+  setConfigProperty(_import,key,value){(this.config??={})[key]=value;}
   addLayer(layer){this.layers[layer.id]={...layer,layout:{...layer.layout},paint:{...layer.paint}};}
   getSource(name){return this.sources[name];} getLayer(name){return this.layers[name];}
   removeLayer(name){delete this.layers[name];} removeSource(name){delete this.sources[name];}
@@ -190,6 +191,7 @@ window.auditApi=async(path,options={})=>{
    if(url.searchParams.has('bbox')){const start=url.searchParams.has('after')?window.auditIncidents.findIndex(item=>item.id===Number(url.searchParams.get('after')))+1:0;const items=window.auditIncidents.slice(start,start+300);data={items,nextCursor:start+items.length<window.auditIncidents.length?items.at(-1).id:null};}
    else data=window.auditIncidents.filter(item=>item.id<504);
  }
+ else if(url.pathname==='/announcements')data=[{id:881,tipo:'NOVEDAD',ubicacion:url.searchParams.get('ubicacion')||'CABECERA',titulo:'Participa y suma puntos',mensaje:'Campaña publicada desde admin',enlace:'/recompensas',negocio:null,imagen:{id:'12345678-1234-1234-1234-123456789012',alt:'Banner administrado de prueba'}}];
  else if(/^\/incidents\/\d+\/chat$/.test(url.pathname))data=[];
  else if(/^\/incidents\/\d+$/.test(url.pathname))data=window.auditIncidents.find(item=>item.id===Number(url.pathname.split('/').at(-1)));
  else if(url.pathname==='/navigation/roads/risk')data={version:'fixture-v1',revision:'r1',values:[[1,20,2,false]]};
@@ -265,6 +267,7 @@ async function openFixture(viewport, dark = false, preferences = {}) {
     const url = new URL(handler.request().url());
     if (['data:', 'blob:'].includes(url.protocol)) return handler.continue();
     if (url.origin === fixtureOrigin && url.pathname === '/') return handler.fulfill({ contentType: 'text/html', body: '<!doctype html><html lang="es"><head><meta name="viewport" content="width=device-width,initial-scale=1"></head><body><div id="root"></div></body></html>' });
+    if(url.origin===fixtureOrigin&&url.pathname==='/api/announcements/881/image')return handler.fulfill({contentType:'image/webp',body:await readFile(path.join(root,'public/banners/rewards-header.webp'))});
     if (url.origin === fixtureOrigin && (url.pathname.startsWith('/iconos/') || url.pathname === '/civigo-logo.jpeg')) {
       const target = path.resolve(root, 'public', '.' + decodeURIComponent(url.pathname));
       if (target.startsWith(path.resolve(root, 'public') + path.sep)) {
@@ -353,8 +356,8 @@ try {
             const box = button.getBoundingClientRect(); return { label: button.getAttribute('aria-label'), left: box.left, right: box.right, top: box.top, bottom: box.bottom, width: box.width, height: box.height };
           });
           const sheet = document.querySelector('.map-bottom-sheet').getBoundingClientRect();
-          const legend = document.querySelector('.map-fixed-legend').getBoundingClientRect();
-          return { scrollWidth: document.documentElement.scrollWidth, width: innerWidth, main: { top: main.top, bottom: main.bottom, height: main.height, width: main.width }, sheet: { height: sheet.height, width: sheet.width, top: sheet.top, bottom: sheet.bottom, left: sheet.left, right: sheet.right }, legend: {width:legend.width,height:legend.height}, controls };
+          const legend = document.querySelector('.map-fixed-legend').getBoundingClientRect(); const layers = document.querySelector('.map-layer-panel').getBoundingClientRect();
+          return { scrollWidth: document.documentElement.scrollWidth, width: innerWidth, main: { top: main.top, bottom: main.bottom, height: main.height, width: main.width }, sheet: { height: sheet.height, width: sheet.width, top: sheet.top, bottom: sheet.bottom, left: sheet.left, right: sheet.right }, legend: {width:legend.width,height:legend.height,top:legend.top,bottom:legend.bottom}, layers:{top:layers.top,bottom:layers.bottom}, controls };
         });
         assert.ok(layout.scrollWidth <= viewport.width + 1, `Sin desbordamiento horizontal en ${viewport.width}/${theme}`);
         assert.equal(layout.controls.length, 2, 'Sólo Ubicación y orientación en los FAB del mapa');
@@ -366,11 +369,22 @@ try {
         assert.ok(layout.sheet.left <= 1 && layout.sheet.right >= viewport.width - 1, 'Planificador de borde a borde');
         assert.ok(layout.sheet.bottom >= layout.main.bottom - 1, 'Sin hueco debajo del planificador');
         assert.ok(layout.legend.width <= 130 && layout.legend.height <= 46, 'Leyenda fija pequeña');
+        await page.locator('.mobile-announcements-cabecera img').waitFor();
+        const ad=await page.locator('.mobile-announcements-cabecera').evaluate(element=>{const r=element.getBoundingClientRect(),img=element.querySelector('img');return{left:r.left,right:r.right,height:r.height,fit:getComputedStyle(img).objectFit};});
+        assert.ok(ad.left>=0&&ad.right<=viewport.width+1&&ad.height<=50,'El banner administrado cabe sin invadir el mapa');assert.equal(ad.fit,'contain');
+        assert.ok(layout.layers.bottom + 1 <= layout.legend.top || layout.legend.bottom + 1 <= layout.layers.top, 'Los filtros y la leyenda no se superponen');
         assert.equal(await page.locator('.gn-origin').count(), 0, 'El planificador no repite el origen GPS');
         await screenshot(page, `map-${viewport.width}-${theme}`);
         assert.equal(await page.evaluate(() => window.auditCalls.filter(call => call.path.startsWith('/navigation/traffic/incidents')).length), 0, 'Sin consultas de incidentes externos mientras tráfico está apagado');
         await page.locator('.map-layer-panel > summary').click();
         await page.locator('.map-layer-panel .map-risk-legend').waitFor({ state: 'visible' });
+        await page.getByLabel('Vista del mapa', {exact:true}).selectOption('3d');
+        await page.waitForFunction(()=>window.auditMap.config?.show3dObjects===true);
+        await page.getByLabel('Ambiente del mapa', {exact:true}).selectOption('night');
+        await page.waitForFunction(()=>window.auditMap.config?.lightPreset==='night');
+        await page.getByLabel('Vista del mapa', {exact:true}).selectOption('2d');
+        await page.getByLabel('Ambiente del mapa', {exact:true}).selectOption('day');
+        await page.waitForFunction(()=>window.auditMap.config?.show3dObjects===false&&window.auditMap.config?.lightPreset==='day');
         await expectReachable(page.getByLabel('Filtrar por tipo', { exact: true }), 'El filtro de tipos');
         await expectReachable(page.locator('.map-layer-panel .map-risk-legend'), 'La leyenda de riesgo');
         const riskRange = await page.locator('.map-layer-panel .map-risk-legend').innerText();

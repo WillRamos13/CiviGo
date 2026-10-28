@@ -137,7 +137,7 @@ async function speechHarness(available = true) {
     '@capacitor/core': `export const Capacitor = { getPlatform: () => 'android' }; export const registerPlugin = () => new Proxy({}, { get: (_, key) => (...args) => window.nativeSpeech[key](...args) });`,
     '@capacitor/preferences': `export const Preferences = { get: async () => ({ value: null }), set: async () => {} };`,
     './api': `export const api = async path => { window.searches.push(path); return []; }; export const post = async () => ({}); export const del = async () => {}; export const distance = () => 0; export const errorMessage = error => error.message;`,
-    'services/api': `export const errorMessage = error => error.message;`,
+    'services/api': `export const errorMessage = error => error.message; export const post = async () => ({fotos: [], opiniones: []});`,
   };
   const bundle = await build({
     stdin: { contents: `import React, { useState } from 'react'; import { createRoot } from 'react-dom/client'; import { DestinationExplorer } from './src/components/navigation/DestinationExplorer';

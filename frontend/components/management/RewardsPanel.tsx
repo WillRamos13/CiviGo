@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Image from "next/image";
 import AuthGate from "@/components/AuthGate";
 import { useAuth } from "@/components/AuthProvider";
 import { api } from "@/lib/api";
@@ -15,6 +16,9 @@ import {
 } from "./common";
 
 interface Reward {
+  imagen?: string;
+  valorSoles?: number | null;
+  marca?: string;
   id: number;
   nombre: string;
   descripcion: string;
@@ -102,7 +106,9 @@ function RewardsContent() {
               {data.recompensas
                 .filter((reward) => reward.activo)
                 .map((reward) => (
-                  <article key={reward.id} className="card flex flex-col">
+                  <article key={reward.id} className="card flex flex-col reward-card">
+                    <Image className="reward-image" src={reward.imagen || "/rewards/civigo.svg"} alt={`Imagen ilustrativa de ${reward.nombre}`} width={720} height={420} unoptimized/>
+                    {reward.valorSoles != null && <strong className="reward-value">S/ {reward.valorSoles.toFixed(2)}</strong>}
                     <span className="badge self-start">Demostración</span>
                     <h3 className="font-bold text-lg mt-3">{reward.nombre}</h3>
                     <p className="muted mt-2 flex-1">{reward.descripcion}</p>

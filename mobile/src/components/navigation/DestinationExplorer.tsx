@@ -9,6 +9,7 @@ import { PlacePreferencesController, emptyPlacePreferences, type PlaceLabel, typ
 import { SpeechSearchController, speechSearchError, type SpeechSearchCapability } from '../../services/speechSearch';
 import type { LocationFix, Ruta } from '../../types';
 import './destination-explorer.css';
+import PlaceDetails from './PlaceDetails';
 
 export interface DestinationExplorerProps {
   open: boolean;
@@ -205,7 +206,7 @@ const DestinationExplorerContent: React.FC<DestinationExplorerProps> = ({ open, 
           {ownerId ? <div className="place-save-labels"><span>Guardar como</span><button type="button" disabled={saving} onClick={() => void applyPreference(() => preferences.current!.save(selected, 'home'))}><Home size={15} aria-hidden="true" />Casa</button><button type="button" disabled={saving} onClick={() => void applyPreference(() => preferences.current!.save(selected, 'work'))}><BriefcaseBusiness size={15} aria-hidden="true" />Trabajo</button></div> : <p className="place-note">Inicia sesión para guardar lugares e historial en este dispositivo.</p>}
           {shareStatus && <p className="place-notice" role="status">{shareStatus}</p>}
           {navigationActive && <p className="place-note">La proximidad a la ruta no indica el desvío por carretera. Tu destino y recorrido siguen activos.{!onChooseStop && ' Las paradas con desvíos calculados todavía no están disponibles.'}</p>}
-          <p className="place-note">Esta fuente no incluye horarios, valoraciones, teléfono ni fotografías del lugar.</p>
+          <PlaceDetails key={`${selected.latitud}:${selected.longitud}:${selected.nombre}`} place={selected}/>
         </article> : <>
           <div className="place-category-list" aria-label="Categorías de lugares">{PLACE_CATEGORIES.map(category => { const Icon = categoryIcons[category.icon]; return <button key={category.id} type="button" aria-pressed={cleanedQuery === category.query} onClick={() => { cancelSpeech(); setQuery(category.query); inputRef.current?.blur(); }}><Icon size={17} aria-hidden="true" />{category.label}</button>; })}</div>
           {cleanedQuery.length >= 3 ? <section className="place-results" aria-label="Resultados de lugares">

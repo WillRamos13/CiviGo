@@ -1,5 +1,6 @@
 import { isPosition } from './route-cache';
 import type { LocationFix } from './types';
+import { gpsProblem } from './gps-quality';
 
 export type MapLocationStatus = 'idle' | 'locating' | 'ready' | 'unavailable' | 'denied';
 export type MapLocationFailure = {status: 'unavailable' | 'denied'; message: string};
@@ -12,6 +13,7 @@ export function watchMapPosition(
 ) {
     let active = true;
     let watch: number | undefined;
+    let previous: LocationFix | null = null;
     const stop = () => {
         active = false;
         if (watch !== undefined) {
@@ -38,14 +40,17 @@ export function watchMapPosition(
             }
             for (const key of ['accuracy', 'heading', 'speed'] as const) {
                 const value = position.coords[key];
-                if (typeof value === 'number' && Number.isFinite(value)) point[key] = value;
+                if (typeof value === 'number' && (key === 'accuracy' || Number.isFinite(value))) point[key] = value;
             }
-            if (Number.isFinite(position.timestamp)) point.timestamp = position.timestamp;
+            if (typeof position.timestamp === 'number') point.timestamp = position.timestamp;
+            const problem = gpsProblem(point, previous);
+            if (problem) { onUnavailable({status: 'unavailable', message: problem}); return; }
+            previous = point;
             onPosition(point);
         }, error => {
             if (error.code === 1) fail('denied', 'Permite el acceso a tu ubicación en el navegador para ver reportes a menos de 1 km.');
             else fail('unavailable', 'No se pudo obtener tu ubicación actual. Activa el GPS e inténtalo de nuevo.');
-        }, {enableHighAccuracy: true, maximumAge: 10000, timeout: 20000});
+        }, {enableHighAccuracy: true, maximumAge: 0, timeout: 20000});
         // Some embedded browsers may invoke an error synchronously.
         if (!active && watch !== undefined) stop();
     } catch {

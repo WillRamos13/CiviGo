@@ -12,6 +12,7 @@ import DestinationExplorer from './DestinationExplorer';
 import NavigationGuidance, {type GuidanceProps} from './NavigationGuidance';
 import styles from './RoutePlanner.module.css';
 import { routeTimeSource } from '@/lib/navigation-presentation';
+import { formatDuration } from '@/lib/duration';
 type Punto = Posicion & { nombre: string };
 type Saved = { id: number; nombre: string; modo: string; origen: Posicion; destino: Posicion; datos: Ruta; creadoEn: string };
 type Props = { onRoute: (r: Ruta | null) => void; active: Ruta | null; following: boolean; onFollow: (v: boolean) => void; recalculate?: number; guidance?: GuidanceProps; onLocate?: (position: Posicion) => void; currentPosition?: Posicion | null; compact?: boolean; onShowPlace?: (place: Punto) => void };
@@ -212,7 +213,7 @@ function AccountRoutePlanner({ onRoute, active, following, onFollow, recalculate
                         {selected ? <Check size={18} aria-label="Seleccionada"/> : <ChevronRight size={18} aria-hidden="true"/>}
                     </span>
                     <span className={styles.metrics}>
-                        <span><b>{Math.max(1, Math.round(r.duracion / 60))}</b><span>min</span></span>
+                        <span><b>{formatDuration(r.duracion)}</b></span>
                         <span className={styles.metricSeparator} aria-hidden="true">·</span>
                         <span><b>{(r.distancia / 1000).toFixed(1)}</b><span>km</span></span>
                     </span>

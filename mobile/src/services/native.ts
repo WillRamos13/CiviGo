@@ -42,7 +42,7 @@ export async function getCurrentDevicePosition(): Promise<LocationFix> {
       const pos: Position = await Geolocation.getCurrentPosition({
         enableHighAccuracy: true,
         timeout: 15000,
-        maximumAge: 5000,
+        maximumAge: 0,
       });
       return {
         latitud: pos.coords.latitude,
@@ -73,7 +73,7 @@ export async function getCurrentDevicePosition(): Promise<LocationFix> {
           timestamp: p.timestamp,
         }),
       (err) => reject(normalizeGeolocationError(err)),
-      { enableHighAccuracy: true, timeout: 15000, maximumAge: 5000 }
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
     );
   });
 }
@@ -134,7 +134,7 @@ export function watchDevicePosition(
         const failure = normalizeGeolocationError(err);
         if (active || isGeolocationDenial(failure)) onError?.(failure);
       },
-      { enableHighAccuracy: true, timeout: 10000, maximumAge: 3000 }
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
     );
     return () => {
       active = false;

@@ -67,7 +67,7 @@ router.get(
         select: { monedas: true },
       }),
     ]);
-    res.json({ monedas: u.monedas, recompensas, canjes, demo: true });
+    res.json({ monedas: u.monedas, recompensas: recompensas.map(require('../lib/reward-catalog').presentReward), canjes, demo: true });
   }),
 );
 router.post(

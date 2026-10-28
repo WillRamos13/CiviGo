@@ -92,6 +92,15 @@ async function run() {
     await delay(500);
     await js(`document.querySelector('.map-controls > button').click()`);
     await waitUntil(win,`document.querySelector('.map-controls > button').getAttribute('aria-expanded')==='true'`);
+    if(width===1366){
+      for(const [mode,light] of [['3d','day'],['3d','dusk'],['3d','night'],['2d','day']]){
+        await js(`(()=>{const selects=document.querySelectorAll('.map-appearance-control select');for(const [select,value]of [[selects[0],${JSON.stringify(mode)}],[selects[1],${JSON.stringify(light)}]]){Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype,'value').set.call(select,value);select.dispatchEvent(new Event('change',{bubbles:true}));}})()`);
+        await delay(1200);
+        assert.equal(await js(`window.__originalCanvas===document.querySelector('.mapboxgl-canvas')`),true);
+        assert.equal(await js(`JSON.parse(localStorage.getItem('civigo:map-appearance:v1')).mode`),mode);
+        await screenshot(`ambiente-${mode}-${light}.png`);
+      }
+    }
     assert.equal(await js(`Array.from(document.querySelectorAll('.map-layer-options label')).some(e=>e.textContent.includes('Tráfico'))`),true);
     await js(`document.querySelector('.map-controls > button').click()`);
     for(const theme of ['light','dark']) {

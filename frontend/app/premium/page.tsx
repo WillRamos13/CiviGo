@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import PremiumCheckout from "@/components/PremiumCheckout";
 import { useAuth } from "@/components/AuthProvider";
 
 const features = [
@@ -13,42 +14,19 @@ const features = [
 ];
 
 export default function PremiumPage() {
-  const { usuario, loading } = useAuth();
+  const { usuario } = useAuth();
   return (
     <div className="page max-w-5xl">
       <div className="page-heading">
         <div>
-          <span className="badge">Demostración</span>
+          <span className="badge">Planes de CiviGo</span>
           <h1 className="mt-3">CiviGo Premium</h1>
           <p className="muted">
             Organiza tus recorridos y personaliza tu experiencia.
           </p>
         </div>
       </div>
-      <section className="card mb-6 brand-border brand-surface">
-        <div className="flex flex-wrap items-center justify-between gap-5">
-          <div>
-            <h2 className="text-2xl font-bold">
-              S/5,90{" "}
-              <span className="text-base font-normal muted">
-                al mes · precio de referencia
-              </span>
-            </h2>
-            <p className="mt-2">
-              No se realizan cobros ni se generan suscripciones automáticas.
-            </p>
-          </div>
-          <span className="badge">
-            {!loading && usuario?.premium
-              ? "Premium de demostración activo"
-              : "Plan gratuito"}
-          </span>
-        </div>
-        <p className="muted mt-4">
-          Un administrador puede activar Premium en una cuenta. Su
-          activación no genera un pago.
-        </p>
-      </section>
+      <PremiumCheckout />
       <section className="card overflow-x-auto">
         <h2 className="text-xl font-bold mb-4">Elige cómo usar CiviGo</h2>
         <table className="w-full min-w-[550px] text-left">

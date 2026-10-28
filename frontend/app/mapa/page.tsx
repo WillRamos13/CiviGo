@@ -46,6 +46,7 @@ function AccountMap() {
     const pageRef = useRef<HTMLDivElement>(null);
     const mapFrameRef = useRef<HTMLDivElement>(null);
     const fullscreen = useMapFullscreen(mapFrameRef);
+    useEffect(()=>{const frame=mapFrameRef.current,panel=frame?.querySelector('.map-route-panel');if(!frame||!panel)return;const update=()=>frame.style.setProperty('--route-panel-height',panel.getBoundingClientRect().height+'px');const observer=new ResizeObserver(update);observer.observe(panel);update();return()=>observer.disconnect();},[]);
     useEffect(() => {
         const viewport = window.visualViewport;
         const resize = () => pageRef.current?.style.setProperty('--map-viewport-height', `${viewport?.height ?? window.innerHeight}px`);
@@ -174,6 +175,7 @@ function AccountMap() {
                         <span className="muted">{recent.length} {recent.length === 1 ? 'reporte' : 'reportes'} · a 1 km de ti{(category || selectedYears !== null) && ' · filtro activo'}</span>
                         <button className="icon-btn" aria-label="Actualizar incidentes" onClick={refreshAll}><RefreshCw size={17}/></button>
                     </div>
+                    {position && location.error && <p className="notice notice-warning" role="status">{location.error}</p>}
                     {!position ? <div className="nearby-location-notice" role="status">
                         <p>{location.status === 'locating' ? 'Buscando tu ubicación…' : location.error || 'Activa tu ubicación para ver los últimos 10 reportes dentro de 1 km de ti.'}</p>
                         <button className="btn btn-secondary btn-small" disabled={location.status === 'locating'} onClick={location.requestLocation}><LocateFixed size={15}/>Usar mi ubicación</button>

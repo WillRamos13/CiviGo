@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { watchMapPosition, type MapLocationStatus } from './map-location';
 import { isPosition } from './route-cache';
 import type { LocationFix } from './types';
+import { gpsProblem } from './gps-quality';
 
 type LocationState = {position: LocationFix | null; status: MapLocationStatus; error: string};
 
@@ -46,7 +47,7 @@ export function useMapLocation(navigationPosition: LocationFix | null, following
         });
         const stop = watchMapPosition(navigator.geolocation,
             point => { if (active) setLocation({position: point, status: 'ready', error: ''}); },
-            failure => { if (active) setLocation({position: null, status: failure.status, error: failure.message}); },
+            failure => { if (active) setLocation(current => ({position: failure.status === 'denied' ? null : current.position, status: failure.status, error: failure.message})); },
         );
         return () => { active = false; stop(); };
     }, [requested, revision, following]);
@@ -74,6 +75,8 @@ export function useMapLocation(navigationPosition: LocationFix | null, following
     // arbitrary addresses and must never stand in for the user's location.
     const acceptPosition = useCallback((position: LocationFix) => {
         if (!isPosition(position)) return;
+        const problem = gpsProblem(position);
+        if (problem) { setLocation(current => ({...current, error: problem})); return; }
         setLocation({position, status: 'ready', error: ''});
         setRequested(true);
         setRevision(value => value + 1);

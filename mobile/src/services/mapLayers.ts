@@ -56,7 +56,7 @@ export function syncTrafficLayer(map: TrafficLayerMap, enabled: boolean, url: st
   }
   if (!map.getLayer(TRAFFIC_LAYER_ID)) {
     const firstLabel = map.getStyle()?.layers?.find(layer => layer.type === 'symbol' && layer.layout?.['text-field'] !== undefined)?.id;
-    map.addLayer({ id: TRAFFIC_LAYER_ID, type: 'raster', source: TRAFFIC_SOURCE_ID,
+    map.addLayer({ id: TRAFFIC_LAYER_ID, type: 'raster', slot: 'middle', source: TRAFFIC_SOURCE_ID,
       paint: { 'raster-opacity': 0.85, 'raster-fade-duration': 0 } }, firstLabel);
   }
   map.setLayoutProperty(TRAFFIC_LAYER_ID, 'visibility', 'visible');

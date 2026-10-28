@@ -19,6 +19,8 @@ import styles from './MapView.module.css';
 import IncidentYearFilter from './IncidentYearFilter';
 import type { IncidentYearControl } from '@/lib/incident-years';
 import RiskLegend, { TrafficLegend } from './RiskLegend';
+import MapAppearanceControl, {useMapAppearance} from './MapAppearanceControl';
+import {mapLightPreset} from '@/lib/map-appearance';
 import OfflineRoute from './OfflineRoute';
 import CollapsiblePanel from './CollapsiblePanel';
 import 'mapbox-gl/dist/mapbox-gl.css';
@@ -45,9 +47,19 @@ const brandColor = (element: HTMLElement | null) => element ? getComputedStyle(e
 const EMPTY_INCIDENTS: Incidente[] = [];
 type IncidentMarkerRecord = { marker: mapboxgl.Marker; incident: Incidente; signature: string };
 export default function MapView({ incidentes = EMPTY_INCIDENTS, ruta = null, onSelect, onPosition, onLocate, onRequestLocation, compactLegend = false, posicion = null, editor = false, typeFilter, yearFilter, navigating = false, heading, centerVersion = 0, focusPoint, onTrafficChange, onBounds }: Props) {
+    const {appearance,change:changeAppearance}=useMapAppearance();
+    const appearanceRef=useRef(appearance);
+    useEffect(()=>{appearanceRef.current=appearance;},[appearance]);
     const container = useRef<HTMLDivElement>(null), mapRef = useRef<mapboxgl.Map | null>(null), markers = useRef<Map<number, IncidentMarkerRecord>>(new Map()), positionMarker = useRef<mapboxgl.Marker | null>(null);
     const callbacks = useRef({ onSelect, onPosition, onLocate, onBounds });
     const [loaded, setLoaded] = useState(false), [risk, setRisk] = useState(true), [events, setEvents] = useState(true), [zones, setZones] = useState(true), [error, setError] = useState(''), [roads, setRoads] = useState<GeoJSON.FeatureCollection>(EMPTY_MAP_DATA), [roadError, setRoadError] = useState('');
+    useEffect(()=>{
+        if(!loaded)return;
+        const map=mapRef.current;if(!map)return;
+        const update=()=>{if(typeof map.setConfigProperty!== 'function')return;map.setConfigProperty('basemap','show3dObjects',!editor&&appearance.mode==='3d');map.setConfigProperty('basemap','lightPreset',editor?'day':mapLightPreset(appearance.light));};
+        update();if(!editor)map.easeTo({pitch:appearance.mode==='3d'?55:0,duration:window.matchMedia('(prefers-reduced-motion: reduce)').matches?0:500});
+        const timer=setInterval(update,60000);return()=>clearInterval(timer);
+    },[loaded,appearance,editor]);
     const geometryCache = useRef<RoadGeometry | null>(null), roadRevision = useRef('');
     const styleReady = useRef(false);
     const [controlsOpen, setControlsOpen] = useState(false), [traffic, setTraffic] = useState(false);
@@ -85,7 +97,7 @@ export default function MapView({ incidentes = EMPTY_INCIDENTS, ruta = null, onS
     useEffect(() => {
         if (!container.current || !token)
             return;
-        const map = new mapboxgl.Map({ container: container.current, accessToken: token, style: MAP_STYLE, center: [posicion?.longitud ?? -75.7286, posicion?.latitud ?? -14.0678], zoom: editor ? 17 : 13.3, attributionControl: true });
+        const map = new mapboxgl.Map({ container: container.current, accessToken: token, style: MAP_STYLE, config: {basemap: {lightPreset: "day", show3dObjects: false}}, antialias: true, center: [posicion?.longitud ?? -75.7286, posicion?.latitud ?? -14.0678], zoom: editor ? 17 : 13.3, attributionControl: true });
         const incidentMarkers = markers.current;
         mapRef.current = map;
         const resizeObserver = new ResizeObserver(() => map.resize());
@@ -232,14 +244,14 @@ export default function MapView({ incidentes = EMPTY_INCIDENTS, ruta = null, onS
         positionMarker.current.on('dragend', onDrag);
         map.easeTo({ center: [posicion.longitud, posicion.latitud], duration: 300 });
         return () => { positionMarker.current?.off('dragend', onDrag); };
-    } else if (navigating && followCamera.current) map.easeTo({center: [posicion.longitud, posicion.latitud], zoom: Math.max(16, map.getZoom()), bearing: heading ?? 0, pitch: 35, duration: 700}); }, [loaded, posicion, editor, navigating, heading]);
-    const centerOnPosition = () => { followCamera.current = true; const map = mapRef.current, state = cameraState.current; if (map && state.posicion) map.easeTo({center: [state.posicion.longitud, state.posicion.latitud], zoom: 16.5, bearing: state.navigating ? state.heading ?? 0 : 0, pitch: state.navigating ? 35 : 0, duration: 500}); };
+    } else if (navigating && followCamera.current) map.easeTo({center: [posicion.longitud, posicion.latitud], zoom: Math.max(16, map.getZoom()), bearing: heading ?? 0, pitch: appearanceRef.current.mode === '3d' ? 55 : 0, duration: 700}); }, [loaded, posicion, editor, navigating, heading]);
+    const centerOnPosition = () => { followCamera.current = true; const map = mapRef.current, state = cameraState.current; if (map && state.posicion) map.easeTo({center: [state.posicion.longitud, state.posicion.latitud], zoom: 16.5, bearing: state.navigating ? state.heading ?? 0 : 0, pitch: appearanceRef.current.mode === '3d' ? 55 : 0, duration: 500}); };
     const restoreOrientation = () => { resetMapOrientation(mapRef.current, () => { followCamera.current = false; }); };
     useEffect(() => {
         if (!navigating) return;
         followCamera.current = true;
         const map = mapRef.current, state = cameraState.current;
-        if (map && state.posicion) map.easeTo({center: [state.posicion.longitud, state.posicion.latitud], zoom: 16.5, bearing: state.heading ?? 0, pitch: 35, duration: 500});
+        if (map && state.posicion) map.easeTo({center: [state.posicion.longitud, state.posicion.latitud], zoom: 16.5, bearing: state.heading ?? 0, pitch: appearanceRef.current.mode === '3d' ? 55 : 0, duration: 500});
     }, [centerVersion, navigating]);
     const loadTraffic = useCallback(async (signal: AbortSignal) => {
         if (editor) return;
@@ -278,6 +290,7 @@ export default function MapView({ incidentes = EMPTY_INCIDENTS, ruta = null, onS
     }, [loaded, trafficData, events, editor]);
     return <><div className="map-container" ref={container}/>{!online && ruta && <OfflineRoute ruta={ruta}/>}{!token && <div className="map-fallback" style={{ position: 'absolute', inset: 0 }}><MapPin size={38} color="var(--brand)"/><p>No se pudo cargar la cartografía.</p><small>Los reportes siguen disponibles en la lista. Comunícalo a la administración si el problema continúa.</small></div>}{!editor && <>
         <CollapsiblePanel title={`Capas y filtros${typeFilter?.value || yearFilter?.selected !== null && yearFilter?.selected !== undefined ? ' · filtros activos' : ''}`} className="map-controls" open={controlsOpen} onOpenChange={setControlsOpen}>
+            <MapAppearanceControl value={appearance} onChange={changeAppearance}/>
             <div className="map-layer-options">
                 <label><input type="checkbox" checked={risk} onChange={e => { setRisk(e.target.checked); if (e.target.checked) setTraffic(false); }}/>Riesgo por tramo</label>
                 <label><input type="checkbox" checked={traffic} onChange={e => {setTraffic(e.target.checked); setTrafficError(''); if (e.target.checked) setRisk(false);}} disabled={!trafficReady}/>Tráfico · TomTom</label>

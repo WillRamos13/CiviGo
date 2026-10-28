@@ -38,8 +38,9 @@ test('ETA subtracts traffic time by the current step instead of uniformly by met
 test('GPS accuracy, heading, speed and timestamp reach navigation without inventing missing values', () => {
     let result; let callback;
     const stop = watchRoutePosition({watchPosition: fn => { callback = fn; return 1; }, clearWatch() {}}, fix => {result = fix;}, assert.fail);
-    callback({coords: {latitude: -14.06, longitude: -75.72, accuracy: 18, heading: null, speed: 1.4}, timestamp: 1000});
-    assert.deepEqual(result, {latitud: -14.06, longitud: -75.72, accuracy: 18, speed: 1.4, timestamp: 1000}); stop();
+    const timestamp = Date.now();
+    callback({coords: {latitude: -14.06, longitude: -75.72, accuracy: 18, heading: null, speed: 1.4}, timestamp});
+    assert.deepEqual(result, {latitud: -14.06, longitud: -75.72, accuracy: 18, speed: 1.4, timestamp}); stop();
 });
 
 test('a turn remains announced before the intersection and is released only after passing it', () => {
@@ -67,7 +68,7 @@ test('temporary GPS errors keep watching and recover; permission denial stops ex
     const stop = watchRoutePosition({watchPosition: (p, e) => {position = p; error = e; return 4;}, clearWatch: () => stopped++}, () => received++, () => denied++, () => waiting++);
     error({code: 2}); error({code: 3});
     assert.equal(waiting, 2); assert.equal(stopped, 0); assert.equal(denied, 0);
-    position({coords: {latitude: -14.06, longitude: -75.72, accuracy: 10}, timestamp: 1000});
+    position({coords: {latitude: -14.06, longitude: -75.72, accuracy: 10}, timestamp: Date.now()});
     assert.equal(received, 1);
     error({code: 1}); stop();
     assert.equal(stopped, 1); assert.equal(denied, 1);

@@ -286,6 +286,7 @@ export const CommunityPage: React.FC = () => {
 
                 return (
                   <div key={rew.id} className="card" style={{ padding: 14, margin: 0 }}>
+                    <img src={rew.imagen || "/rewards/civigo.svg"} alt={rew.nombre} width={720} height={420} loading="lazy" style={{width:"100%",height:"auto",maxHeight:180,objectFit:"contain",borderRadius:12,marginBottom:10}}/>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 }}>
                       <div>
                         <strong style={{ fontSize: 14 }}>{rew.nombre}</strong>

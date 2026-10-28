@@ -1,0 +1,22 @@
+.mobile-announcements {
+  display: flex; align-items: center; gap: 3px; flex-shrink: 0; min-width: 0;
+  min-height: 42px; padding: 2px 12px; background: var(--surface);
+  border-bottom: 1px solid var(--line); color: var(--ink);
+}
+.mobile-announcements > button {
+  flex: 0 0 40px; min-height: 40px; border: 0; background: transparent;
+  color: inherit; display: grid; place-items: center;
+}
+.mobile-announcements .mobile-announcement-content {
+  display: flex; flex: 1; min-width: 0; min-height: 40px; align-items: center;
+  justify-content: center; gap: 8px; border: 0; background: transparent;
+  color: inherit; text-decoration: none; padding: 0; overflow: hidden;
+}
+.mobile-announcement-content img { display: block; width: 100%; height: 40px; object-fit: contain; }
+.mobile-announcement-content span { min-width: 0; }
+.mobile-announcement-content strong, .mobile-announcement-content small {
+  display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 11px;
+}
+.mobile-announcement-content small { font-size: 10px; color: var(--muted); }
+.mobile-announcements-reportar { margin: 12px 16px; border: 1px solid var(--line); border-radius: 14px; padding: 8px; }
+.mobile-announcements-reportar .mobile-announcement-content img { height: auto; max-height: 240px; object-fit: contain; }

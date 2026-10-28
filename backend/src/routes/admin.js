@@ -1143,7 +1143,7 @@ router.get(
   "/rewards",
   adminOnly,
   asyncRoute(async (req, res) =>
-    res.json(await prisma.reward.findMany({ orderBy: { id: "desc" } })),
+    res.json((await prisma.reward.findMany({ orderBy: { id: 'desc' } })).map(require('../lib/reward-catalog').presentReward)),
   ),
 );
 router.post(

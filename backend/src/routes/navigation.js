@@ -15,6 +15,13 @@ const { searchCorridor } = require("../lib/route-discovery");
 const router = express.Router();
 const traffic = createTrafficService({ db: prisma });
 const places = createPlaceService({ db: prisma });
+const details = require('../lib/place-details').createPlaceDetailsService({db:prisma});
+router.post('/places/details', asyncRoute(async (req,res)=>{
+  const point=coordinates(req.body.latitud,req.body.longitud);
+  if(!require('../lib/roads').inProvince(point))throw new HttpError(400,'El lugar está fuera de la cobertura de Ica.');
+  res.setHeader('Cache-Control','no-store');
+  res.json(await details.details({...point,nombre:text(req.body.nombre,'Lugar',200,3)}));
+}));
 router.use("/roads", (req, res, next) => {
   res.setHeader("Cache-Control", "no-store");
   next();

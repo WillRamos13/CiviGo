@@ -1,4 +1,4 @@
-const internalLink = /^\/(?:mapa|comunidad|ranking|alertas|recompensas|premium|reportar|mis-reportes|perfil|incidentes\/[1-9]\d*)$/;
+const internalLink = /^\/(?:mapa|registro|ingresar|contactanos|comunidad|ranking|alertas|recompensas|premium|reportar|mis-reportes|perfil|incidentes\/[1-9]\d*)$/;
 export type AnnouncementPlacement = 'CABECERA' | 'REPORTAR';
 export interface MapBusiness { id: number; nombre: string; descripcion?: string; latitud: number; longitud: number; direccion?: string; horario?: string; promocion?: string; telefono?: string; sitioWeb?: string }
 export interface Announcement {

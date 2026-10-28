@@ -4,7 +4,7 @@ import { RISK_COLORS } from './types';
 
 export const EMPTY_MAP_DATA: GeoJSON.FeatureCollection = { type: 'FeatureCollection', features: [] };
 // Keep the same cartography in both themes; the theme changes the surrounding UI.
-export const MAP_STYLE = 'mapbox://styles/mapbox/streets-v12';
+export const MAP_STYLE = 'mapbox://styles/mapbox/standard';
 export const INCIDENT_MARKER_MIN_ZOOM = 14;
 
 // A container rule also applies to markers added by polling while zoomed out.
@@ -79,10 +79,10 @@ export function syncMapLayers(map: LayerMap, state: MapLayerState) {
     source('civigo-route', state.route ? { type: 'Feature', geometry: state.route.geometria, properties: {} } : EMPTY_MAP_DATA);
     const firstTextLabel = map.getStyle()?.layers?.find(layer => layer.type === 'symbol' && layer.layout?.['text-field'] !== undefined)?.id;
     if (!map.getLayer('civigo-incident-areas')) map.addLayer({
-        id: 'civigo-incident-areas', type: 'heatmap', source: 'civigo-incidents', paint: INCIDENT_AREA_PAINT,
+        id: 'civigo-incident-areas', type: 'heatmap', slot: 'middle', source: 'civigo-incidents', paint: INCIDENT_AREA_PAINT,
     }, firstTextLabel);
     if (!map.getLayer('civigo-roads-layer')) map.addLayer({
-        id: 'civigo-roads-layer', type: 'line', source: 'civigo-roads', layout: { 'line-join': 'round', 'line-cap': 'round' },
+        id: 'civigo-roads-layer', type: 'line', slot: 'middle', source: 'civigo-roads', layout: { 'line-join': 'round', 'line-cap': 'round' },
         paint: {
             'line-color': ['case', ['all', ['==', ['get', 'pendiente'], true], ['==', ['get', 'puntos'], 0]], '#64748b',
                 ['match', ['get', 'nivelRiesgo'], 0, RISK_COLORS[0], 1, RISK_COLORS[1], 2, RISK_COLORS[2], 3, RISK_COLORS[3], 4, RISK_COLORS[4], 5, RISK_COLORS[5], '#94a3b8']],

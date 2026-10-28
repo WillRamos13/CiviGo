@@ -1,5 +1,7 @@
 import React, { useEffect, useRef, useState, useMemo, useId } from 'react';
 import mapboxgl from 'mapbox-gl';
+import MapAppearanceControl,{useMapAppearance} from './MapAppearanceControl';
+import {MAP_STYLE,mapLightPreset} from '../../services/mapAppearance';
 import 'mapbox-gl/dist/mapbox-gl.css';
 import { Locate, Compass, Layers, ChevronDown, X } from 'lucide-react';
 import { triggerHaptic, onNetworkChange } from '../../services/native';
@@ -96,6 +98,9 @@ export const MapView: React.FC<MapViewProps> = ({
   const contextMissing = useRef(false);
   const automaticMapRebuilds = useRef(0);
   const appActiveRef = useRef(appActive); appActiveRef.current = appActive;
+  const {appearance,change:changeAppearance}=useMapAppearance();
+  const appearanceRef=useRef(appearance);
+  useEffect(()=>{appearanceRef.current=appearance;},[appearance]);
   const savedCamera = useRef<{ center: [number, number]; zoom: number; bearing: number; pitch: number } | null>(null);
   const routeTracker = useRef(new RouteProgressTracker());
   const trackedRoute = useRef<Ruta | null>(null);
@@ -283,7 +288,8 @@ export const MapView: React.FC<MapViewProps> = ({
     let map: mapboxgl.Map;
     try { map = new mapboxgl.Map({
       container: containerRef.current,
-      style: 'mapbox://styles/mapbox/streets-v12',
+      style: MAP_STYLE,
+      config: {basemap:{lightPreset:'day',show3dObjects:false}},
       center: savedCamera.current?.center ?? initialCenter,
       zoom: savedCamera.current?.zoom ?? (editor ? 16 : 13.5),
       bearing: savedCamera.current?.bearing ?? 0,
@@ -386,8 +392,7 @@ export const MapView: React.FC<MapViewProps> = ({
 
       map.addLayer({
         id: 'civigo-roads-layer',
-        type: 'line',
-        source: 'civigo-roads',
+        type: 'line', slot: 'middle', source: 'civigo-roads',
         layout: {
           'line-join': 'round',
           'line-cap': 'round',
@@ -425,7 +430,7 @@ export const MapView: React.FC<MapViewProps> = ({
 
       map.addLayer({
         id: 'civigo-incident-areas',
-        type: 'heatmap',
+        type: 'heatmap', slot: 'middle',
         source: 'civigo-incidents',
         paint: {
           'heatmap-weight': 1,
@@ -464,13 +469,12 @@ export const MapView: React.FC<MapViewProps> = ({
 
       // Route Casing
       map.addSource('route-completed-source', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
-      map.addLayer({ id: 'route-completed-line', type: 'line', source: 'route-completed-source',
+      map.addLayer({ id: 'route-completed-line', type: 'line', slot: 'middle', source: 'route-completed-source',
         layout: { 'line-join': 'round', 'line-cap': 'round' },
         paint: { 'line-color': '#899aa9', 'line-width': 4, 'line-opacity': .45 } });
       map.addLayer({
         id: 'route-casing',
-        type: 'line',
-        source: 'route-source',
+        type: 'line', slot: 'middle', source: 'route-source',
         layout: {
           'line-join': 'round',
           'line-cap': 'round',
@@ -485,8 +489,7 @@ export const MapView: React.FC<MapViewProps> = ({
       // Route Line
       map.addLayer({
         id: 'route-line',
-        type: 'line',
-        source: 'route-source',
+        type: 'line', slot: 'middle', source: 'route-source',
         layout: {
           'line-join': 'round',
           'line-cap': 'round',
@@ -617,7 +620,7 @@ export const MapView: React.FC<MapViewProps> = ({
     updateNavigationAvatarMarker(userMarkerRef.current.getElement(), navigationAvatar, following && !editor, posicion.heading, map.getBearing());
     if (!editor && following && appActive && followCamera.current && isUsableFix(posicion)) {
       map.easeTo({ center: [posicion.longitud, posicion.latitud], zoom: Math.max(16, map.getZoom()),
-        bearing: Number.isFinite(posicion.heading) ? posicion.heading : 0, pitch: 35, duration: 650 });
+        bearing: Number.isFinite(posicion.heading) ? posicion.heading : 0, pitch: appearanceRef.current.mode === '3d' ? 55 : 0, duration: 650 });
     }
   }, [posicion, mapLoaded, editor, following, recenterNonce, navigationAvatar, appActive]);
 
@@ -804,7 +807,7 @@ export const MapView: React.FC<MapViewProps> = ({
         zoom: 16,
         duration: 800,
         bearing: cameraState.current.following && Number.isFinite(fix.heading) ? fix.heading : 0,
-        pitch: cameraState.current.following ? 35 : 0,
+        pitch: appearanceRef.current.mode === '3d' ? 55 : 0,
       });
     }
   };
@@ -832,6 +835,12 @@ export const MapView: React.FC<MapViewProps> = ({
     <RiskLegend status={riskMessage} />;
   const compactLegend = showTraffic ? <TrafficLegend compact status={flowMessage} available={trafficReady && !trafficError && !trafficTileError && !outsideTrafficCoverage && Boolean(trafficLoadedAt)} /> :
     <RiskLegend compact />;
+  useEffect(()=>{
+    const map=mapRef.current;if(!mapLoaded||!map)return;
+    const update=()=>{if(typeof map.setConfigProperty!=='function')return;map.setConfigProperty('basemap','show3dObjects',!editor&&appearance.mode==='3d');map.setConfigProperty('basemap','lightPreset',editor?'day':mapLightPreset(appearance.light));};
+    update();if(!editor)map.easeTo({pitch:appearance.mode==='3d'?55:0,duration:500});
+    const timer=setInterval(update,60000);return()=>clearInterval(timer);
+  },[appearance,mapLoaded,editor]);
   const layerControls = <div className="map-layer-content">
     <div className="map-layer-options">
       <label><input type="checkbox" checked={showRisks} onChange={event => { setShowRisks(event.target.checked); if (event.target.checked) setShowTraffic(false); }} />Riesgo por tramo</label>
@@ -847,8 +856,9 @@ export const MapView: React.FC<MapViewProps> = ({
         {typeOptions.map(([key, name]) => <option key={key} value={key}>{name}</option>)}
       </select>
     </div>
+    <MapAppearanceControl value={appearance} onChange={changeAppearance}/>
     {yearFilter && <IncidentYearFilter {...yearFilter}/>}
-    <small>Los años filtran iconos, zonas y reportes recientes. El riesgo vial considera todos los antecedentes aplicables; el tráfico sigue siendo actual. El mapa conserva siempre su estilo claro.</small>
+    <small>Los años filtran iconos, zonas y reportes recientes. El riesgo vial considera todos los antecedentes aplicables; el tráfico sigue siendo actual. El ambiente del mapa se elige por separado del tema de la interfaz.</small>
     {legend}
     {trafficData && !trafficData.trafico.disponible && <small role="status">{trafficData.trafico.motivo}</small>}
   </div>;

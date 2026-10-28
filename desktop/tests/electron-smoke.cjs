@@ -396,7 +396,18 @@ async function run() {
   await waitUntil(window, `document.body.innerText.includes('Confirmar eliminación')`);
   await window.webContents.executeJavaScript(`Array.from(document.querySelectorAll('button')).find(button=>button.textContent==='Confirmar eliminación').click()`);
   await waitUntil(window, `document.body.innerText.includes('Anuncio eliminado.')`);
-  assert.equal(calls.some(call => call.path === '/api/announcements/manage/90' && call.method === 'DELETE'), true);
+    assert.equal(calls.some(call => call.path === '/api/announcements/manage/90' && call.method === 'DELETE'), true);
+    await openEditor(window, 'Crear anuncio');
+    for(const label of ['Cabecera','Horizontal','Lateral / celular']){
+      const before=advertisingUploadSequence;
+      await window.webContents.executeJavaScript(`Array.from(document.querySelectorAll('.announcement-templates button')).find(button=>button.textContent===${JSON.stringify(label)}).click()`);
+      await waitUntil(window,`!!document.querySelector('.announcement-image-preview img') && !document.querySelector('.announcement-templates button').disabled`);
+      assert.equal(advertisingUploadSequence,before+1,'La plantilla se carga a través del puente seguro de Electron');
+    }
+    assert.equal(await window.webContents.executeJavaScript(`Array.from(document.querySelectorAll('.editor-panel label')).find(label=>label.textContent.startsWith('Título')).querySelector('input').value`),'Tu aporte cuenta');
+    await capture(window,'plantillas-banners.png');
+    await window.webContents.executeJavaScript(`Array.from(document.querySelectorAll('.editor-panel button')).find(button=>button.textContent==='Cancelar').click()`);
+    await waitUntil(window,`!document.querySelector('.editor-panel')`);
   await window.webContents.executeJavaScript(`Array.from(document.querySelectorAll('nav[aria-label="Herramientas de administración"] button')).find(button=>button.textContent==='Avisos de tráfico').click()`);
   await waitUntil(window, `!document.body.innerText.includes('Cargando')`);
   await openEditor(window, 'Ocultar aviso');

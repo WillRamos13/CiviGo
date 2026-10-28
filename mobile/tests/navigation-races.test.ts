@@ -67,7 +67,7 @@ test('a destination or mode change with lost GPS discards late routes and cannot
       export const distance = () => 0; export const errorMessage = e => e.message;
       export const post = async (path, body) => { if (path === '/navigation/plan') return window.plan(body);
         window.favorites.push(body); return { ...body, id: window.favorites.length }; };`,
-    'services/api': 'export const errorMessage = e => e.message;',
+    'services/api': 'export const post = async () => ({fotos: [], opiniones: []}); export const errorMessage = e => e.message;',
   });
   try {
     const choose = async (name: string) => {
@@ -131,7 +131,7 @@ test('map records one history entry per started trip, not per reroute, and cance
   `, {
     'hooks/useAuth': 'export const useAuth = () => ({ usuario: window.user });',
     'hooks/useGeolocation': 'export const useGeolocation = () => ({ position: null, locate: async () => null });',
-    'services/api': 'export const errorMessage = e => e.message; export const onUnauthorized = cb => { window.unauthorize = cb; return () => {}; };',
+    'services/api': 'export const post = async () => ({fotos: [], opiniones: []}); export const errorMessage = e => e.message; export const onUnauthorized = cb => { window.unauthorize = cb; return () => {}; };',
     'services/native': 'export const triggerHaptic = async () => {}; export const onNetworkChange = () => () => {}; export const StorageService = {get:async()=>null,set:async()=>{},remove:async()=>{}};',
     'services/activeTrip': 'export class ActiveTripController {setOwner(){} async load(){return null} async save(){return true} async clear(){}}',
     'incident/NearbyIncidentCards': 'export const NearbyIncidentCards = () => null;',
@@ -209,7 +209,7 @@ test('live planner preserves a route through poor GPS, reroute cancellation, bac
     './api': `export const api = async () => []; export const del = async () => {};
       export const distance = () => 0; export const errorMessage = e => e.message;
       export const post = (path, body) => new Promise(resolve => { window.plans.push(body); window.resolvePlan = resolve; });`,
-    'services/api': 'export const errorMessage = e => e.message;',
+    'services/api': 'export const post = async () => ({fotos: [], opiniones: []}); export const errorMessage = e => e.message;',
   });
   try {
     await page.waitForFunction(() => (window as any).voices.length > 0);
@@ -270,7 +270,7 @@ test('the real place sheet previews a stop, preserves final destination and cont
       export const del = async () => {};
       export const distance = (a, b) => Math.hypot(a.latitud - b.latitud, a.longitud - b.longitud) * 111320;
       export const errorMessage = e => e.message; export const post = async (path, body) => window.plan(body);`,
-    'services/api': 'export const errorMessage = e => e.message;',
+    'services/api': 'export const post = async () => ({fotos: [], opiniones: []}); export const errorMessage = e => e.message;',
   });
   try {
     await page.getByRole('button', { name: 'Buscar en la ruta', exact: true }).click();

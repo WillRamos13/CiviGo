@@ -17,6 +17,10 @@ const STOP_WORDS = new Set([
   "peru",
 ]);
 const ABBREVIATIONS = {
+  utp: "universidad tecnologica del peru",
+  unica: "universidad nacional san luis gonzaga",
+  sunat: "superintendencia nacional administracion tributaria",
+  reniec: "registro nacional identificacion estado civil",
   av: "avenida",
   ave: "avenida",
   avda: "avenida",

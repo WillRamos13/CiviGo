@@ -24,6 +24,7 @@ class Map {
  addSource(id,options){this.sources[id]={...options,setData:data=>{this.sources[id].data=data;},setTiles:tiles=>{this.sources[id].tiles=tiles;}};}
  addLayer(layer){this.layers[layer.id]={...layer,layout:{...layer.layout},paint:{...layer.paint}};}
  getPaintProperty(id,key){return this.layers[id]?.paint[key];}setPaintProperty(id,key,value){this.layers[id].paint[key]=value;}
+ setConfigProperty(_import,key,value){(this.config??={})[key]=value;}
  setLayoutProperty(id,key,value){this.layers[id].layout[key]=value;}addControl(){}resize(){}triggerRepaint(){}stop(){this.stops=(this.stops||0)+1;}
  easeTo(options){this.camera.push(options);if(options.center)this.center=options.center;if(options.zoom)this.zoom=options.zoom;}
  flyTo(options){this.easeTo(options);}fitBounds(){}resetNorthPitch(){}remove(){this.removed=true;this.canvas.remove();this.handlers={};}
@@ -100,14 +101,14 @@ try {
   await page.getByRole('button', { name: 'Cerrar capas del mapa', exact: true }).click();
   await page.evaluate(() => window.auditSetFocus({ latitud:-14.071,longitud:-75.741 }));
   await page.locator('.map-focused-location').waitFor();
-  await page.waitForFunction(() => window.auditMap.camera.at(-1)?.center?.[0]===-75.741);
+  await page.waitForFunction(() => window.auditMap.camera.filter(call=>call.center).at(-1)?.center?.[0]===-75.741);
   await page.getByRole('button', { name:'Centrar ubicación y seguir recorrido',exact:true }).click();
-  await page.waitForFunction(() => window.auditMap.camera.at(-1)?.center?.[0]===window.auditFix.longitud);
+  await page.waitForFunction(() => window.auditMap.camera.filter(call=>call.center).at(-1)?.center?.[0]===window.auditFix.longitud);
   await page.evaluate(() => { window.auditSetForeground(false); window.auditMap.fire('webglcontextlost',{originalEvent:{preventDefault(){}}}); });
   await page.getByText('Recuperando mapa…',{exact:true}).waitFor();
   await page.evaluate(() => { window.auditSetForeground(true); window.auditMap.fire('webglcontextrestored'); });
-  await page.waitForFunction(() => window.auditMap.camera.at(-1)?.center?.[0]===window.auditFix.longitud);
-  assert.equal(await page.evaluate(() => window.auditMap.camera.at(-1).center[0]),-75.7448,'Una ubicación enfocada anteriormente no anula el recentrado al recuperar la app');
+  await page.waitForFunction(() => window.auditMap.camera.filter(call=>call.center).at(-1)?.center?.[0]===window.auditFix.longitud);
+  assert.equal(await page.evaluate(() => window.auditMap.camera.filter(call=>call.center).at(-1).center[0]),-75.7448,'Una ubicación enfocada anteriormente no anula el recentrado al recuperar la app');
   await page.evaluate(() => window.auditSetFocus(null));
   await page.locator('.map-focused-location').waitFor({state:'detached'});
   assert.equal(await page.evaluate(() => JSON.stringify(window.auditRoute.geometria)), original);

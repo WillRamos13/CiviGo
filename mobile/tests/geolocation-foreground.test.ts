@@ -29,22 +29,22 @@ test('GPS real del hook libera el watch al suspender, reanuda una vez y descarta
     page.on('pageerror', error => errors.push(error.message)); await page.route('**/*', request => request.abort());
     await page.setContent('<div id="root"></div>'); await page.addScriptTag({ content: output.outputFiles[0].text });
     await page.waitForFunction(() => (window as any).auditGPS.starts === 1);
-    await page.evaluate(() => { const w = window as any; w.auditGPS.callbacks[0]({ latitud: -14, longitud: -75, timestamp: Date.now(), accuracy: 5 }); });
+    await page.evaluate(() => { const w = window as any; w.auditGPS.callbacks[0]({ latitud: -14, longitud:-75.72, timestamp: Date.now(), accuracy: 5 }); });
     await page.waitForFunction(() => (window as any).gpsHook.position?.latitud === -14);
     await page.evaluate(() => { void (window as any).gpsHook.locate(); });
     await page.waitForFunction(() => (window as any).auditGPS.pending.length === 1);
     await page.evaluate(() => (window as any).setAppActive(false));
     await page.waitForFunction(() => !(window as any).gpsHook.loading);
-    await page.evaluate(() => { const w = window as any; w.auditGPS.pending[0]({latitud:-12,longitud:-75,timestamp:Date.now(),accuracy:5});w.auditGPS.callbacks[0]({latitud:-13,longitud:-75,timestamp:Date.now(),accuracy:5}); });
+    await page.evaluate(() => { const w = window as any; w.auditGPS.pending[0]({latitud:-12,longitud:-75.72,timestamp:Date.now(),accuracy:5});w.auditGPS.callbacks[0]({latitud:-13,longitud:-75.72,timestamp:Date.now(),accuracy:5}); });
     await page.waitForTimeout(20);
     assert.equal(await page.evaluate(() => (window as any).gpsHook.position.latitud), -14);
     await page.evaluate(() => (window as any).setAppActive(true));
     await page.waitForFunction(() => (window as any).auditGPS.starts === 2);
     await page.evaluate(() => { const w=window as any, callback=w.auditGPS.callbacks[1];
-      callback({latitud:-10,longitud:-75,timestamp:Infinity}); callback({latitud:-11,longitud:-75,timestamp:NaN});
-      callback({latitud:-12,longitud:-75,timestamp:Date.now()+60000}); callback({latitud:-13,longitud:-75,timestamp:Date.now()-60000});
-      callback({latitud:-14.1,longitud:-75,timestamp:Date.now()+2,accuracy:5}); });
-    await page.waitForFunction(() => (window as any).gpsHook.position.latitud === -14.1);
+      callback({latitud:-10,longitud:-75.72,timestamp:Infinity}); callback({latitud:-11,longitud:-75.72,timestamp:NaN});
+      callback({latitud:-12,longitud:-75.72,timestamp:Date.now()+60000}); callback({latitud:-13,longitud:-75.72,timestamp:Date.now()-60000});
+      callback({latitud:-14.0001,longitud:-75.72,timestamp:Date.now()+2,accuracy:5}); });
+    await page.waitForFunction(() => (window as any).gpsHook.position.latitud === -14.0001);
     for (let index=0; index<5; index++) {
       await page.evaluate(() => (window as any).setAppActive(false));
       await page.waitForFunction(() => (window as any).auditGPS.starts === (window as any).auditGPS.stops);
@@ -95,9 +95,9 @@ test('la promesa GPS manual conserva una negativa al suspender y un nuevo intent
 
     await page.evaluate(() => { void (window as any).gpsHook.locate(); });
     await page.waitForFunction(() => (window as any).auditGPS.pending.length === 2);
-    await page.evaluate(() => (window as any).auditGPS.pending[1].resolve({ latitud: -14.1, longitud: -75, timestamp: Date.now(), accuracy: 5 }));
+    await page.evaluate(() => (window as any).auditGPS.pending[1].resolve({ latitud: -14.0001, longitud:-75.72, timestamp: Date.now(), accuracy: 5 }));
     await page.waitForFunction(() => (window as any).auditGPS.starts === 2);
-    assert.equal(await page.evaluate(() => (window as any).gpsHook.position.latitud), -14.1);
+    assert.equal(await page.evaluate(() => (window as any).gpsHook.position.latitud), -14.0001);
 
     // A new manual attempt must supersede the old dialog even across a full
     // background/foreground cycle and its replacement automatic watcher.
@@ -113,9 +113,9 @@ test('la promesa GPS manual conserva una negativa al suspender y un nuevo intent
     await page.waitForTimeout(30);
     assert.equal(await page.evaluate(() => (window as any).gpsHook.error), '');
     assert.equal(await page.evaluate(() => (window as any).gpsHook.loading), true, 'la respuesta vieja no finaliza el nuevo intento');
-    await page.evaluate(() => (window as any).auditGPS.pending[3].resolve({ latitud: -14.2, longitud: -75, timestamp: Date.now(), accuracy: 5 }));
+    await page.evaluate(() => (window as any).auditGPS.pending[3].resolve({ latitud: -14.0002, longitud:-75.72, timestamp: Date.now(), accuracy: 5 }));
     await page.waitForFunction(() => (window as any).auditGPS.starts === 4);
-    assert.equal(await page.evaluate(() => (window as any).gpsHook.position.latitud), -14.2);
+    assert.equal(await page.evaluate(() => (window as any).gpsHook.position.latitud), -14.0002);
 
     // When resume happens before denial delivery, that late decision must close
     // the replacement watcher too, with the explanation shown only in the live view.

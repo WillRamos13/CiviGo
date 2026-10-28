@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {loadTs} from './helpers/ts-module.mjs';
 const {watchMapPosition} = loadTs('lib/map-location.ts');
-const sample = {coords: {latitude: -14.06, longitude: -75.72, accuracy: 9, speed: 1, heading: 90}, timestamp: 100};
+const sample = {coords: {latitude: -14.06, longitude: -75.72, accuracy: 9, speed: 1, heading: 90}, timestamp: Date.now()};
 
 test('browsing GPS delivers real fixes and clears its watcher exactly once on cleanup', () => {
     let callback, options;
@@ -11,10 +11,10 @@ test('browsing GPS delivers real fixes and clears its watcher exactly once on cl
     const stop = watchMapPosition(geo, point => fixes.push(point), () => assert.fail('unexpected error'));
     callback(sample);
     stop(); stop(); callback(sample);
-    assert.deepEqual(fixes, [{latitud: -14.06, longitud: -75.72, accuracy: 9, speed: 1, heading: 90, timestamp: 100}]);
+    assert.deepEqual(fixes, [{latitud: -14.06, longitud: -75.72, accuracy: 9, speed: 1, heading: 90, timestamp: sample.timestamp}]);
     assert.deepEqual(stopped, [21]);
     assert.equal(options.enableHighAccuracy, true);
-    assert.equal(options.maximumAge, 10000);
+    assert.equal(options.maximumAge, 0);
 });
 
 test('denied GPS stops watching and late samples cannot restore a revoked location', () => {

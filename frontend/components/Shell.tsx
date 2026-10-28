@@ -14,6 +14,7 @@ import {
   LogOut,
   Shield,
   UserRound,
+  Mail,
 } from "lucide-react";
 import { useAuth } from "./AuthProvider";
 import { errorMessage } from "@/lib/api";
@@ -33,6 +34,7 @@ const links = [
   { href: "/alertas", label: "Alertas", icon: Bell },
   { href: "/ranking", label: "Comunidad", icon: Medal },
   { href: "/recompensas", label: "Recompensas", icon: Gift },
+  { href: "/contactanos", label: "Contáctanos", icon: Mail },
 ];
 export default function Shell({ children }: { children: React.ReactNode }) {
   const path = usePathname();

@@ -26,8 +26,10 @@ const readRoutes = [
   new RegExp(`^/admin/incidents/${numeric}/messages$`),
   /^\/catalog$/, /^\/users\/me$/, /^\/notifications$/,
   /^\/announcements\/(?:manage|traffic-moderation)$/, /^\/navigation\/traffic\/incidents$/,
+  /^\/admin\/contact$/, /^\/payments\/manage$/,
 ];
 const writeRoutes = [
+  ['PATCH', /^\/admin\/contact$/],
   ['DELETE', /^\/uploads\/[a-zA-Z0-9_-]{1,100}$/],
   ['POST', new RegExp(`^/admin/incidents/${numeric}/messages/${numeric}/moderate$`)],
   ['PUT', new RegExp(`^/notifications/${numeric}/read$`)],

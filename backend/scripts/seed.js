@@ -3,6 +3,7 @@ const prisma = require("../src/lib/db");
 const { seedCatalog, CATALOG, DEFAULT_CONFIG } = require("../src/lib/catalog");
 async function seed() {
   await seedCatalog();
+  await require('../src/lib/reward-catalog').seedGiftCards(prisma);
   await prisma.appConfig.upsert({
     where: { clave: "reglas" },
     update: {},

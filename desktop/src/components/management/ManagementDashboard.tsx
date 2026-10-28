@@ -18,6 +18,8 @@ import IntegrationsPanel from "./IntegrationsPanel";
 import AnnouncementsPanel from "./AnnouncementsPanel";
 import TrafficModerationPanel from "./TrafficModerationPanel";
 import StatisticsPanel from "./StatisticsPanel";
+import ContactPanel from "./ContactPanel";
+import PaymentsPanel from "./PaymentsPanel";
 import { ExcelExportToolbar } from "./ExcelExport";
 
 
@@ -36,7 +38,9 @@ type Tab =
   | "configuracion"
   | "historicos"
   | "actividad"
-  | "integraciones";
+  | "integraciones"
+  | "contacto"
+  | "pagos";
 const tabs: {
   id: Tab;
   label: string;
@@ -59,6 +63,8 @@ const tabs: {
   { id: "configuracion", label: "Configuración", adminOnly: true },
   { id: "actividad", label: "Actividad y plazos", adminOnly: true },
   { id: "integraciones", label: "Integraciones", adminOnly: true },
+  { id: "contacto", label: "Contáctanos · consultas", adminOnly: true },
+  { id: "pagos", label: "Pagos Premium", adminOnly: true },
 ];
 interface Overview {
   estadisticas: Record<string, number>;
@@ -141,7 +147,22 @@ function DashboardContent() {
         (!tab.permission || hasAgentPermission(usuario, tab.permission))),
   );
   return (
-    <div className="page max-w-7xl">
+    <div className="admin-workspace"><aside className="admin-sidebar"><strong className="admin-sidebar-title">Administración</strong>          <nav
+            aria-label="Herramientas de administración"
+            className="admin-navigation"
+          >
+            {availableTabs.map((tab) => (
+              <button
+                key={tab.id}
+                aria-current={active === tab.id ? "page" : undefined}
+                className={`btn ${active === tab.id ? "btn-primary" : "btn-secondary"}`}
+                onClick={() => setActive(tab.id)}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </nav>
+ {admin && <ExcelExportToolbar />}</aside><div className="page max-w-7xl admin-content">
       <div className="page-heading">
         <div>
           <span className="badge">
@@ -156,7 +177,7 @@ function DashboardContent() {
         </div>
       </div>
       {admin && active !== "estadisticas" && <OverviewPanel key={`${active}:${overviewRevision}`} />}
-      {admin && <ExcelExportToolbar />}
+
       {availableTabs.length === 0 ? (
         <section className="card">
           <h2 className="text-lg font-bold">Permisos pendientes</h2>
@@ -167,22 +188,7 @@ function DashboardContent() {
         </section>
       ) : (
         <>
-          <nav
-            aria-label="Herramientas de administración"
-            className="flex flex-wrap gap-2 mb-6"
-          >
-            {availableTabs.map((tab) => (
-              <button
-                key={tab.id}
-                aria-current={active === tab.id ? "page" : undefined}
-                className={`btn ${active === tab.id ? "btn-primary" : "btn-secondary"}`}
-                onClick={() => setActive(tab.id)}
-              >
-                {tab.label}
-              </button>
-            ))}
-          </nav>
-          {active === "incidentes" && (
+         {active === "incidentes" && (
             <IncidentReviewPanel
               onChanged={() => setOverviewRevision((revision) => revision + 1)}
             />
@@ -202,9 +208,11 @@ function DashboardContent() {
           {admin && active === "configuracion" && <ConfigPanel />}
           {admin && active === "actividad" && <AuditPanel />}
           {admin && active === "integraciones" && <IntegrationsPanel />}
+          {admin && active === "contacto" && <ContactPanel />}
+          {admin && active === "pagos" && <PaymentsPanel />}
         </>
       )}
-    </div>
+    </div></div>
   );
 }
 
