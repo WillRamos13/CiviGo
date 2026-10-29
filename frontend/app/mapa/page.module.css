@@ -99,3 +99,15 @@
 @media(max-width:700px){.page.page .plannerPanel:has(:global(.route-assistant-launch)){right:64px;top:12px;width:150px}.page.page :global(.map-frame):has(:global(.route-assistant-launch)) :global(.map-recenter){top:12px}.page.page :global(.map-frame):has(:global(.route-assistant-launch)) [data-map-control="orientation"]{top:64px}}
 
 @media(max-width:900px){.page.page:not(.navigating) :global(.map-controls):has(>button[aria-expanded="true"]){top:12px;bottom:auto;max-height:calc(100% - 24px);display:flex;flex-direction:column}.page.page:not(.navigating) :global(.map-controls)>:global(.panel-toggle){flex-shrink:0}.page.page:not(.navigating) :global(.map-controls):has(>button[aria-expanded="true"]) :global(.collapsible-panel-body){min-height:0;max-height:calc(var(--map-viewport-height,100dvh) - var(--shell-header-height,72px) - 115px);overflow-y:auto}}
+
+/* Mobile web: keep each resting control anchored to its map corner. */
+@media(max-width:900px){
+  .page.page:not(.navigating) .plannerPanel:has(:global(.route-assistant-launch)){top:8px;right:8px;width:138px}
+  .page.page:not(.navigating) :global(.map-recenter){top:170px;right:12px;bottom:auto}
+  .page.page:not(.navigating) [data-map-control="orientation"]{top:222px;right:12px;bottom:auto}
+  .page.page:not(.navigating) :global(.map-frame):has(:global(.route-assistant-launch)) :global(.map-recenter){top:170px;right:12px}
+  .page.page:not(.navigating) :global(.map-frame):has(:global(.route-assistant-launch)) [data-map-control="orientation"]{top:222px;right:12px}
+  .page.page:not(.navigating) :global(.map-controls){top:12px;bottom:auto;left:12px}
+  .page.page:not(.navigating) :global(.risk-legend){top:auto;bottom:12px;left:12px}
+  .page.page:not(.navigating) .fullscreenButton{top:76px;left:12px}
+}
