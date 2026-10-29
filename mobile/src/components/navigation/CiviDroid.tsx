@@ -63,6 +63,11 @@ export function DroidIcon() {
   );
 }
 
+export function CiviDroidLauncher({onActivate}: {onActivate: () => void}) {
+  return <button type="button" className="route-assistant-launch" aria-label="¿A dónde quieres ir hoy?" onClick={onActivate}>
+    <span className="route-assistant-bubble">¿A dónde quieres ir hoy?</span><DroidIcon />
+  </button>;
+}
 export default function CiviDroid({
   destination,
   onSearch,
@@ -121,7 +126,7 @@ export default function CiviDroid({
         <DroidIcon />
         <div>
           <small>TU COPILOTO CIVIGO</small>
-          <h2>{destination ? "¿Cómo nos movemos?" : "¿A dónde vamos?"}</h2>
+          <h2>{destination ? "¿Cómo nos movemos?" : "¿A dónde quieres ir hoy?"}</h2>
           <p>{destination || "Dime un lugar y encontremos el camino."}</p>
         </div>
         <button

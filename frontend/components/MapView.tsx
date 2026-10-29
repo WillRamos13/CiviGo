@@ -1,7 +1,7 @@
 'use client';
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import mapboxgl from 'mapbox-gl';
-import { MapPin, LocateFixed, Compass } from 'lucide-react';
+import { MapPin, LocateFixed, Compass, Layers } from 'lucide-react';
 import { getImageProps } from 'next/image';
 import { getIncidentIcon } from '@/lib/incident-icons';
 import { EMPTY_MAP_DATA, MAP_STYLE, bindIncidentMarkerZoom, syncMapLayers, type MapLayerState } from '@/lib/map-layers';
@@ -309,7 +309,7 @@ export default function MapView({ incidentes = EMPTY_INCIDENTS, ruta = null, onS
         }
     }, [loaded, trafficData, events, editor]);
     return <><div className="map-container" ref={container}/>{!online && ruta && <OfflineRoute ruta={ruta}/>}{!token && <div className="map-fallback" style={{ position: 'absolute', inset: 0 }}><MapPin size={38} color="var(--brand)"/><p>No se pudo cargar la cartografía.</p><small>Los reportes siguen disponibles en la lista. Comunícalo a la administración si el problema continúa.</small></div>}{!editor && <>
-        <CollapsiblePanel title={`Capas y filtros${typeFilter?.value || yearFilter?.selected !== null && yearFilter?.selected !== undefined ? ' · filtros activos' : ''}`} className="map-controls" open={controlsOpen} onOpenChange={setControlsOpen}>
+        <CollapsiblePanel title={navigating ? <><Layers size={20}/><span className="sr-only">Capas</span></> : `Capas y filtros${typeFilter?.value || yearFilter?.selected !== null && yearFilter?.selected !== undefined ? ' · filtros activos' : ''}`} className="map-controls" open={controlsOpen} onOpenChange={setControlsOpen}>
             <MapAppearanceControl value={appearance} onChange={changeAppearance}/>
             <div className="map-layer-options">
                 <label><input type="checkbox" checked={risk} onChange={e => { setRisk(e.target.checked); if (e.target.checked) setTraffic(false); }}/>Riesgo por tramo</label>

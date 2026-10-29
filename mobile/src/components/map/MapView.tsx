@@ -901,6 +901,7 @@ export const MapView: React.FC<MapViewProps> = ({
 
       {/* Floating Controls for Mobile */}
       <div className="map-floating-controls">
+        {navigationMode && <button type="button" className="map-action-fab" aria-label="Capas" aria-expanded={effectiveLayersOpen} onClick={() => changeLayersOpen(!effectiveLayersOpen)}><Layers size={19} aria-hidden="true"/></button>}
         <button
           type="button"
           className="map-action-fab"

@@ -1,6 +1,6 @@
 import { build } from 'esbuild';
 import { chromium } from 'playwright-core';
-import { existsSync } from 'node:fs';
+import { existsSync,readFileSync,mkdirSync } from 'node:fs';
 import assert from 'node:assert/strict';
 
 // Exercise the real components without a server, provider calls or an account.
@@ -75,12 +75,12 @@ window.auditPost = async (path, body) => {
 };
 const incident = { id: 1, tipo: 'bache', descripcion: 'Inicial', latitud: -14.05, longitud: -75.75, estado: 'ACTIVO', nivelRiesgo: 1 };
 function Test() {
-  const [active, setActive] = useState(null), [visible, setVisible] = useState(true), [fix, setFix] = useState(null);
+  const [active, setActive] = useState(null), [visible, setVisible] = useState(true), [fix, setFix] = useState(null), [navigating,setNavigating]=useState(false);window.auditNavigate=setNavigating;
   const [incidents, setIncidents] = useState([incident, { ...incident, id: 2, longitud: -75.82 }, { ...incident, id: 3, latitud: -14.15, longitud: -75.9 }]);
   window.auditSetVisible = setVisible; window.auditSetIncidents = setIncidents;
-  return <><MapView incidentes={incidents} posicion={fix} onSelectIncident={value => { window.auditSelected = value; }}
+  return <main className={'map-mobile-screen '+(navigating ? 'map-navigation-active' : '')} style={{height:'100dvh'}}><MapView navigationMode={navigating} incidentes={incidents} posicion={fix} onSelectIncident={value => { window.auditSelected = value; }}
     onLocateMe={() => new Promise(resolve => { window.auditResolveLocate = value => { setFix(value); resolve(value); }; })} />
-    <div hidden={!visible}><RoutePlanner currentPosition={{ latitud: -14.15, longitud: -75.9, accuracy: 5 }} activeRoute={active} onSelectRoute={setActive} /></div></>;
+    <div className="map-bottom-sheet" hidden={!visible || navigating}><RoutePlanner currentPosition={{ latitud: -14.15, longitud: -75.9, accuracy: 5 }} activeRoute={active} onSelectRoute={setActive} /></div></main>;
 }
 createRoot(document.getElementById('root')).render(<Test />);
 `;
@@ -111,12 +111,13 @@ const executablePath = process.env.CIVIGO_CHROME_PATH || [
 ].find(existsSync);
 const browser = await chromium.launch({ executablePath, headless: true });
 try {
-  const page = await browser.newPage();
+  const page = await browser.newPage({viewport:{width:390,height:844}});
   page.setDefaultTimeout(5000);
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
   await page.route('**/*', handler => handler.abort());
   await page.setContent('<div id="root"></div>');
+  await page.addStyleTag({content:['src/index.css','src/components/map/map-glass.css','src/components/navigation/navigation-glass.css'].map(file=>readFileSync(file,'utf8')).join('\n')});
   await page.addScriptTag({ content: bundle.outputFiles[0].text });
   await page.waitForFunction(() => window.auditMap?.sources['civigo-incidents']?.data.features.length === 3);
   assert.equal(await page.locator('.incident-marker').count(), 0, 'province zoom does not allocate incident markers');
@@ -153,15 +154,28 @@ try {
   assert.equal(await page.locator('[data-incident-id="1"]').count(), 0);
   assert.equal(await page.evaluate(() => window.auditMap.sources['civigo-incidents'].data.features.length), 3);
 
+  await page.getByRole('button',{name:'¿A dónde quieres ir hoy?',exact:true}).waitFor();
+  assert.equal(await page.locator('.map-bottom-sheet input').count(),0);
+  mkdirSync('.local/compact-assistant',{recursive:true});await page.screenshot({path:'.local/compact-assistant/inicio-390.png'});
+  await page.getByRole('button',{name:'¿A dónde quieres ir hoy?',exact:true}).click();
+  assert.equal(await page.getByRole('group',{name:'Modo de recorrido'}).count(),0);
   await page.getByRole('button', { name: 'Plaza de Armas de Ica', exact: true }).click();
+  await page.getByRole('button',{name:'Auto',exact:true}).click();
   await page.getByRole('button', { name: 'Guardar ruta en favoritos' }).waitFor();
   await page.evaluate(() => window.auditSetVisible(false));
   await page.evaluate(() => window.auditDelete(1));
-  await page.waitForFunction(() => document.querySelectorAll('[aria-label="Destinos favoritos"] button').length === 2);
+  await page.waitForFunction(() => window.auditFavorites.length === 2);
   await page.evaluate(() => window.auditSetVisible(true));
   await page.getByRole('button', { name: 'Guardar ruta en favoritos' }).click();
   await page.waitForFunction(() => window.auditCalls.some(([method, path]) => method === 'POST' && path === '/navigation/favorites'));
   assert.equal(await page.evaluate(() => window.auditFavorites.length), 3);
+  await page.evaluate(()=>window.auditNavigate(true));
+  const layers=page.getByRole('button',{name:'Capas',exact:true});await layers.waitFor();
+  const bounds=await layers.boundingBox();assert.ok(bounds.width===44&&bounds.height===44);assert.ok(bounds.x>320);
+  assert.equal(await page.locator('.map-layer-panel').count(),0);
+  await layers.click();await page.getByRole('dialog',{name:'Capas del mapa'}).waitFor();
+  await page.getByRole('button',{name:'Cerrar capas del mapa'}).click();
+  assert.equal(await page.getByRole('dialog',{name:'Capas del mapa'}).count(),0);
   assert.deepEqual(errors, []);
   console.log(JSON.stringify({ passed: true, checks: ['fresh-location-camera', 'marker-viewport-buffer', 'marker-updates-and-selection', 'complete-heatmap', 'traffic-demand-loading', 'retained-favorites-delete-and-save'], externalRequestsAllowed: 0 }));
 } finally { await browser.close(); }

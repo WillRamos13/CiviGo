@@ -17,7 +17,7 @@ import { useAppActivity } from '../hooks/useAppActivity';
 import { ActiveTripController } from '../services/activeTrip';
 import { NavigationService, isUsableFix, isNavigationAccountCurrent } from '../services/navigation';
 import { DEFAULT_ICA_BOUNDS, expandMapBounds, getMapIncidents, getRecentIncidents, type MapBounds } from '../services/mapData';
-import { MessageCircle, ChevronUp, ChevronDown, Layers, MapPinPlus } from 'lucide-react';
+import { MessageCircle, ChevronUp, ChevronDown, MapPinPlus } from 'lucide-react';
 import { AvatarPicker } from '../components/map/NavigationAvatar';
 import { NavigationAvatarPreferenceController, DEFAULT_NAVIGATION_AVATAR, type NavigationAvatar } from '../services/navigationAvatar';
 import type { Incidente, Ruta, Posicion } from '../types';
@@ -154,7 +154,7 @@ export const MapPage: React.FC<MapPageProps> = ({ visible = true, onGoReport, on
   useEffect(() => {
     const sheet = sheetRef.current;
     if (!sheet) return;
-    const measure = () => setSheetHeight(!navigating && !sheetOpen ? 60 : Math.ceil(sheet.getBoundingClientRect().height));
+    const measure = () => setSheetHeight(!navigating && sheet.querySelector('.route-assistant-launch') ? 0 : Math.ceil(sheet.getBoundingClientRect().height));
     measure();
     if (typeof ResizeObserver === 'undefined') return;
     const observer = new ResizeObserver(measure);
@@ -310,26 +310,27 @@ export const MapPage: React.FC<MapPageProps> = ({ visible = true, onGoReport, on
       {gpsError && !navigating && <MapStatusNotice title="GPS no disponible" retryDisabled={gpsLoading} retryLabel="Reintentar GPS" onRetry={() => void locate()}><p>{gpsError}</p></MapStatusNotice>}
     </>} />}
     <button type="button" className={`chatbot-fab ${navigating ? 'chatbot-fab-navigating' : ''}`} onClick={() => { void triggerHaptic('light'); setChatOpen(true); }} aria-label="Abrir asistente de ayuda CiviGo"><MessageCircle size={24} /></button>
-    <div ref={sheetRef} className={`map-bottom-sheet ${navigating ? 'map-bottom-sheet-navigating' : ''} ${!sheetOpen ? 'map-bottom-sheet-compact' : ''}`} data-expanded={sheetOpen} style={{ transform: navigating || sheetOpen ? 'translateY(0)' : 'translateY(calc(100% - 60px))', paddingBottom: 'calc(12px + var(--safe-bottom))' }}>
-      <button type="button" className="map-sheet-toggle" onClick={toggleSheet} aria-expanded={sheetOpen} aria-controls="map-route-panel" aria-label={navigating ? sheetOpen ? 'Contraer opciones de navegación' : 'Expandir opciones de navegación' : sheetOpen ? 'Mostrar navegación compacta' : 'Ampliar rutas y condiciones'}>
-        <span className="eyebrow">{navigating ? sheetOpen ? 'OPCIONES DEL RECORRIDO' : 'EN CAMINO' : '¿A DÓNDE VAMOS?'}</span>{!navigating && <span className="badge">{visibleIncidents.length} en mapa</span>}{sheetOpen ? <ChevronDown size={16} /> : <ChevronUp size={16} />}
-      </button>
-      <div id="map-route-panel" hidden={!navigating && !sheetOpen}>
-        <RoutePlanner currentPosition={position} onSelectRoute={(route) => { routeOwner.current = usuario?.id; if (navigating && route !== activeRoute) setRestoredProgress(0); setActiveRoute(route); }} activeRoute={displayedRoute} onStartNavigation={handleStartNav} onStopNavigation={handleStopNav} isNavigating={navigating} compact={!sheetOpen} restoredProgress={restoredProgress} onProgressChange={handleProgressChange} onShowPlace={place => { setFocusedLocation({latitud:place.latitud,longitud:place.longitud}); setSheetOpen(false); }} onRecenter={() => { setFocusedLocation(null); setRecenterNonce(value => value + 1); void triggerHaptic('light'); }} />
+    <div ref={sheetRef} className={`map-bottom-sheet ${navigating ? 'map-bottom-sheet-navigating' : ''} ${!sheetOpen ? 'map-bottom-sheet-compact' : ''}`} data-expanded={sheetOpen} style={{ transform: 'translateY(0)', paddingBottom: 'calc(12px + var(--safe-bottom))' }}>
+      {navigating && <button type="button" className="map-sheet-toggle" onClick={toggleSheet} aria-expanded={sheetOpen} aria-controls="map-route-panel" aria-label={sheetOpen ? 'Contraer opciones de navegación' : 'Expandir opciones de navegación'}>
+        <span className="eyebrow">{sheetOpen ? 'OPCIONES DEL RECORRIDO' : 'EN CAMINO'}</span>{sheetOpen ? <ChevronDown size={16} /> : <ChevronUp size={16} />}
+      </button>}
+      <div id="map-route-panel">
+        <RoutePlanner onRequestLocation={() => void locate()} currentPosition={position} onSelectRoute={(route) => { routeOwner.current = usuario?.id; if (navigating && route !== activeRoute) setRestoredProgress(0); setActiveRoute(route); }} activeRoute={displayedRoute} onStartNavigation={handleStartNav} onStopNavigation={handleStopNav} isNavigating={navigating} compact={!sheetOpen} restoredProgress={restoredProgress} onProgressChange={handleProgressChange} onShowPlace={place => { setFocusedLocation({latitud:place.latitud,longitud:place.longitud}); setSheetOpen(false); }} onRecenter={() => { setFocusedLocation(null); setRecenterNonce(value => value + 1); void triggerHaptic('light'); }} />
         {navigating && sheetOpen && <section className="navigation-trip-options" aria-label="Opciones del recorrido">
           {recoveryNotice && <p className="navigation-alert" role="status">{recoveryNotice}</p>}
           {tripSaveError && <p className="navigation-alert" role="status">{tripSaveError}</p>}
           <div className="navigation-trip-shortcuts">
             <button type="button" className="btn btn-secondary btn-small" onClick={() => { setLayersOpen(false); setSheetOpen(false); onGoReport(); }}><MapPinPlus size={17} aria-hidden="true" />Agregar aviso</button>
-            <button type="button" className="btn btn-secondary btn-small" onClick={() => setLayersOpen(true)}><Layers size={17} aria-hidden="true" />Cambiar capas</button>
+
           </div>
           <AvatarPicker value={navigationAvatar} onChange={value => void saveAvatar(value)} disabled={avatarSaving || !usuario} />
           {avatarError && <p className="navigation-alert" role="status">{avatarError}</p>}
           {gpsError && <MapStatusNotice title="GPS no disponible" retryDisabled={gpsLoading} retryLabel="Reintentar GPS" onRetry={() => void locate()}><p>{gpsError}</p></MapStatusNotice>}
         </section>}
-        {sheetOpen && !navigating && <NearbyIncidentCards incidents={visibleNearby} loading={nearbyLoading} error={nearbyError} updatedAt={nearbyUpdated} position={position} onSelect={incident => { setFocusedLocation(incident); setSelectedIncident(incident); }} onRefresh={() => void loadNearby()} />}
+
       </div>
     </div>
+        {!navigating && <details className="map-nearby-disclosure"><summary>Reportes cercanos</summary><NearbyIncidentCards incidents={visibleNearby} loading={nearbyLoading} error={nearbyError} updatedAt={nearbyUpdated} position={position} onSelect={incident => { setFocusedLocation(incident); setSelectedIncident(incident); }} onRefresh={() => void loadNearby()} /></details>}
     {selectedIncident && <IncidentDetailModal incidente={selectedIncident} onClose={() => setSelectedIncident(null)} onRefresh={loadIncidents} />}
     <DestinationExplorer open={!!placeCard} initialPlace={placeCard} onClose={()=>setPlaceCard(null)} ownerId={usuario?.id??null} currentPosition={position} activeRoute={displayedRoute} navigationActive={navigating} onChooseDestination={place=>{window.dispatchEvent(new CustomEvent('civigo:choose-place',{detail:place}));setSheetOpen(true);}} onChooseStop={place=>{window.dispatchEvent(new CustomEvent('civigo:choose-place',{detail:place}));setSheetOpen(true);}} onShowPlace={place=>{setFocusedLocation(place);setPlaceCard(null);}}/>
     {foreground&&businessPromo.ad&&<NearbyBusinessCard key={businessPromo.ad.id} business={businessPromo.ad} onClose={businessPromo.close} onInteract={businessPromo.pause} onDetails={()=>{businessPromo.pause();setFocusedLocation(businessPromo.ad);setSheetOpen(false);}}/>}

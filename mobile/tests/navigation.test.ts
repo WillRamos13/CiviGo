@@ -176,10 +176,11 @@ test('place search calls the real backend contract, encodes query and rejects co
   } finally { globalThis.fetch = original; }
 });
 
-test('planner includes searchable destination and coordinate fallback controls', () => {
+test('planner starts with only the assistant and keeps route fields out of the resting map', () => {
   const html = renderToStaticMarkup(React.createElement(RoutePlanner, { activeRoute: null, onSelectRoute: () => {} }));
-  for (const text of ['Buscar destino en Ica', 'gn-search-launch', 'Usar coordenadas del destino', 'route-latitude', 'route-longitude', 'Accesos locales en Ica']) assert.ok(html.includes(text), text);
-  for (const text of ['gn-origin', 'Mi ubicación actual', '>Origen<']) assert.ok(!html.includes(text), text);
+  assert.ok(html.includes('¿A dónde quieres ir hoy?'));
+  assert.ok(html.includes('route-assistant-launch'));
+  for (const text of ['<input', 'route-latitude', 'route-longitude', 'Modo de recorrido', '>Origen<']) assert.ok(!html.includes(text), text);
 });
 
 test('retained navigation belongs to the same authorized account across views', () => {

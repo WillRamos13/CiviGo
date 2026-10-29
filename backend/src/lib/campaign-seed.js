@@ -8,7 +8,7 @@ const campaigns = [
     mensaje:
       "Tus aportes validados suman puntos. Participa en el ranking y canjea tus monedas.",
     ubicacion: "CABECERA",
-    archivo: "rewards-header-v2.webp",
+    archivo: "rewards-header.webp",
     enlace: "/registro",
   },
   {

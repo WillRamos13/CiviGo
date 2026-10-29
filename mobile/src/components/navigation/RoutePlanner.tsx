@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Footprints, Bike, Car, MapPin, Navigation, Bookmark, RotateCw, AlertTriangle, Check, Volume2, VolumeX, ShieldCheck, Timer, Scale, ChevronRight, ArrowUp, CornerUpLeft, CornerUpRight, Undo2, Flag, LocateFixed, Square, Search, ChevronDown } from 'lucide-react';
+import { Footprints, Bike, Car, MapPin, Navigation, Bookmark, RotateCw, AlertTriangle, Check, Volume2, VolumeX, ShieldCheck, Timer, Scale, ChevronRight, ArrowUp, CornerUpLeft, CornerUpRight, Undo2, Flag, LocateFixed, Square, Search, ChevronDown, ArrowLeft, X } from 'lucide-react';
 import { NavigationService, AutoRerouteGuard, formatDistance, formatDuration, isPosition, isUsableFix, routeWarnings, onFavoritesChanged, type SavedRoute, type NavigationPlace } from '../../services/navigation';
 import { RouteProgressTracker } from '../../services/navigationProgress';
 import { NavigationSpeedFilter } from '../../services/navigationSpeed';
@@ -12,7 +12,7 @@ import { RISK_COLORS, RISK_NAMES } from '../../types';
 import type { Posicion, Ruta, LocationFix } from '../../types';
 import { SpotifyNavPlayer } from './SpotifyNavPlayer';
 import { DestinationExplorer } from './DestinationExplorer';
-import CiviDroid from './CiviDroid';
+import CiviDroid, { CiviDroidLauncher } from './CiviDroid';
 import { compactNavigationStatus, headingLabel, maneuverDirection, routeArrivalLabel, routeCriterionLabel, routeEstimateSource, routeRiskSummary, splitNavigationWarnings } from '../../services/navigationPresentation';
 import { navigationVoiceSupported, speakNavigation, stopNavigationVoice } from '../../services/navigationVoice';
 import './navigation-glass.css';
@@ -31,6 +31,7 @@ interface RoutePlannerProps {
   onProgressChange?: (coveredDistance: number) => void;
   onShowPlace?: (place: NavigationPlace) => void;
   onChooseStop?: (place: NavigationPlace) => void;
+  onRequestLocation?: () => void;
 }
 const ICA_PLACES = [
   { nombre: 'Plaza de Armas de Ica', latitud: -14.0678, longitud: -75.7286 },
@@ -42,10 +43,13 @@ const modeLabels = { walking: 'A pie', cycling: 'Bicicleta', driving: 'Auto' };
 
 export const RoutePlanner: React.FC<RoutePlannerProps> = ({
   currentPosition, onSelectRoute, activeRoute, onStartNavigation, onStopNavigation,
-  isNavigating = false, compact = false, onRecenter, restoredProgress = 0, onProgressChange, onShowPlace, onChooseStop,
+  isNavigating = false, compact = false, onRecenter, restoredProgress = 0, onProgressChange, onShowPlace, onChooseStop, onRequestLocation,
 }) => {
   const { usuario } = useAuth();
   const appActive = useAppActivity();
+  const [step, setStep] = useState<'idle' | 'destination' | 'origin' | 'transport' | 'routes'>('idle');
+  const wizardRef = useRef<HTMLElement>(null);
+  useEffect(() => { const scroller = wizardRef.current?.closest<HTMLElement>('.map-bottom-sheet'); if(scroller) scroller.scrollTop = 0; }, [step]);
   const [destinationName, setDestinationName] = useState('');
   const [explorerOpen, setExplorerOpen] = useState(false);
   const [explorerQuery,setExplorerQuery]=useState<string>();
@@ -126,7 +130,7 @@ export const RoutePlanner: React.FC<RoutePlannerProps> = ({
     setFavorites([]);
     setExplorerOpen(false); setExplorerQuery(undefined);
     setStopPreview(null); setStopBusy(false);
-    setDestinationName(''); setDestCoords(null);
+    setStep('idle'); setDestinationName(''); setDestCoords(null);
     setLatitudeInput(''); setLongitudeInput(''); setMode('walking');
     if (!usuario || usuario.bloqueado) return;
     const loadFavorites = () => {
@@ -190,6 +194,7 @@ export const RoutePlanner: React.FC<RoutePlannerProps> = ({
     setBusy(false);
     if (!appActive) return;
     if (!navigating) {
+      setStep('routes');
       setRoutes([]);
       setSavedRoute('');
       onSelectRoute(null);
@@ -247,6 +252,7 @@ export const RoutePlanner: React.FC<RoutePlannerProps> = ({
     const destination = { latitud: place.latitud, longitud: place.longitud };
     setDestCoords(destination);
     setRoutes([]); onSelectRoute(null);
+    setStep(isUsableFix(currentPosition) ? 'transport' : 'origin');
     if(selectedMode)void handlePlan(destination, selectedMode, false, place.nombre);
   };
 
@@ -398,15 +404,14 @@ export const RoutePlanner: React.FC<RoutePlannerProps> = ({
     </section>;
   }
 
-  return <section className="civigo-navigation-glass route-planner-mobile" aria-label="Planificar recorrido">
-    <CiviDroid key={usuario?.id??'guest'} destination={destinationName} onSearch={query=>{setExplorerQuery(query);setExplorerOpen(true);}}/>
-    <div className="route-mode-switch gn-mode-switch" hidden={!destCoords} role="group" aria-label="Modo de recorrido">
-      {([{ id: 'walking', icon: Footprints }, { id: 'cycling', icon: Bike }, { id: 'driving', icon: Car }] as const).map(({ id, icon: Icon }) => <button key={id} type="button" className={`btn btn-small ${mode === id ? 'btn-primary' : 'btn-secondary'}`} aria-pressed={mode === id} onClick={() => { setMode(id); if (destCoords) void handlePlan(destCoords, id); }}><Icon size={16} aria-hidden="true" /><span>{modeLabels[id]}</span></button>)}
-    </div>
-    <div className="field gn-search-field">
-      <label>Destino</label>
-      <button type="button" className="gn-search-launch" aria-label="Buscar destino en Ica" onClick={() => setExplorerOpen(true)}><Search size={17} aria-hidden="true" /><span>{destinationName || 'Buscar nombre o dirección en Ica'}</span><ChevronRight size={16} aria-hidden="true" /></button>
-    </div>
+  const closeAssistant = () => { request.current?.abort(); request.current = null; setBusy(false); setExplorerOpen(false); setStep('idle'); };
+  const back = () => { request.current?.abort(); request.current = null; setBusy(false); setError(''); if(step === 'routes') {setRoutes([]);onSelectRoute(null);setStep('transport');} else if(step === 'origin' || step === 'transport') setStep('destination'); else closeAssistant(); };
+  if(step === 'idle') return <CiviDroidLauncher onActivate={() => setStep(destCoords ? (routes.length ? 'routes' : isUsableFix(currentPosition) ? 'transport' : 'origin') : 'destination')}/>;
+  return <section ref={wizardRef} className="civigo-navigation-glass route-planner-mobile route-assistant-wizard" aria-label="Planificar recorrido" data-assistant-step={step}>
+    <header className="route-step-header"><button type="button" className="icon-btn" aria-label="Volver al paso anterior" onClick={back}><ArrowLeft size={18}/></button><div><small>{step === 'destination' ? 'PASO 1 · DESTINO' : step === 'origin' ? 'UBICACIÓN DE SALIDA' : step === 'transport' ? 'PASO 2 · TRANSPORTE' : 'PASO 3 · RECORRIDO'}</small><h2>{step === 'destination' ? 'Elige tu destino' : step === 'origin' ? '¿Desde dónde sales?' : step === 'transport' ? '¿Cómo te moverás?' : 'Elige tu recorrido'}</h2></div><button type="button" className="icon-btn" aria-label="Cerrar planificación" onClick={closeAssistant}><X size={18}/></button></header>
+    {step === 'destination' && <>
+    <CiviDroid key={usuario?.id??'guest'} onSearch={query=>{setExplorerQuery(query);setExplorerOpen(true);}}/>
+    <button type="button" className="gn-search-launch" aria-label="Explorar lugares en Ica" onClick={() => {setExplorerQuery('');setExplorerOpen(true);}}><Search size={17}/><span>Explorar lugares y guardados</span><ChevronRight size={16}/></button>
     <details className="route-coordinate-input gn-conditions"><summary>Usar coordenadas del destino <ChevronDown size={14} aria-hidden="true" /></summary><form onSubmit={(event) => {
       event.preventDefault();
       const latitude = latitudeInput.trim().replace(',', '.'), longitude = longitudeInput.trim().replace(',', '.');
@@ -416,7 +421,14 @@ export const RoutePlanner: React.FC<RoutePlannerProps> = ({
     }}><div className="grid-2"><div className="field"><label htmlFor="route-latitude">Latitud</label><input id="route-latitude" inputMode="decimal" placeholder="-14.0678" value={latitudeInput} onChange={(event) => setLatitudeInput(event.target.value)} required /></div><div className="field"><label htmlFor="route-longitude">Longitud</label><input id="route-longitude" inputMode="decimal" placeholder="-75.7286" value={longitudeInput} onChange={(event) => setLongitudeInput(event.target.value)} required /></div></div><button type="submit" className="btn btn-secondary btn-small" disabled={busy}>Calcular por coordenadas</button></form></details>
     <div className="gn-shortcuts"><div className="route-destinations" aria-label="Accesos locales en Ica">{ICA_PLACES.map((place) => <button key={place.nombre} type="button" className="btn btn-secondary btn-small" onClick={() => selectDestination(place)}><MapPin size={12} aria-hidden="true" />{place.nombre}</button>)}</div></div>
     {favorites.length > 0 && <details className="gn-conditions"><summary>Destinos favoritos <span>{favorites.length}</span><ChevronDown size={14} aria-hidden="true" /></summary><div className="route-destinations" aria-label="Destinos favoritos">{favorites.filter((favorite) => isPosition(favorite.destino)).map((favorite) => <button key={favorite.id} type="button" className="btn btn-secondary btn-small" onClick={() => { const selectedMode = favorite.modo in modeLabels ? favorite.modo as Mode : mode; setMode(selectedMode); selectDestination({ ...favorite.destino, nombre: favorite.nombre || 'Destino favorito' }, selectedMode); }}><Bookmark size={13} aria-hidden="true" />{favorite.nombre || 'Destino favorito'}</button>)}</div></details>}
-    {destinationName && <p className="gn-destination"><MapPin size={14} aria-hidden="true" /><span>{destinationName}</span><small>{modeLabels[mode]}</small></p>}
+    </>}
+    {step === 'origin' && <><p className="route-step-destination">Usa tu ubicación actual para encontrar el recorrido.</p><button type="button" className="btn btn-secondary" onClick={onRequestLocation}><LocateFixed size={17}/>Usar mi ubicación</button><button type="button" className="btn btn-primary" disabled={!isUsableFix(currentPosition)} onClick={() => setStep('transport')}>Continuar</button></>}
+    {step === 'transport' && <><p className="route-step-destination">{destinationName}</p>
+    <div className="route-mode-switch gn-mode-switch"  role="group" aria-label="Modo de recorrido">
+      {([{ id: 'walking', icon: Footprints }, { id: 'cycling', icon: Bike }, { id: 'driving', icon: Car }] as const).map(({ id, icon: Icon }) => <button key={id} type="button" className={`btn btn-small ${mode === id ? 'btn-primary' : 'btn-secondary'}`} aria-pressed={mode === id} onClick={() => { setMode(id); if (destCoords) void handlePlan(destCoords, id); }}><Icon size={16} aria-hidden="true" /><span>{modeLabels[id]}</span></button>)}
+    </div>
+    </>}
+    {step === 'routes' && <>
     {error && <div className="notice notice-error gn-error" role="alert">{error}{destCoords && <button type="button" className="btn btn-secondary btn-small" disabled={busy} onClick={() => void handlePlan()}>Reintentar</button>}</div>}
     {busy && <p role="status" className="gn-calculating"><RotateCw size={15} aria-hidden="true" />Calculando alternativas…</p>}
     {routes.length > 0 && <section className="route-results" aria-label="Alternativas de recorrido"><div className="gn-result-heading"><strong>Elige tu recorrido</strong><small>{routes.length} alternativa{routes.length === 1 ? '' : 's'}</small></div>{routes.map((route) => {
@@ -442,7 +454,8 @@ export const RoutePlanner: React.FC<RoutePlannerProps> = ({
         {selected && notices.conditions.length > 0 && <details className="gn-conditions"><summary>Condiciones del recorrido <span>{notices.conditions.length}</span><ChevronDown size={14} aria-hidden="true" /></summary>{notices.conditions.map((warning) => <p key={warning} className="navigation-alert">{warning}</p>)}</details>}
       </article>;
     })}<p className="gn-comparison-note">La seguridad compara el riesgo registrado entre estas alternativas. La falta de reportes no garantiza seguridad.</p></section>}
-    {!isUsableFix(currentPosition) && <p className="navigation-alert gn-live-notice"><LocateFixed size={15} aria-hidden="true" />Activa una ubicación GPS reciente para calcular o iniciar un recorrido.</p>}
+    </>}
+    {step === 'origin' && !isUsableFix(currentPosition) && <p className="navigation-alert gn-live-notice"><LocateFixed size={15} aria-hidden="true" />Activa una ubicación GPS reciente para calcular o iniciar un recorrido.</p>}
     {explorer}
   </section>;
 };

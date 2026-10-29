@@ -84,3 +84,16 @@
 .navigating.page.page .plannerPanel[data-expanded]{inset:0;width:100%;max-width:100%;height:100%;max-height:100%;padding:0;border:0;border-radius:0;overflow:visible;backdrop-filter:none;background:transparent}
 .navigating.page.page .plannerBody{height:100%;max-height:none;width:100%;padding:0;overflow:visible}
 .navigating.page.page :global(.map-frame){border:0}
+
+/* The resting assistant is a character, without an enclosing route form. */
+.page.page .plannerPanel:has(:global(.route-assistant-launch)){top:16px;right:16px;left:auto;bottom:auto;width:164px;height:auto;max-height:none;border:0;background:transparent;box-shadow:none;overflow:visible;backdrop-filter:none}
+.page.page .plannerPanel:has(:global(.route-assistant-launch)) .plannerBody{padding:0;overflow:visible}
+.page.page :global(.map-frame):has(:global(.route-assistant-launch)) :global(.map-recenter){right:12px;top:175px}
+.page.page :global(.map-frame):has(:global(.route-assistant-launch)) [data-map-control="orientation"]{right:12px;top:227px}
+.navigating.page.page :global(.map-controls),.navigating.page.page :global(.map-controls):has(>button[aria-expanded="true"]){left:auto;right:12px;top:auto;bottom:274px;width:44px;min-width:44px;max-width:44px;height:44px;border-radius:14px;overflow:visible;z-index:9}
+.navigating.page.page :global(.map-controls) > :global(.panel-toggle){width:44px;height:44px;min-height:44px;padding:0;display:grid;place-items:center;border:0}
+.navigating.page.page :global(.map-controls) > :global(.panel-toggle) > span{display:flex;align-items:center;justify-content:center}
+.navigating.page.page :global(.map-controls) > :global(.panel-toggle) > svg{display:none}
+.navigating.page.page :global(.map-controls) > :global(.panel-toggle)[aria-expanded="true"] svg{transform:none}
+.navigating.page.page :global(.map-controls) > :global(.collapsible-panel-body){position:absolute;right:52px;bottom:0;width:min(280px,calc(100vw - 82px));max-height:max(80px,calc(100dvh - 300px));padding:14px;overflow-y:auto;background:var(--glass-surface,var(--surface));backdrop-filter:blur(22px);border:1px solid var(--glass-line,var(--line));border-radius:18px;box-shadow:0 8px 30px #031b3433}
+@media(max-width:700px){.page.page .plannerPanel:has(:global(.route-assistant-launch)){right:64px;top:12px;width:150px}.page.page :global(.map-frame):has(:global(.route-assistant-launch)) :global(.map-recenter){top:12px}.page.page :global(.map-frame):has(:global(.route-assistant-launch)) [data-map-control="orientation"]{top:64px}}

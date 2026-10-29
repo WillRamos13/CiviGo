@@ -165,12 +165,12 @@ function AccountMap() {
                     {fullscreen.notice&&<span role="status" className="sr-only">{fullscreen.notice}</span>}
                     <MapView onPlaceSelect={setPlaceCard} avatar={avatar.avatar} controlsVersion={controlsVersion} overviewVersion={overviewVersion} northVersion={northVersion} onBounds={changeBounds} incidentes={filtered} ruta={route} onSelect={selectIncident} focusPoint={focusPoint} posicion={position} onLocate={location.acceptPosition} onRequestLocation={location.requestLocation} compactLegend navigating={following} heading={navigation.progress?.heading} centerVersion={navigation.centerVersion} onTrafficChange={() => { if (tracking.current) setRecalculate(v => v + 1); }} yearFilter={{options: years, selected: selectedYears, onChange: value => {setSelectedYears(value); setSelected(null);}}} typeFilter={{ value: category, groups: filterGroups, onChange: changeTypeFilter }}/>
                     <section className={`map-side-panel map-route-panel ${styles.plannerPanel}`} aria-label="Panel de recorridos" data-expanded={panelExpanded}>
-                        <button type="button" className={`panel-toggle ${styles.plannerToggle}`} aria-expanded={panelExpanded} aria-controls={routePanelId} onClick={() => setPanelExpanded(value => !value)}>
+                        {following && <button type="button" className={`panel-toggle ${styles.plannerToggle}`} aria-expanded={panelExpanded} aria-controls={routePanelId} onClick={() => setPanelExpanded(value => !value)}>
                             <strong>{following ? 'EN CAMINO' : '¿A DÓNDE VAMOS?'}</strong>
                             {!following && <span className={styles.incidentCount}>{filtered.length} en mapa</span>}
                             {panelExpanded ? <ChevronDown size={17} aria-hidden="true"/> : <ChevronUp size={17} aria-hidden="true"/>}
-                        </button>
-                        <div id={routePanelId} className={`collapsible-panel-body ${styles.plannerBody}`} hidden={!following && !panelExpanded}>
+                        </button>}
+                        <div id={routePanelId} className={`collapsible-panel-body ${styles.plannerBody}`} hidden={false}>
                             <RoutePlanner onShowPlace={place=>{setSelected(null);setFocusPoint(current=>({posicion:place,label:place.nombre,version:(current?.version??0)+1}));setPanelExpanded(false);}} onRoute={changeRoute} active={route} following={following} onFollow={changeFollowing} guidance={{...navigation,avatar:avatar.avatar,onAvatarChange:avatar.change,avatarNotice:avatar.notice,onLayers:()=>setControlsVersion(v=>v+1),onOverview:()=>setOverviewVersion(v=>v+1),onNorth:()=>setNorthVersion(v=>v+1)}} onLocate={location.acceptPosition} currentPosition={position} compact={following && !panelExpanded}/>
                         </div>
                     </section>

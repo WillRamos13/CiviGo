@@ -71,7 +71,10 @@ test('a destination or mode change with lost GPS discards late routes and cannot
   });
   try {
     const choose = async (name: string) => {
-      await page.getByRole('button', { name: 'Buscar destino en Ica', exact: true }).click();
+      const launcher = page.getByRole('button', { name: '¿A dónde quieres ir hoy?', exact: true });
+      if (await launcher.count()) await launcher.click();
+      while (await page.locator('[data-assistant-step]').getAttribute('data-assistant-step') !== 'destination') await page.getByRole('button', { name: 'Volver al paso anterior' }).click();
+      await page.getByRole('button', { name: 'Explorar lugares en Ica', exact: true }).click();
       const dialog = page.getByRole('dialog');
       const back = dialog.getByRole('button', { name: 'Volver a resultados', exact: true });
       if (await back.count()) await back.click();
@@ -79,7 +82,7 @@ test('a destination or mode change with lost GPS discards late routes and cannot
       await dialog.getByRole('button', { name, exact: false }).filter({ hasText: name }).first().click();
       await dialog.getByRole('heading', { name, exact: true }).waitFor();
       await dialog.getByRole('button', { name: 'Ver rutas', exact: true }).click();
-      await page.getByRole('button', { name: 'A pie', exact: true }).click();
+      if (await page.locator('[data-assistant-step]').getAttribute('data-assistant-step') === 'transport') await page.getByRole('button', { name: 'A pie', exact: true }).click();
     };
     await choose('Plaza de Armas de Ica');
     await page.waitForFunction(() => (window as any).pending.length === 1);
@@ -87,11 +90,12 @@ test('a destination or mode change with lost GPS discards late routes and cannot
     await page.evaluate(() => (window as any).setFix(null));
     await choose('Huacachina Oasis');
     await page.evaluate(() => (window as any).pending[0]());
-    await page.waitForFunction(() => document.querySelector('[role="alert"]')?.textContent?.includes('GPS'));
+    await page.waitForFunction(() => document.querySelector('[data-assistant-step]')?.getAttribute('data-assistant-step') === 'origin');
     assert.equal(await page.locator('.route-result').count(), 0);
     assert.equal(await page.evaluate(() => (window as any).active), null);
     await page.evaluate(() => (window as any).setFix({ latitud: -14.06, longitud: -75.73, accuracy: 5 }));
-    await page.getByRole('button', { name: 'Reintentar', exact: true }).click();
+    await page.getByRole('button', { name: 'Continuar', exact: true }).click();
+    await page.getByRole('button', { name: 'A pie', exact: true }).click();
     await page.waitForFunction(() => (window as any).pending.length === 2);
     await page.evaluate(() => (window as any).pending[1]());
     await page.getByRole('button', { name: 'Guardar ruta en favoritos' }).click();
@@ -102,18 +106,22 @@ test('a destination or mode change with lost GPS discards late routes and cannot
     await choose('Plaza de Armas de Ica');
     await page.waitForFunction(() => (window as any).pending.length === 3);
     await page.evaluate(() => (window as any).setFix(null));
+    await page.getByRole('button', { name: 'Volver al paso anterior' }).click();
     await page.getByRole('button', { name: 'Auto', exact: true }).click();
     await page.evaluate(() => (window as any).pending[2]());
     await page.waitForFunction(() => document.querySelector('[role="alert"]')?.textContent?.includes('GPS'));
     assert.equal(await page.locator('.route-result').count(), 0);
+    await page.getByRole('button', { name: 'Volver al paso anterior' }).click();
+    await page.getByRole('button', { name: 'Volver al paso anterior' }).click();
     await page.locator('.route-coordinate-input summary').click();
     await page.locator('#route-latitude').fill('-14.1'); await page.locator('#route-longitude').fill('-75.7');
-    assert.equal(await page.locator('.gn-destination').count(), 1);
+    assert.equal(await page.locator('#route-latitude').inputValue(), '-14.1');
     await page.evaluate(() => { const w = window as any; w.user = { id: 2, premium: true }; w.refreshOwner(); });
-    await page.waitForFunction(() => !document.querySelector('.gn-destination'));
+    await page.getByRole('button', { name: '¿A dónde quieres ir hoy?', exact: true }).waitFor();
+    await page.getByRole('button', { name: '¿A dónde quieres ir hoy?', exact: true }).click();
     assert.equal(await page.locator('#route-latitude').inputValue(), '');
     assert.equal(await page.locator('#route-longitude').inputValue(), '');
-    assert.equal(await page.getByRole('button', { name: 'A pie', exact: true, includeHidden: true }).getAttribute('aria-pressed'), 'true');
+    assert.equal(await page.getByRole('group', { name: 'Modo de recorrido' }).count(), 0);
     assert.deepEqual(errors, []);
   } finally { await browser.close(); }
 });

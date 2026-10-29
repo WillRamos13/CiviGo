@@ -1,8 +1,8 @@
 'use client';
 import Link from 'next/link';
-import CiviDroid from './CiviDroid';
+import CiviDroid, { CiviDroidLauncher } from './CiviDroid';
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Footprints, Bike, Car, MapPin, Bookmark, Navigation, Square, ArrowDownUp, Search, ShieldCheck, Timer, Scale, ChevronRight, Check, AlertTriangle } from 'lucide-react';
+import { Footprints, Bike, Car, MapPin, Bookmark, Navigation, Square, ArrowLeft, X, Search, ShieldCheck, Timer, Scale, ChevronRight, Check, AlertTriangle } from 'lucide-react';
 import { useAuth } from './AuthProvider';
 import { api, post, currentPosition as requestPosition, errorMessage, formatDate } from '@/lib/api';
 import type { Posicion, Ruta } from '@/lib/types';
@@ -26,6 +26,9 @@ function AccountRoutePlanner({ onRoute, active, following, onFollow, recalculate
     const accountId = usuario?.id, premium = usuario?.premium === true;
     const [origin, setOrigin] = useState<Punto | null>(null), [destination, setDestination] = useState<Punto | null>(null), [mode, setMode] = useState('walking'), [routes, setRoutes] = useState<Ruta[]>([]), [error, setError] = useState(''), [message, setMessage] = useState(''), [busy, setBusy] = useState(false), [manual, setManual] = useState(false), [cached, setCached] = useState<CachedRoute[]>([]), [saved, setSaved] = useState<Saved[]>([]), [favoriteName, setFavoriteName] = useState(''), [favoriteTags, setFavoriteTags] = useState(''), [loadedCopy, setLoadedCopy] = useState(false);
     const [manualOrigin, setManualOrigin] = useState(['', '']), [manualDestination, setManualDestination] = useState(['', '']);
+    const [step, setStep] = useState<'idle' | 'destination' | 'origin' | 'transport' | 'routes'>('idle');
+    const wizardRef = useRef<HTMLDivElement>(null);
+    useEffect(() => { const scroller = wizardRef.current?.closest<HTMLElement>('.collapsible-panel-body'); if(scroller) scroller.scrollTop = 0; }, [step]);
     const [explorer, setExplorer] = useState({open:false,query:''});
     const [locating, setLocating] = useState(false);
     const originTouched = useRef(false), gpsSeeded = useRef(false);
@@ -35,7 +38,7 @@ function AccountRoutePlanner({ onRoute, active, following, onFollow, recalculate
     const newRequest = () => { const controller = new AbortController(); requests.current.add(controller); return controller; };
     const invalidate = useCallback(() => { planEpoch.current++; selectionEpoch.current++; planRequest.current?.abort(); setRoutes([]); setBusy(false); setMessage(''); setError(''); setLoadedCopy(false); onRoute(null); onFollow(false); },[onRoute,onFollow]);
     const changeOrigin = (value: Punto | null) => { originTouched.current = true; invalidate(); setOrigin(value); setManualOrigin(value ? [String(value.latitud), String(value.longitud)] : ['', '']); };
-    const changeDestination = useCallback((value: Punto | null) => { invalidate(); setDestination(value); setManualDestination(value ? [String(value.latitud), String(value.longitud)] : ['', '']); },[invalidate]);
+    const changeDestination = useCallback((value: Punto | null) => { invalidate(); setDestination(value); setManualDestination(value ? [String(value.latitud), String(value.longitud)] : ['', '']); setStep(origin ? 'transport' : 'origin'); },[invalidate, origin]);
     const changeManual = (isOrigin: boolean, axis: number, text: string) => {
         if (isOrigin) originTouched.current = true;
         const values = [...isOrigin ? manualOrigin : manualDestination]; values[axis] = text;
@@ -68,6 +71,7 @@ function AccountRoutePlanner({ onRoute, active, following, onFollow, recalculate
     const plan = async (selectedMode = mode) => {
         if (!isPosition(origin) || !isPosition(destination)) return setError('Selecciona un origen y destino con coordenadas válidas.');
         if (offline) return setError('Para actualizar las condiciones del recorrido necesitas conexión. Puedes consultar tus copias guardadas.');
+        setStep('routes');
         planRequest.current?.abort();
         const controller = newRequest(), epoch = ++planEpoch.current;
         planRequest.current = controller;
@@ -109,7 +113,7 @@ function AccountRoutePlanner({ onRoute, active, following, onFollow, recalculate
         setDestination({...isPosition(to) ? to : {latitud: last[1], longitud: last[0]}, nombre: 'Destino guardado'});
         setManualOrigin([String(isPosition(from) ? from.latitud : first[1]), String(isPosition(from) ? from.longitud : first[0])]);
         setManualDestination([String(isPosition(to) ? to.latitud : last[1]), String(isPosition(to) ? to.longitud : last[0])]);
-        setMode(routeMode(savedMode)); setLoadedCopy(true); setMessage(notice); onRoute({...r, copiaGuardada: true, llegadaEstimada: undefined, trafico: {disponible: false, fuente: null, actualizadoEn: r.trafico?.actualizadoEn ?? null, demoraSegundos: r.trafico?.demoraSegundos ?? 0, motivo: 'Condiciones guardadas; no hay tráfico actualizado.'}, modo: routeMode(savedMode), origen: isPosition(from) ? from : {latitud: first[1], longitud: first[0]}, destino: isPosition(to) ? to : {latitud: last[1], longitud: last[0]}});
+        setStep('routes'); setMode(routeMode(savedMode)); setLoadedCopy(true); setMessage(notice); onRoute({...r, copiaGuardada: true, llegadaEstimada: undefined, trafico: {disponible: false, fuente: null, actualizadoEn: r.trafico?.actualizadoEn ?? null, demoraSegundos: r.trafico?.demoraSegundos ?? 0, motivo: 'Condiciones guardadas; no hay tráfico actualizado.'}, modo: routeMode(savedMode), origen: isPosition(from) ? from : {latitud: first[1], longitud: first[0]}, destino: isPosition(to) ? to : {latitud: last[1], longitud: last[0]}});
     };
     const favorite = async () => {
         if (!active || offline || !isPosition(origin) || !isPosition(destination)) return;
@@ -136,32 +140,44 @@ function AccountRoutePlanner({ onRoute, active, following, onFollow, recalculate
         } finally { if (mounted.current) setLocating(false); }
     };
     useEffect(()=>{const choose=(event:Event)=>{const value=(event as CustomEvent<Punto>).detail;if(isPosition(value)&&typeof value.nombre==='string'){changeDestination(value);setMessage('Destino elegido. Selecciona tu transporte.');}};window.addEventListener('civigo:choose-place',choose);return()=>window.removeEventListener('civigo:choose-place',choose);},[changeDestination]);
-    const swapPoints = () => {
-        originTouched.current = true;
-        invalidate();
-        setOrigin(destination);
-        setDestination(origin);
-        setManualOrigin(manualDestination);
-        setManualDestination(manualOrigin);
-    };
+    const closeAssistant = () => { planEpoch.current++; planRequest.current?.abort(); setBusy(false); setExplorer({open:false,query:''}); setStep('idle'); };
+    const back = () => { setError(''); setMessage(''); if(step === 'routes') { invalidate(); setStep('transport'); } else if(step === 'origin' || step === 'transport') setStep('destination'); else closeAssistant(); };
+    const stepHeader = <header className="route-step-header"><button type="button" className="icon-btn" aria-label="Volver al paso anterior" onClick={back}><ArrowLeft size={18}/></button><div><small>{step === 'destination' ? 'PASO 1 · DESTINO' : step === 'origin' ? 'UBICACIÓN DE SALIDA' : step === 'transport' ? 'PASO 2 · TRANSPORTE' : 'PASO 3 · RECORRIDO'}</small><h2>{step === 'destination' ? 'Elige tu destino' : step === 'origin' ? '¿Desde dónde sales?' : step === 'transport' ? '¿Cómo te moverás?' : 'Elige tu recorrido'}</h2></div><button type="button" className="icon-btn" aria-label="Cerrar planificación" onClick={closeAssistant}><X size={18}/></button></header>;
+    if (!following && step === 'idle') return <CiviDroidLauncher onActivate={() => setStep(destination ? (active ? 'routes' : origin ? 'transport' : 'origin') : 'destination')}/>;
     if (following && active && guidance) return <NavigationGuidance route={active} onFinish={() => onFollow(false)} compact={compact} {...guidance}/>;
     if (!usuario) {
         return <div className={'card ' + styles.planner}>
-            <div className="card-header"><h2>¿A dónde vamos?</h2><Navigation size={18} aria-hidden="true"/></div>
+            {stepHeader}
             <p className={'muted ' + styles.intro}>Crea una cuenta para comparar recorridos a pie, en bicicleta o en automóvil.</p>
             <Link href="/ingresar" className={'btn btn-primary ' + styles.fullWidth}>Ingresar para calcular rutas</Link>
         </div>;
     }
-    return <div className={'card ' + styles.planner}>
-        <CiviDroid destination={destination?.nombre} onSearch={query=>setExplorer({open:true,query})}/>
-        <div className={'route-mode ' + styles.modes} role="group" aria-label="Modo de recorrido" hidden={!destination}>
-            {[{ id: 'walking', name: 'A pie', icon: Footprints }, { id: 'cycling', name: 'Bicicleta', icon: Bike }, { id: 'driving', name: 'Auto', icon: Car }].map(({ id, name, icon: Icon }) =>
-                <button type="button" aria-pressed={mode === id} className={mode === id ? 'selected' : ''} key={id} onClick={() => { setMode(id); if(destination && origin)void plan(id); else invalidate(); }}>
-                    <Icon size={20} aria-hidden="true"/><span>{name}</span>
-                </button>)}
+    return <div ref={wizardRef} className={'card route-assistant-wizard ' + styles.planner} data-assistant-step={step}>
+        {stepHeader}
+        {step === 'destination' && <>
+        <CiviDroid onSearch={query=>setExplorer({open:true,query})}/>
+        <button type="button" className={'btn btn-quiet btn-small ' + styles.manualToggle} aria-expanded={manual} onClick={() => setManual(!manual)}>
+            {manual ? 'Ocultar' : 'Ingresar'} coordenadas manualmente
+        </button>
+        {manual && <div className={styles.manualFields}>
+            {[{ label: 'Destino', values: manualDestination, origin: false }].map(({ label, values, origin: isOrigin }) =>
+                <div key={label}>
+                    <span className={styles.manualLabel}>{label}</span>
+                    <div className={'grid-2 ' + styles.coordinateGrid}>
+                        <div className="field"><input aria-label={'Latitud ' + label} type="number" step=".000001" placeholder="Latitud" value={values[0]} onChange={e => changeManual(isOrigin, 0, e.target.value)}/></div>
+                        <div className="field"><input aria-label={'Longitud ' + label} type="number" step=".000001" placeholder="Longitud" value={values[1]} onChange={e => changeManual(isOrigin, 1, e.target.value)}/></div>
+                    </div>
+                </div>)}
+            <button type="button" className="btn btn-primary btn-small" disabled={!destination} onClick={() => setStep(origin ? 'transport' : 'origin')}>Continuar</button>
+        </div>}
+        <div className={styles.shortcuts} aria-label="Destinos rápidos">
+            {['Plaza de Armas de Ica', 'Huacachina', 'Hospital Regional de Ica', 'Terminal Terrestre Ica'].map(name => <button type="button" key={name} onClick={() => setExplorer({open:true,query:name})}><MapPin size={13} aria-hidden="true"/>{name}</button>)}
+            {saved.slice(0, 8).map(item => <button type="button" key={`saved-${item.id}`} onClick={() => loadCopy(item.datos, item.origen, item.destino, item.modo, 'Favorito cargado. Actualiza sus condiciones antes de iniciar.')}><Bookmark size={13} aria-hidden="true"/>{item.nombre}</button>)}
         </div>
-        <details className={styles.originDetails}>
-            <summary><MapPin size={14} aria-hidden="true"/><span>Origen: {origin?.nombre ?? 'elige tu ubicación'}</span><span>Cambiar</span></summary>
+        </>}
+        {step === 'origin' && <>
+        <div className={styles.originDetails}>
+            <p className="muted">{origin?.nombre || 'Usa el GPS o busca tu punto de salida.'}</p>
         <div className={styles.placeField}>
             <Search className={styles.searchIcon} size={16} aria-hidden="true"/>
             <PlaceInput label="Origen" value={origin} onChange={changeOrigin}/>
@@ -170,36 +186,22 @@ function AccountRoutePlanner({ onRoute, active, following, onFollow, recalculate
             <button type="button" className={'btn btn-quiet btn-small ' + styles.location} disabled={locating} onClick={locate}>
                 <MapPin size={15} aria-hidden="true"/>{locating ? 'Buscando tu ubicación…' : 'Usar mi ubicación'}
             </button>
-            <button type="button" className={styles.swap} aria-label="Intercambiar origen y destino" title="Intercambiar origen y destino" disabled={!origin && !destination} onClick={swapPoints}>
-                <ArrowDownUp size={17} aria-hidden="true"/>
-            </button>
+
         </div>
-        </details>
-        {!origin && <button type="button" className={'btn btn-secondary btn-small ' + styles.fullWidth} disabled={locating} onClick={locate}><MapPin size={15} aria-hidden="true"/>{locating ? 'Buscando tu ubicación…' : 'Usar mi ubicación'}</button>}
-        <div className="field"><span className={styles.manualLabel}>Destino</span><button type="button" className={styles.destinationButton} aria-label="Buscar destino" aria-haspopup="dialog" onClick={()=>setExplorer({open:true,query:''})}><Search size={18} aria-hidden="true"/><span>{destination?.nombre || 'Buscar lugar o dirección'}</span><ChevronRight size={17}/></button></div>
-        <button type="button" className={'btn btn-quiet btn-small ' + styles.manualToggle} aria-expanded={manual} onClick={() => setManual(!manual)}>
-            {manual ? 'Ocultar' : 'Ingresar'} coordenadas manualmente
-        </button>
-        {manual && <div className={styles.manualFields}>
-            {[{ label: 'Origen', values: manualOrigin, origin: true }, { label: 'Destino', values: manualDestination, origin: false }].map(({ label, values, origin: isOrigin }) =>
-                <div key={label}>
-                    <span className={styles.manualLabel}>{label}</span>
-                    <div className={'grid-2 ' + styles.coordinateGrid}>
-                        <div className="field"><input aria-label={'Latitud ' + label} type="number" step=".000001" placeholder="Latitud" value={values[0]} onChange={e => changeManual(isOrigin, 0, e.target.value)}/></div>
-                        <div className="field"><input aria-label={'Longitud ' + label} type="number" step=".000001" placeholder="Longitud" value={values[1]} onChange={e => changeManual(isOrigin, 1, e.target.value)}/></div>
-                    </div>
-                </div>)}
-        </div>}
-        <div className={styles.shortcuts} aria-label="Destinos rápidos">
-            {['Plaza de Armas de Ica', 'Huacachina', 'Hospital Regional de Ica', 'Terminal Terrestre Ica'].map(name => <button type="button" key={name} onClick={() => setExplorer({open:true,query:name})}><MapPin size={13} aria-hidden="true"/>{name}</button>)}
-            {saved.slice(0, 8).map(item => <button type="button" key={`saved-${item.id}`} onClick={() => loadCopy(item.datos, item.origen, item.destino, item.modo, 'Favorito cargado. Actualiza sus condiciones antes de iniciar.')}><Bookmark size={13} aria-hidden="true"/>{item.nombre}</button>)}
         </div>
-        <div className={'route-planner-search ' + styles.searchAction}>
-            <button type="button" className={'btn btn-primary ' + styles.fullWidth} disabled={busy || offline || !origin || !destination} onClick={() => void plan()}>
-                <Navigation size={16} aria-hidden="true"/>{busy ? 'Calculando alternativas…' : 'Buscar recorridos'}
-            </button>
+            <button type="button" className="btn btn-primary" disabled={!origin} onClick={() => setStep('transport')}>Continuar</button>
+        </>}
+        {step === 'transport' && <><p className="route-step-destination">{destination?.nombre}</p>
+        <div className={'route-mode ' + styles.modes} role="group" aria-label="Modo de recorrido" >
+            {[{ id: 'walking', name: 'A pie', icon: Footprints }, { id: 'cycling', name: 'Bicicleta', icon: Bike }, { id: 'driving', name: 'Auto', icon: Car }].map(({ id, name, icon: Icon }) =>
+                <button type="button" aria-pressed={mode === id} className={mode === id ? 'selected' : ''} key={id} onClick={() => { setMode(id); if(destination && origin)void plan(id); }}>
+                    <Icon size={20} aria-hidden="true"/><span>{name}</span>
+                </button>)}
         </div>
-        {error && <div className={'notice notice-error ' + styles.notice} role="alert">{error}</div>}
+            <button type="button" className="btn btn-quiet btn-small" onClick={() => setStep('origin')}>Cambiar punto de salida</button>
+        </>}
+        {step === 'routes' && <>
+        {busy && <p role="status">Calculando alternativas…</p>}
         {message && <div className={'notice ' + styles.notice} role="status">{message}</div>}
         {routes.length > 0 && <section className={styles.alternatives} aria-label="Alternativas de recorrido">
             <div className={styles.resultHeading}><span>Elige tu recorrido</span><span>{routes.length} alternativa{routes.length > 1 ? 's' : ''}</span></div>
@@ -242,28 +244,31 @@ function AccountRoutePlanner({ onRoute, active, following, onFollow, recalculate
         </section>}
         {active && <div className={styles.activeActions}>
             {loadedCopy && <div className={'notice notice-warning ' + styles.notice}>Copia guardada. La geometría, las condiciones y los avisos pertenecen al momento de su carga; recalcula con conexión para actualizarlos.</div>}
-            <div className="field"><label htmlFor="favorite-name">Nombre para guardar</label><input id="favorite-name" value={favoriteName} onChange={e => setFavoriteName(e.target.value)} maxLength={100} placeholder="Casa → universidad"/></div>
+            <details className="route-save-options"><summary>Guardar en favoritos</summary><div className="field"><label htmlFor="favorite-name">Nombre para guardar</label><input id="favorite-name" value={favoriteName} onChange={e => setFavoriteName(e.target.value)} maxLength={100} placeholder="Casa → universidad"/></div>
             {usuario.premium && <div className="field"><label htmlFor="favorite-tags">Etiquetas Premium</label><input id="favorite-tags" value={favoriteTags} onChange={e => setFavoriteTags(e.target.value)} placeholder="Trabajo, mañana"/><small>Separa las etiquetas con comas.</small></div>}
+            <button type="button" className="btn btn-secondary btn-small" disabled={busy || offline} onClick={favorite}><Bookmark size={14}/>Guardar favorito</button></details>
             <div className={'actions ' + styles.navigationActions}>
                 <button type="button" className="btn btn-primary btn-small" onClick={() => onFollow(!following)}>{following ? <Square size={14} aria-hidden="true"/> : <Navigation size={14} aria-hidden="true"/>} {following ? 'Finalizar' : 'Iniciar recorrido'}</button>
-                <button type="button" className="btn btn-secondary btn-small" disabled={busy || offline} onClick={favorite}><Bookmark size={14} aria-hidden="true"/>Guardar</button>
+
             </div>
             {active.advertencias?.map((w, i) => <div className={'notice notice-warning ' + styles.notice} key={i}>{typeof w === 'string' ? w : w.mensaje}</div>)}
             <p className={'muted ' + styles.comparisonNote}>Al iniciar, se usa tu ubicación mientras la página esté abierta. Las recomendaciones comerciales no modifican el recorrido.</p>
         </div>}
-        {saved.length > 0 && <details className={styles.savedRoutes}>
+        </>}
+        {step === 'destination' && saved.length > 0 && <details className={styles.savedRoutes}>
             <summary>Favoritos ({saved.length})</summary>
             {saved.map(s => <button type="button" key={s.id} className="route-option" onClick={() => loadCopy(s.datos, s.origen, s.destino, s.modo, 'Favorito cargado. Busca recorridos para actualizar sus condiciones.')}>
                 <strong>{s.nombre}</strong><p>Datos guardados; recalcula para actualizar.</p>
             </button>)}
         </details>}
-        {cached.length > 0 && <details className={styles.savedRoutes}>
+        {step === 'destination' && cached.length > 0 && <details className={styles.savedRoutes}>
             <summary>Recorridos cargados en este dispositivo</summary>
             <p className={'muted ' + styles.comparisonNote}>La geometría guardada se puede consultar sin conexión. El mapa base puede necesitar internet. Los incidentes no se consideran actualizados.</p>
             {cached.map((c, i) => <button type="button" className="route-option" key={c.ruta.id + '-' + i} onClick={() => loadCopy(c.ruta, c.origen, c.destino, c.modo, 'Mostrando una copia guardada. No refleja necesariamente los incidentes actuales.')}>
                 <strong>{c.ruta.nombre}</strong><p>Guardado: {formatDate(c.fecha)}</p>
             </button>)}
         </details>}
-        <DestinationExplorer open={explorer.open} initialQuery={explorer.query} onClose={()=>setExplorer(value=>({...value,open:false}))} ownerId={accountId??null} currentPosition={currentPosition} route={active} onChoose={changeDestination} onShowPlace={onShowPlace}/>
+        {error && <div className={'notice notice-error ' + styles.notice} role="alert">{error}</div>}
+        <DestinationExplorer open={explorer.open} initialQuery={explorer.query} onClose={()=>setExplorer(value=>({...value,open:false}))} ownerId={accountId??null} currentPosition={currentPosition} route={active} onChoose={changeDestination} onShowPlace={onShowPlace ? place => { closeAssistant(); onShowPlace(place); } : undefined}/>
     </div>;
 }
