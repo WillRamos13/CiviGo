@@ -882,6 +882,7 @@ export const MapView: React.FC<MapViewProps> = ({
         {!navigationMode && <>
           <details className="map-layer-panel" open={effectiveLayersOpen} onToggle={event => { if (event.currentTarget.open !== effectiveLayersOpen) changeLayersOpen(event.currentTarget.open); }}>
             <summary onClick={event => { event.preventDefault(); changeLayersOpen(!effectiveLayersOpen); }}><Layers size={15} aria-hidden="true" /><span>Capas y filtros{typeFilter || yearFilter && yearFilter.selected !== null ? ' · filtros activos' : ''}</span><ChevronDown size={15} aria-hidden="true" /></summary>
+            {effectiveLayersOpen && <button type="button" className="map-layers-close" aria-label="Cerrar capas y filtros" onClick={() => changeLayersOpen(false)}><X size={18}/></button>}
             {layerControls}
           </details>
           <div className="map-fixed-legend">{compactLegend}</div>

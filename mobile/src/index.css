@@ -952,7 +952,7 @@ small {
 .map-nearby-disclosure[open]{width:340px;max-height:60%;overflow-y:auto}
 .map-mobile-screen:has(.route-assistant-wizard) .map-nearby-disclosure{display:none}
 .map-mobile-screen:has(.route-assistant-launch) .map-fixed-legend{bottom:64px}
-.map-mobile-screen:has(.route-assistant-launch) .map-layer-panel{bottom:120px}
+.map-mobile-screen:has(.route-assistant-launch) .map-layer-panel:not([open]){bottom:120px}
 .map-navigation-active .map-navigation-mode .map-floating-controls{top:auto;bottom:min(calc(var(--map-sheet-height,90px) + 60px),calc(100% - 108px));right:10px;gap:8px}
 @media (max-height: 500px) and (orientation: landscape) {
   .map-mobile-screen .map-bottom-sheet-navigating.map-bottom-sheet-compact:has(.spotify-remote-player) {

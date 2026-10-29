@@ -153,3 +153,8 @@
   .map-glass-view .map-fixed-legend .map-mini-legend strong > svg { width: 9px; height: 9px; }
   .map-glass-view .map-fixed-legend .map-legend-scale { height: 4px; margin-top: 4px; }
 }
+
+.map-glass-view .map-layer-panel[open]{top:12px;bottom:auto;max-height:calc(100% - 24px);padding-top:0;display:flex;flex-direction:column}
+.map-layer-panel[open]>summary{flex-shrink:0;padding-right:48px}
+.map-glass-view .map-layer-panel[open] .map-layer-content{min-height:0;max-height:calc(var(--map-view-height,100dvh) - 90px);overflow-y:auto}
+.map-layers-close{position:absolute;top:0;right:0;width:44px;height:44px;display:grid;place-items:center;border:0;background:transparent;color:var(--ink);z-index:2}
