@@ -6,6 +6,7 @@ const {
   premiumEnd,
   checkoutUrl,
   settings,
+  createPaymentService,
 } = require("../src/lib/payments");
 test("Webhook signatures bind payment id and request id and reject expired or tampered signatures", () => {
   const now = Date.now(),
@@ -37,6 +38,51 @@ test("Webhook signatures bind payment id and request id and reject expired or ta
     false,
   );
 });
+test("a real seller cannot be used for a supposedly free test checkout", async () => {
+  const service = createPaymentService({
+    db: {},
+    env: {
+      PAYMENTS_ENABLED: "true",
+      PAYMENTS_MODE: "test",
+      MERCADOPAGO_ACCESS_TOKEN: "fixture",
+      MERCADOPAGO_WEBHOOK_SECRET: "fixture",
+      PUBLIC_APP_URL: "https://civigo.online",
+      PUBLIC_API_URL: "https://api.example.invalid",
+    },
+    request: async () => ({
+      ok: true,
+      json: async () => ({ tags: ["normal"] }),
+    }),
+  });
+  await assert.rejects(
+    () =>
+      service.checkout(
+        { id: 1, correo: "private@example.invalid" },
+        "12345678-1234-1234-1234-123456789012",
+      ),
+    (error) => error.code === "PAYMENT_TEST_SELLER_REQUIRED",
+  );
+});
+test('an old checkout cannot silently keep a previous price after the catalog changes',async()=>{
+ const service=createPaymentService({env:{PAYMENTS_ENABLED:'true',PAYMENTS_MODE:'production',MERCADOPAGO_ACCESS_TOKEN:'fixture',MERCADOPAGO_WEBHOOK_SECRET:'fixture',PUBLIC_APP_URL:'https://civigo.online',PUBLIC_API_URL:'https://api.example.invalid'},db:{appConfig:{findUnique:async()=>({valor:{checkout:'https://www.mercadopago.com/checkout/v1/redirect?pref_id=fixture',centimos:590,modo:'production'}})}}});
+ await assert.rejects(()=>service.checkout({id:1},'12345678-1234-1234-1234-123456789012'),error=>error.code==='PAYMENT_PRICE_CHANGED');
+});
+test("official global checkout URLs are accepted; credentials, odd ports and lookalikes are rejected", () => {
+  assert.equal(
+    new URL(
+      checkoutUrl(
+        "https://www.mercadopago.com/checkout/v1/redirect?pref_id=fixture",
+      ),
+    ).hostname,
+    "www.mercadopago.com",
+  );
+  for (const url of [
+    "https://evil@www.mercadopago.com/",
+    "https://www.mercadopago.com:444/",
+    "https://www.mercadopago.com.attacker.invalid/",
+  ])
+    assert.throws(() => checkoutUrl(url));
+});
 test("Only production approved grants extend Premium; refunds, trials and repeated notifications do not create benefits", () => {
   const first = {
     referencia: "a",
@@ -58,7 +104,7 @@ test("Only production approved grants extend Premium; refunds, trials and repeat
 });
 test("Checkout is disabled without explicit configuration and never sends users to arbitrary URLs", () => {
   assert.equal(settings({}).enabled, false);
-  assert.equal(settings({}).price, 590);
+  assert.equal(settings({}).price, 100);
   assert.throws(() => settings({ PREMIUM_PRICE_PEN_CENTS: "-10" }));
   assert.match(
     checkoutUrl(

@@ -17,6 +17,7 @@ import { filterIncidentsByYears, incidentYearOptions, type IncidentYears } from 
 import type { Incidente, Ruta, Posicion, Catalogo } from '@/lib/types';
 import { nearRoute, isRouteWarning } from '@/lib/navigation';
 import { useNavigation } from '@/lib/use-navigation';
+import {useNavigationAvatar} from '@/lib/use-navigation-avatar';
 import { recentNearbyIncidents } from '@/lib/recent-incidents';
 import { useMapLocation } from '@/lib/use-map-location';
 import { useNearbyIncidents } from '@/lib/use-nearby-incidents';
@@ -40,6 +41,8 @@ export default function Mapa() {
 }
 function AccountMap() {
     const { usuario } = useAuth();
+    const avatar=useNavigationAvatar(usuario?.id??null);
+    const [controlsVersion,setControlsVersion]=useState(0),[overviewVersion,setOverviewVersion]=useState(0),[northVersion,setNorthVersion]=useState(0);
     const [panelExpanded, setPanelExpanded] = useState(true);
     const [selectedYears, setSelectedYears] = useState<IncidentYears>(null);
     const routePanelId = useId();
@@ -155,7 +158,7 @@ function AccountMap() {
                 <div ref={mapFrameRef} className={`map-frame ${fullscreen.active?styles.fullscreenFrame:''}`} data-map-fullscreen={fullscreen.active} aria-busy={loading}>
                     <button type="button" className={`icon-btn ${styles.fullscreenButton}`} aria-label={fullscreen.active?'Salir de pantalla completa':'Ampliar mapa a pantalla completa'} aria-pressed={fullscreen.active} onClick={()=>void fullscreen.toggle()}>{fullscreen.active?<Minimize size={20}/>:<Maximize size={20}/>}</button>
                     {fullscreen.notice&&<span role="status" className="sr-only">{fullscreen.notice}</span>}
-                    <MapView onBounds={changeBounds} incidentes={filtered} ruta={route} onSelect={selectIncident} focusPoint={focusPoint} posicion={position} onLocate={location.acceptPosition} onRequestLocation={location.requestLocation} compactLegend navigating={following} heading={navigation.progress?.heading} centerVersion={navigation.centerVersion} onTrafficChange={() => { if (tracking.current) setRecalculate(v => v + 1); }} yearFilter={{options: years, selected: selectedYears, onChange: value => {setSelectedYears(value); setSelected(null);}}} typeFilter={{ value: category, groups: filterGroups, onChange: changeTypeFilter }}/>
+                    <MapView avatar={avatar.avatar} controlsVersion={controlsVersion} overviewVersion={overviewVersion} northVersion={northVersion} onBounds={changeBounds} incidentes={filtered} ruta={route} onSelect={selectIncident} focusPoint={focusPoint} posicion={position} onLocate={location.acceptPosition} onRequestLocation={location.requestLocation} compactLegend navigating={following} heading={navigation.progress?.heading} centerVersion={navigation.centerVersion} onTrafficChange={() => { if (tracking.current) setRecalculate(v => v + 1); }} yearFilter={{options: years, selected: selectedYears, onChange: value => {setSelectedYears(value); setSelected(null);}}} typeFilter={{ value: category, groups: filterGroups, onChange: changeTypeFilter }}/>
                     <section className={`map-side-panel map-route-panel ${styles.plannerPanel}`} aria-label="Panel de recorridos" data-expanded={panelExpanded}>
                         <button type="button" className={`panel-toggle ${styles.plannerToggle}`} aria-expanded={panelExpanded} aria-controls={routePanelId} onClick={() => setPanelExpanded(value => !value)}>
                             <strong>{following ? 'EN CAMINO' : '¿A DÓNDE VAMOS?'}</strong>
@@ -163,7 +166,7 @@ function AccountMap() {
                             {panelExpanded ? <ChevronDown size={17} aria-hidden="true"/> : <ChevronUp size={17} aria-hidden="true"/>}
                         </button>
                         <div id={routePanelId} className={`collapsible-panel-body ${styles.plannerBody}`} hidden={!following && !panelExpanded}>
-                            <RoutePlanner onShowPlace={place=>{setSelected(null);setFocusPoint(current=>({posicion:place,label:place.nombre,version:(current?.version??0)+1}));setPanelExpanded(false);}} onRoute={changeRoute} active={route} following={following} onFollow={changeFollowing} guidance={navigation} onLocate={location.acceptPosition} currentPosition={position} compact={following && !panelExpanded}/>
+                            <RoutePlanner onShowPlace={place=>{setSelected(null);setFocusPoint(current=>({posicion:place,label:place.nombre,version:(current?.version??0)+1}));setPanelExpanded(false);}} onRoute={changeRoute} active={route} following={following} onFollow={changeFollowing} guidance={{...navigation,avatar:avatar.avatar,onAvatarChange:avatar.change,avatarNotice:avatar.notice,onLayers:()=>setControlsVersion(v=>v+1),onOverview:()=>setOverviewVersion(v=>v+1),onNorth:()=>setNorthVersion(v=>v+1)}} onLocate={location.acceptPosition} currentPosition={position} compact={following && !panelExpanded}/>
                         </div>
                     </section>
                     {selected && <IncidentPanel key={selected.id} incidente={selected} variant="map-card" onClose={() => setSelected(null)} onRefresh={refreshAll} onShowOnMap={() => { focusIncident(selected); setSelected(null); if (!fullscreen.active) document.querySelector('.map-column')?.scrollIntoView({block: 'start'}); }}/>}

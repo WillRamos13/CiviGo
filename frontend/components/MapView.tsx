@@ -22,9 +22,14 @@ import RiskLegend, { TrafficLegend } from './RiskLegend';
 import MapAppearanceControl, {useMapAppearance} from './MapAppearanceControl';
 import {mapLightPreset} from '@/lib/map-appearance';
 import OfflineRoute from './OfflineRoute';
+import {updateNavigationAvatarMarker,type NavigationAvatar} from '@/lib/navigation-avatar';
 import CollapsiblePanel from './CollapsiblePanel';
 import 'mapbox-gl/dist/mapbox-gl.css';
 type Props = {
+    avatar?: NavigationAvatar;
+    controlsVersion?:number;
+    overviewVersion?:number;
+    northVersion?:number;
     incidentes?: Incidente[];
     ruta?: Ruta | null;
     onSelect?: (incidente: Incidente) => void;
@@ -46,9 +51,10 @@ type Props = {
 const brandColor = (element: HTMLElement | null) => element ? getComputedStyle(element).getPropertyValue('--map-route-color').trim() || '#1554D8' : '#1554D8';
 const EMPTY_INCIDENTS: Incidente[] = [];
 type IncidentMarkerRecord = { marker: mapboxgl.Marker; incident: Incidente; signature: string };
-export default function MapView({ incidentes = EMPTY_INCIDENTS, ruta = null, onSelect, onPosition, onLocate, onRequestLocation, compactLegend = false, posicion = null, editor = false, typeFilter, yearFilter, navigating = false, heading, centerVersion = 0, focusPoint, onTrafficChange, onBounds }: Props) {
+export default function MapView({ incidentes = EMPTY_INCIDENTS, ruta = null, onSelect, onPosition, onLocate, onRequestLocation, compactLegend = false, posicion = null, editor = false, typeFilter, yearFilter, navigating = false, heading, centerVersion = 0, focusPoint, onTrafficChange, onBounds,avatar='arrow',controlsVersion=0,overviewVersion=0,northVersion=0 }: Props) {
     const {appearance,change:changeAppearance}=useMapAppearance();
     const appearanceRef=useRef(appearance);
+    const overviewApplied=useRef(0);
     useEffect(()=>{appearanceRef.current=appearance;},[appearance]);
     const container = useRef<HTMLDivElement>(null), mapRef = useRef<mapboxgl.Map | null>(null), markers = useRef<Map<number, IncidentMarkerRecord>>(new Map()), positionMarker = useRef<mapboxgl.Marker | null>(null);
     const callbacks = useRef({ onSelect, onPosition, onLocate, onBounds });
@@ -62,7 +68,9 @@ export default function MapView({ incidentes = EMPTY_INCIDENTS, ruta = null, onS
     },[loaded,appearance,editor]);
     const geometryCache = useRef<RoadGeometry | null>(null), roadRevision = useRef('');
     const styleReady = useRef(false);
-    const [controlsOpen, setControlsOpen] = useState(false), [traffic, setTraffic] = useState(false);
+    const [controls,setControls]=useState({version:controlsVersion,open:false}), [traffic,setTraffic]=useState(false);
+    const controlsOpen=controls.version===controlsVersion?controls.open:true;
+    const setControlsOpen=(open:boolean)=>setControls({version:controlsVersion,open});
     const [trafficStatus, setTrafficStatus] = useState<TrafficStatus | null>(null), [trafficData, setTrafficData] = useState<TrafficResponse | null>(null), [externalSelected, setExternalSelected] = useState<ExternalTrafficIncident | null>(null);
     const [trafficError, setTrafficError] = useState('');
     const externalMarkers = useRef<mapboxgl.Marker[]>([]), trafficSnapshot = useRef(''), followCamera = useRef(true), cameraState = useRef({navigating, posicion, heading});
@@ -235,7 +243,10 @@ export default function MapView({ incidentes = EMPTY_INCIDENTS, ruta = null, onS
     } }, [loaded, ruta, navigating]);
     useEffect(() => { const map = mapRef.current; if (!loaded || !map) return;
         if (!posicion) { positionMarker.current?.remove(); positionMarker.current = null; return; }
-        if (!positionMarker.current) { positionMarker.current = new mapboxgl.Marker({ color: brandColor(container.current), draggable: editor }).setLngLat([posicion.longitud, posicion.latitud]).addTo(map); } else positionMarker.current.setLngLat([posicion.longitud, posicion.latitud]); if (editor) {
+        if (!positionMarker.current) {
+          const element=editor?undefined:document.createElement('div');if(element)element.className='web-navigation-avatar';
+          positionMarker.current = new mapboxgl.Marker({ ...(element?{element}:{color:brandColor(container.current)}), draggable: editor }).setLngLat([posicion.longitud, posicion.latitud]).addTo(map);
+        } else positionMarker.current.setLngLat([posicion.longitud, posicion.latitud]); if (editor) {
         positionMarker.current.off('dragend', onDrag);
         function onDrag() { const coords = positionMarker.current?.getLngLat(); if (coords) {
             const accepted = callbacks.current.onPosition?.({ latitud: coords.lat, longitud: coords.lng });
@@ -247,6 +258,9 @@ export default function MapView({ incidentes = EMPTY_INCIDENTS, ruta = null, onS
     } else if (navigating && followCamera.current) map.easeTo({center: [posicion.longitud, posicion.latitud], zoom: Math.max(16, map.getZoom()), bearing: heading ?? 0, pitch: appearanceRef.current.mode === '3d' ? 55 : 0, duration: 700}); }, [loaded, posicion, editor, navigating, heading]);
     const centerOnPosition = () => { followCamera.current = true; const map = mapRef.current, state = cameraState.current; if (map && state.posicion) map.easeTo({center: [state.posicion.longitud, state.posicion.latitud], zoom: 16.5, bearing: state.navigating ? state.heading ?? 0 : 0, pitch: appearanceRef.current.mode === '3d' ? 55 : 0, duration: 500}); };
     const restoreOrientation = () => { resetMapOrientation(mapRef.current, () => { followCamera.current = false; }); };
+    useEffect(()=>{const map=mapRef.current;if(!loaded||!map||editor)return;const update=()=>{const element=positionMarker.current?.getElement();if(element)updateNavigationAvatarMarker(element,avatar,navigating,heading,map.getBearing());};update();map.on('rotate',update);return()=>{map.off('rotate',update);};},[loaded,editor,avatar,navigating,heading,posicion]);
+    useEffect(()=>{const map=mapRef.current;if(!loaded||!map||!overviewVersion||overviewApplied.current===overviewVersion||!ruta?.geometria.coordinates.length)return;overviewApplied.current=overviewVersion;followCamera.current=false;const bounds=new mapboxgl.LngLatBounds();ruta.geometria.coordinates.forEach(c=>bounds.extend([c[0],c[1]]));map.fitBounds(bounds,{padding:{top:80,bottom:100,left:45,right:Math.min(350,map.getContainer().clientWidth*.4)},maxZoom:16,pitch:appearanceRef.current.mode==='3d'?45:0,bearing:0,duration:500});},[loaded,overviewVersion,ruta]);
+    useEffect(()=>{if(northVersion)resetMapOrientation(mapRef.current,()=>{followCamera.current=false;});},[northVersion]);
     useEffect(() => {
         if (!navigating) return;
         followCamera.current = true;

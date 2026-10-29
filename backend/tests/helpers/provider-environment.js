@@ -32,6 +32,12 @@ const providerEnvironment = {
   SUPABASE_STORAGE_BUCKET: "",
   STORAGE_PROVIDER: "local",
   ENABLE_JOBS: "false",
+  FOURSQUARE_SERVICE_KEY: "",
+  FOURSQUARE_ENABLED: "false",
+  MERCADOPAGO_ACCESS_TOKEN: "",
+  MERCADOPAGO_WEBHOOK_SECRET: "",
+  PAYMENTS_ENABLED: "false",
+  TELEMETRY_ENABLED: "false",
 };
 function disableExternalProviders() {
   Object.assign(process.env, providerEnvironment);

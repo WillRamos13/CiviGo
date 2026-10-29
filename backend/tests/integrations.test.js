@@ -69,7 +69,7 @@ test("configuración presente pero inválida produce una orientación sin mostra
   assert.equal(JSON.stringify(report).includes("private-fixture"), false);
 });
 
-test("Google es la única verificación y Resend queda para recordatorios", () => {
+test("Google verifica el Gmail y Resend envía códigos y recordatorios", () => {
   const report = integrationChecklist(
     {},
     { correoGoogle: { configurado: false } },
@@ -81,7 +81,7 @@ test("Google es la única verificación y Resend queda para recordatorios", () =
   );
   assert.match(
     report.proveedores.find((p) => p.id === "correo").indicacion,
-    /recordatorios, no verifica/,
+    /recordatorios y códigos/,
   );
   assert.ok(report.frontend.variables.includes("NEXT_PUBLIC_FIREBASE_API_KEY"));
 });

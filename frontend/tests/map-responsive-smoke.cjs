@@ -89,6 +89,26 @@ async function run() {
     assert.equal(await js(`document.querySelectorAll('section[aria-label="Alternativas de recorrido"] > button').length`),3);
     await js(`Array.from(document.querySelectorAll('.map-route-panel button')).find(b=>b.textContent.includes('Iniciar recorrido')).click()`);
     await waitUntil(win,`!!document.querySelector('.navigation-guidance')`);
+    await js(`Array.from(document.querySelectorAll('.navigation-guidance button')).find(b=>b.textContent.includes('Opciones')).click()`);
+    await waitUntil(win,`document.querySelector('.navigation-avatar-picker')!==null`);
+    await js(`document.querySelector('[data-navigation-avatar="suv"]').click()`);
+    await waitUntil(win,`document.querySelector('button[aria-label="Rojo"]')!==null`);
+    await js(`document.querySelector('button[aria-label="Rojo"]').click()`);
+    await waitUntil(win,`document.querySelector('.web-navigation-avatar')?.dataset.navigationAvatar==='suv:red'`);
+    assert.equal(await js(`document.querySelectorAll('.navigation-avatar-picker [role="radio"]').length`),9);
+    assert.equal(await js(`document.querySelectorAll('.navigation-vehicle-colors button').length`),5);
+    await js(`document.querySelector('button[aria-label="Ampliar mapa a pantalla completa"]').click()`);
+    await waitUntil(win,`document.querySelector('.map-frame').dataset.mapFullscreen==='true'`);
+    await js(`document.querySelector('button[aria-label="Abrir asistente de CiviGo"]').click()`);
+    await waitUntil(win,`!!document.querySelector('.map-frame #civigo-assistant')`);
+    await js(`document.querySelector('#civigo-assistant button[aria-label="Cerrar ayuda"]').click();document.querySelector('button[aria-label="Salir de pantalla completa"]').click()`);
+    await waitUntil(win,`document.querySelector('.map-frame').dataset.mapFullscreen==='false'`);
+    await js(`Array.from(document.querySelectorAll('.navigation-guidance button')).find(b=>b.textContent.includes('Capas y ambiente')).click()`);
+    await waitUntil(win,`document.querySelector('.map-controls > button').getAttribute('aria-expanded')==='true'`);
+    await js(`document.querySelector('.map-controls > button').click();Array.from(document.querySelectorAll('.navigation-guidance button')).find(b=>b.textContent.includes('Ver ruta completa')).click()`);
+    assert.equal(await js(`window.__originalCanvas===document.querySelector('.mapboxgl-canvas')`),true);
+    await js(`Array.from(document.querySelectorAll('.navigation-guidance button')).find(b=>b.textContent==='Centrar').click();Array.from(document.querySelectorAll('.navigation-guidance button')).find(b=>b.textContent.includes('Opciones')).click()`);
+
     await delay(500);
     await js(`document.querySelector('.map-controls > button').click()`);
     await waitUntil(win,`document.querySelector('.map-controls > button').getAttribute('aria-expanded')==='true'`);
@@ -112,6 +132,7 @@ async function run() {
       await screenshot(`navegacion-${width}x${height}-${theme}.png`);
     }
     await js(`document.querySelector('.map-route-panel > button').click()`);
+    await js(`Array.from(document.querySelectorAll('.navigation-guidance button')).find(b=>b.textContent.includes('Opciones')).click()`);
     await waitUntil(win,`Array.from(document.querySelectorAll('.navigation-guidance button')).some(b=>b.textContent.includes('Recalcular'))`);
     const beforeReplan=requests.filter(r=>r.planBody).length;
     await js(`Array.from(document.querySelectorAll('.navigation-guidance button')).find(b=>b.textContent.includes('Recalcular')).click()`);

@@ -95,7 +95,7 @@ function rateLimits(options = {}) {
     try {
       count("ip:" + req.ip, options.ipLimit ?? 2400, res);
       if (
-        /^\/api\/users\/(login|register|password\/(forgot|reset|change)|email\/google\/(request|verify))\/?$/.test(
+        /^\/api\/users\/(login|register|password\/(forgot|reset|change)|email\/(google\/(request|verify)|code\/(request|confirm)))\/?$/.test(
           pathForLimit(req),
         )
       )
@@ -134,7 +134,7 @@ function rateLimits(options = {}) {
     // Solo identidades verificadas por la sesión separan a clientes detrás
     // de Next; cookies aleatorias y headers XFF no conceden otra cuota.
     const key = user ? "user:" + user.id : "anonymous:" + req.ip;
-    const sensitive = /^\/api\/users\/email\/google\/(request|verify)\/?$/.test(
+    const sensitive = /^\/api\/users\/email\/(google\/(request|verify)|code\/(request|confirm))\/?$/.test(
       path,
     );
     count(

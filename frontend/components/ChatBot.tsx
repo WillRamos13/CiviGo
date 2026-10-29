@@ -1,4 +1,5 @@
 'use client';
+import {createPortal} from 'react-dom';
 import Link from 'next/link';
 import { MessageCircle, X, Send, RotateCcw } from 'lucide-react';
 import { useState, useRef, useEffect } from 'react';
@@ -15,9 +16,12 @@ export default function ChatBot() {
 }
 
 function AccountChatBot() {
+    const [,refreshPortal]=useState(0);
+    useEffect(()=>{const update=()=>refreshPortal(v=>v+1);document.addEventListener('fullscreenchange',update);return()=>document.removeEventListener('fullscreenchange',update);},[]);
     const alive = useRef(true), request = useRef<AbortController | null>(null), list = useRef<HTMLDivElement>(null);
     const [open, setOpen] = useState(false), [input, setInput] = useState('');
     const [messages, setMessages] = useState<AssistantTurn[]>([]), [error, setError] = useState(''), [busy, setBusy] = useState(false);
+    useEffect(()=>{const show=()=>setOpen(true);window.addEventListener('civigo:open-assistant',show);return()=>window.removeEventListener('civigo:open-assistant',show);},[]);
     useEffect(() => {
         alive.current = true;
         return () => { alive.current = false; request.current?.abort(); };
@@ -53,7 +57,7 @@ function AccountChatBot() {
         <button className="chatbot-launcher" onClick={() => setOpen(!open)} aria-label={open ? 'Cerrar ayuda' : 'Abrir ayuda de CiviGo'} aria-expanded={open} aria-controls="civigo-assistant">
             {open ? <X size={20} /> : <MessageCircle size={22} />}
         </button>
-        {open && <aside id="civigo-assistant" className="chatbot-box" aria-label="Ayuda de CiviGo">
+        {open && createPortal(<aside id="civigo-assistant" className="chatbot-box" aria-label="Ayuda de CiviGo">
             <div className="card-header"><h3>Tu guía de CiviGo</h3><div className="actions">
                 <button type="button" className="icon-btn" aria-label="Nueva conversación" onClick={reset} disabled={!messages.length && !busy && !input && !error}><RotateCcw size={16} /></button>
                 <button type="button" className="icon-btn" aria-label="Cerrar ayuda" onClick={() => setOpen(false)}><X size={17} /></button>
@@ -72,6 +76,6 @@ function AccountChatBot() {
                 <div className="field"><label htmlFor="assistant-question">Escribe tu consulta</label><input id="assistant-question" value={input} onChange={e => setInput(e.target.value)} maxLength={1000} required disabled={busy} placeholder="Cómo reportar, rutas, incidentes…" /></div>
                 <div className="actions"><button type="submit" className="btn btn-primary btn-small" disabled={busy || !input.trim()}><Send size={12} />{busy ? 'Consultando…' : 'Enviar'}</button><Link href="/mapa" className="btn btn-secondary btn-small">Ir al mapa</Link></div>
             </form>
-        </aside>}
+        </aside>,document.fullscreenElement??document.querySelector('[data-map-fullscreen="true"]')??document.body)}
     </>;
 }

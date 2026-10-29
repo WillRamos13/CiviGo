@@ -6,6 +6,7 @@ const { services } = require("./lib/providers");
 const { trustProxy, originGuard, rateLimits } = require("./lib/security");
 const app = express();
 app.disable("x-powered-by");
+app.use(require("./lib/telemetry").telemetry().middleware);
 let proxySetting = false;
 try {
   proxySetting = trustProxy(process.env.TRUST_PROXY);
@@ -121,6 +122,7 @@ function start() {
   const server = app.listen(port, host, () =>
     console.log("API CiviGo escuchando en puerto " + port),
   );
+  const stopTelemetry = require("./lib/telemetry").telemetry().start();
   let timer;
   if (process.env.ENABLE_JOBS !== "false") {
     let running = false;
@@ -140,11 +142,17 @@ function start() {
     run();
   }
   function shutdown() {
+    stopTelemetry();
     if (timer) clearInterval(timer);
     server.close(() =>
-      require("./lib/db")
-        .$disconnect()
-        .finally(() => process.exit(0)),
+      require("./lib/telemetry")
+        .telemetry()
+        .persist()
+        .finally(() =>
+          require("./lib/db")
+            .$disconnect()
+            .finally(() => process.exit(0)),
+        ),
     );
   }
   process.once("SIGTERM", shutdown);

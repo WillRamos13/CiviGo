@@ -3,6 +3,7 @@ import { AuthProvider } from './hooks/useAuth';
 import { ThemeProvider } from './hooks/useTheme';
 import { MobileHeader } from './components/layout/MobileHeader';
 import {MobileAnnouncements} from './components/layout/MobileAnnouncements';
+import {MobilePerformanceTelemetry} from './components/layout/MobilePerformanceTelemetry';
 import { BottomNavigation, type TabId } from './components/layout/BottomNavigation';
 import { onHardwareBackButton, triggerHaptic, minimizeAndroidApp } from './services/native';
 import { handleAppBack } from './services/backNavigation';
@@ -216,6 +217,7 @@ export const AppContent: React.FC = () => {
       />}
 
       {!navigationFullscreen && <MobileAnnouncements onNavigate={handleAnnouncementNavigation}/>}
+      <MobilePerformanceTelemetry page={viewMode === 'tab' ? activeTab : viewMode}/>
       <main className="app-main" ref={mainRef}>
         {(mapVisited || mapVisible) && <div className="retained-map-view" hidden={!mapVisible} style={{ height: '100%' }}><MapPage visible={mapVisible} onGoReport={() => setActiveTab('report')} onNavigationChange={setNavigationActive} /></div>}
         <div className="other-app-view" hidden={mapVisible}>{viewMode==='tab'&&activeTab==='report'&&<MobileAnnouncements placement="REPORTAR" onNavigate={handleAnnouncementNavigation}/>} {renderContent()}</div>

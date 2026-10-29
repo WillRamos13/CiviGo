@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import Link from "next/link";
 import { useAuth } from "./AuthProvider";
 import { api, post, errorMessage } from "@/lib/api";
@@ -19,8 +19,17 @@ type Order = {
   modo: string;
 };
 export default function PremiumCheckout() {
+  const { usuario } = useAuth();
+  return <AccountCheckout key={usuario?.id ?? "visitor"} />;
+}
+function AccountCheckout() {
   const { usuario, refresh } = useAuth();
   const ownerId = usuario?.id;
+  const owner = useRef(ownerId);
+  const buyRequest = useRef<AbortController | null>(null);
+  const [checkoutLink, setCheckoutLink] = useState("");
+  const [catalogRevision, setCatalogRevision] = useState(0),
+    [catalogBusy, setCatalogBusy] = useState(true);
   const [catalog, setCatalog] = useState<Catalog | null>(null),
     [order, setOrder] = useState<Order | null>(null),
     [busy, setBusy] = useState(false),
@@ -29,9 +38,21 @@ export default function PremiumCheckout() {
     const c = new AbortController();
     void api<Catalog>("/payments/catalog", { signal: c.signal })
       .then(setCatalog)
-      .catch(() => {});
+      .catch((reason) => {
+        if (!c.signal.aborted) setError(errorMessage(reason));
+      })
+      .finally(() => {
+        if (!c.signal.aborted) setCatalogBusy(false);
+      });
     return () => c.abort();
-  }, []);
+  }, [catalogRevision]);
+  useEffect(
+    () => () => {
+      buyRequest.current?.abort();
+      buyRequest.current = null;
+    },
+    [],
+  );
   useEffect(() => {
     if (!ownerId) return;
     let active = true;
@@ -66,41 +87,65 @@ export default function PremiumCheckout() {
     };
   }, [ownerId, refresh]);
   const buy = async () => {
-    if (busy) return;
+    if (busy || buyRequest.current || !ownerId) return;
+    const controller = new AbortController(),
+      buyer = ownerId;
+    buyRequest.current = controller;
     setBusy(true);
     setError("");
     try {
-      let key = sessionStorage.getItem("civigo:checkout-key");
+      const storageKey = `civigo:checkout-key:${buyer}`;
+      let key: string | null = null;
+      try {
+        key = sessionStorage.getItem(storageKey);
+      } catch {}
       if (!key) {
         key = crypto.randomUUID();
-        sessionStorage.setItem("civigo:checkout-key", key);
+        try {
+          sessionStorage.setItem(storageKey, key);
+        } catch {}
       }
       const result = await post<{ url: string; referencia: string }>(
         "/payments/checkout",
         {},
-        { headers: { "X-Idempotency-Key": key } },
+        { headers: { "X-Idempotency-Key": key }, signal: controller.signal },
       );
+      if (owner.current !== buyer || controller.signal.aborted) return;
       const url = new URL(result.url);
       if (
         url.protocol !== "https:" ||
+        url.username ||
+        url.password ||
+        url.port ||
         !(
           url.hostname === "mercadopago.com.pe" ||
-          url.hostname.endsWith(".mercadopago.com.pe")
+          url.hostname.endsWith(".mercadopago.com.pe") ||
+          url.hostname === "mercadopago.com" ||
+          url.hostname.endsWith(".mercadopago.com")
         )
       )
         throw new Error("No se pudo abrir el entorno seguro de pago.");
-      sessionStorage.removeItem("civigo:checkout-key");
+      setCheckoutLink(url.href);
+      setBusy(false);
+      try {
+        sessionStorage.removeItem(storageKey);
+      } catch {}
       window.location.assign(url.href);
     } catch (reason) {
+      if (owner.current !== buyer || controller.signal.aborted) return;
       setError(errorMessage(reason));
-      sessionStorage.removeItem("civigo:checkout-key");
+      try {
+        sessionStorage.removeItem(`civigo:checkout-key:${buyer}`);
+      } catch {}
       setBusy(false);
+    } finally {
+      if (buyRequest.current === controller) buyRequest.current = null;
     }
   };
   const price = new Intl.NumberFormat("es-PE", {
     style: "currency",
     currency: "PEN",
-  }).format((catalog?.precioCentimos ?? 590) / 100);
+  }).format((catalog?.precioCentimos ?? 100) / 100);
   return (
     <section className="card premium-checkout">
       <div>
@@ -128,6 +173,28 @@ export default function PremiumCheckout() {
           {error}
         </p>
       )}
+      {checkoutLink && (
+        <p role="status">
+          Pago preparado.{" "}
+          <a className="btn btn-primary" href={checkoutLink}>
+            Abrir Mercado Pago
+          </a>
+        </p>
+      )}
+      {!catalog && !catalogBusy && (
+        <button
+          type="button"
+          className="btn btn-secondary"
+          onClick={() => {
+            setCatalogBusy(true);
+            setError("");
+            setCatalogRevision((value) => value + 1);
+          }}
+        >
+          Reintentar conexión de pagos
+        </button>
+      )}
+
       {!usuario ? (
         <Link className="btn btn-primary" href="/ingresar">
           Ingresar para continuar
@@ -140,18 +207,22 @@ export default function PremiumCheckout() {
         <button
           type="button"
           className="btn btn-primary"
-          disabled={!catalog?.habilitado || busy || usuario.premium}
+          disabled={
+            !catalog?.habilitado || busy || usuario.premium || !!checkoutLink
+          }
           onClick={() => void buy()}
         >
-          {busy
-            ? "Preparando pago…"
-            : usuario.premium
-              ? "Premium activo"
-              : catalog?.habilitado
-                ? catalog.modo === "test"
-                  ? "Probar pago · entorno de prueba"
-                  : "Continuar a Mercado Pago"
-                : "Pagos todavía no disponibles"}
+          {catalogBusy
+            ? "Consultando pagos…"
+            : checkoutLink
+              ? "Pago preparado"
+              : busy
+                ? "Preparando pago…"
+                : usuario.premium
+                  ? "Premium activo"
+                  : catalog?.habilitado
+                    ? "Continuar a Mercado Pago"
+                    : "Pagos todavía no disponibles"}
         </button>
       )}
       {usuario?.premium && (

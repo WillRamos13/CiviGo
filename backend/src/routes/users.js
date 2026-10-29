@@ -15,6 +15,10 @@ const {
   nicknameValue,
 } = require("../lib/account-input");
 const router = express.Router();
+const emailCodes = require("../lib/email-code").createEmailCodeService({
+  db: prisma,
+  sendEmail: (...args) => providers.sendEmail(...args),
+});
 const bodyRoutes = new Set([
   "POST /password/forgot",
   "POST /password/reset",
@@ -23,6 +27,8 @@ const bodyRoutes = new Set([
   "POST /login",
   "PATCH /me",
   "POST /email/google/verify",
+  "POST /email/code/request",
+  "POST /email/code/confirm",
   "POST /recovery",
 ]);
 router.use((req, res, next) => {
@@ -328,6 +334,32 @@ function requireGmailVerification(user) {
       "EMAIL_GMAIL_REQUIRED",
     );
 }
+router.post(
+  "/email/code/request",
+  auth,
+  asyncRoute(async (req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    if (req.user.correoVerificado) return res.json({ alreadyVerified: true });
+    if (!providers.services().correo.configurado)
+      throw new HttpError(
+        503,
+        "El envío de códigos por correo no está configurado.",
+        "EMAIL_CODE_UNAVAILABLE",
+      );
+    res.json(await emailCodes.request(req.user.id));
+  }),
+);
+router.post(
+  "/email/code/confirm",
+  auth,
+  asyncRoute(async (req, res) => {
+    if (!req.user.correoVerificado)
+      await emailCodes.confirm(req.user.id, req.body.challengeId, req.body.codigo);
+    const usuario = await prisma.user.findUnique({ where: { id: req.user.id } });
+    res.setHeader("Cache-Control", "no-store");
+    res.json({ usuario: ownUser(usuario), mensaje: "Tu Gmail está verificado." });
+  }),
+);
 router.post(
   "/email/google/request",
   auth,

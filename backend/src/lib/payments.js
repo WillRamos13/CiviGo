@@ -3,7 +3,7 @@ const { randomUUID, createHmac, timingSafeEqual } = require("node:crypto");
 const { HttpError } = require("./http");
 const DAY = 86400000;
 function settings(env = process.env) {
-  const price = Number(env.PREMIUM_PRICE_PEN_CENTS || 590);
+  const price = Number(env.PREMIUM_PRICE_PEN_CENTS || 100);
   if (!Number.isSafeInteger(price) || price < 100 || price > 1000000)
     throw new Error("Precio Premium inválido.");
   return {
@@ -67,7 +67,16 @@ function verifyPaymentWebhook(headers, paymentId, secret, now = Date.now()) {
   return timingSafeEqual(expected, Buffer.from(parts.v1, "hex"));
 }
 function publicOrigin(value) {
-  const url = new URL(value);
+  let url;
+  try {
+    url = new URL(value);
+  } catch {
+    throw new HttpError(
+      503,
+      "Falta configurar la dirección pública de los pagos.",
+      "PAYMENT_CONFIGURATION",
+    );
+  }
   if (
     url.protocol !== "https:" ||
     url.username ||
@@ -75,16 +84,25 @@ function publicOrigin(value) {
     url.search ||
     url.hash
   )
-    throw new Error("Configura direcciones HTTPS públicas para los pagos.");
+    throw new HttpError(
+      503,
+      "Configura direcciones HTTPS públicas para los pagos.",
+      "PAYMENT_CONFIGURATION",
+    );
   return url.origin;
 }
 function checkoutUrl(value) {
   const url = new URL(value);
   if (
     url.protocol !== "https:" ||
+    url.username ||
+    url.password ||
+    url.port ||
     !(
       url.hostname === "mercadopago.com.pe" ||
-      url.hostname.endsWith(".mercadopago.com.pe")
+      url.hostname.endsWith(".mercadopago.com.pe") ||
+      url.hostname === "mercadopago.com" ||
+      url.hostname.endsWith(".mercadopago.com")
     )
   )
     throw new Error("Checkout no permitido.");
@@ -97,24 +115,47 @@ function createPaymentService({
   transaction,
   now = Date.now,
 } = {}) {
+  let testSellerUntil = 0;
   const transact =
     transaction ||
     ((work) => db.$transaction(work, { isolationLevel: "Serializable" }));
   async function provider(path, options = {}) {
-    const response = await request(`https://api.mercadopago.com${path}`, {
-      ...options,
-      headers: {
-        Authorization: `Bearer ${env.MERCADOPAGO_ACCESS_TOKEN}`,
-        "Content-Type": "application/json",
-        ...options.headers,
-      },
-      signal: AbortSignal.timeout(12000),
-    });
-    if (!response.ok)
+    let response;
+    try {
+      response = await request(`https://api.mercadopago.com${path}`, {
+        ...options,
+        headers: {
+          Authorization: `Bearer ${env.MERCADOPAGO_ACCESS_TOKEN}`,
+          "Content-Type": "application/json",
+          ...options.headers,
+        },
+        signal: AbortSignal.timeout(12000),
+      });
+    } catch {
       throw new HttpError(
-        502,
-        "El proveedor de pagos no está disponible. Inténtalo de nuevo.",
+        503,
+        "No se pudo conectar con Mercado Pago. Inténtalo más tarde.",
+        "PAYMENT_PROVIDER",
       );
+    }
+    if (!response.ok) {
+      const code =
+        response.status === 401 || response.status === 403
+          ? "PAYMENT_CREDENTIALS"
+          : "PAYMENT_PROVIDER";
+      // Provider payloads may contain private account data. Log only the status.
+      console.warn(
+        "[CiviGo pagos]",
+        JSON.stringify({ estado: response.status, codigo: code }),
+      );
+      throw new HttpError(
+        503,
+        code === "PAYMENT_CREDENTIALS"
+          ? "Mercado Pago rechazó la configuración. Comunícalo al administrador."
+          : "Mercado Pago no pudo preparar el pago. Inténtalo más tarde.",
+        code,
+      );
+    }
     return response.json();
   }
   async function checkout(user, key) {
@@ -125,10 +166,22 @@ function createPaymentService({
       throw new HttpError(400, "Identificador de compra inválido.");
     const app = publicOrigin(env.PUBLIC_APP_URL),
       api = publicOrigin(env.PUBLIC_API_URL);
+    if (config.mode === "test" && now() >= testSellerUntil) {
+      const seller = await provider("/users/me");
+      if (!Array.isArray(seller.tags) || !seller.tags.includes("test_user"))
+        throw new HttpError(
+          503,
+          "La prueba requiere las credenciales de la cuenta vendedor de prueba de Mercado Pago.",
+          "PAYMENT_TEST_SELLER_REQUIRED",
+        );
+      testSellerUntil = now() + 300000;
+    }
     const ledgerKey = `payments:order:${user.id}:${key}`;
     let existing = await db.appConfig.findUnique({
       where: { clave: ledgerKey },
     });
+    if (existing?.valor?.checkout && (existing.valor.centimos!==config.price || existing.valor.modo!==config.mode))
+      throw new HttpError(409,"El precio o el entorno de pago cambió. Vuelve a iniciar la compra.","PAYMENT_PRICE_CHANGED");
     if (existing?.valor?.checkout)
       return {
         referencia: existing.valor.referencia,
@@ -195,7 +248,9 @@ function createPaymentService({
             },
           ],
           external_reference: reference,
-          payer: { email: user.correo },
+          ...(config.mode === "production"
+            ? { payer: { email: user.correo } }
+            : {}),
           notification_url: `${api}/api/payments/webhook`,
           back_urls: {
             success: `${app}/premium?orden=${reference}`,
@@ -204,14 +259,13 @@ function createPaymentService({
           },
           auto_return: "approved",
           expires: true,
+          expiration_date_from: createdAt,
           expiration_date_to: new Date(now() + 30 * 60000).toISOString(),
         }),
       });
-      const url = checkoutUrl(
-        config.mode === "test"
-          ? preference.sandbox_init_point
-          : preference.init_point,
-      );
+      // Checkout Pro uses init_point for both environments. The seller account,
+      // not a sandbox redirect URL, determines whether this is a test payment.
+      const url = checkoutUrl(preference.init_point);
       await db.appConfig.update({
         where: { clave: ledgerKey },
         data: {
@@ -227,7 +281,15 @@ function createPaymentService({
     } catch (error) {
       await db.appConfig.update({
         where: { clave: ledgerKey },
-        data: { valor: { ...order, estado: "ERROR" } },
+        data: {
+          valor: {
+            ...order,
+            estado: "ERROR",
+            codigoError: /^PAYMENT_[A-Z_]+$/.test(error.code || "")
+              ? error.code
+              : "PAYMENT_CHECKOUT",
+          },
+        },
       });
       throw error;
     }

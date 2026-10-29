@@ -5,6 +5,7 @@ import { triggerHaptic } from '../services/native';
 import { ApiError, errorMessage } from '../services/api';
 import { firebaseEmailConfig, GoogleEmailFlow, googleEmailErrorMessage } from '../services/firebase-email';
 import { CheckCircle2, ArrowLeft, Mail } from 'lucide-react';
+import EmailCodeVerification from '../components/profile/EmailCodeVerification';
 
 interface VerifyEmailPageProps { onBack: () => void; onGoMap: () => void; }
 
@@ -65,7 +66,7 @@ export const VerifyEmailPage: React.FC<VerifyEmailPageProps> = ({ onBack, onGoMa
     <div className="page" style={{ paddingTop: 20 }}>
       <button type="button" className="icon-btn" onClick={onBack} style={{ marginBottom: 16 }} aria-label="Volver"><ArrowLeft size={20} /></button>
       <div className="card">
-        <span className="eyebrow">VERIFICACIÓN GOOGLE</span>
+        <span className="eyebrow">VERIFICACIÓN DE CORREO</span>
         <h1 style={{ marginTop: 8 }}>Verifica tu dirección Gmail</h1>
         <p className="muted" style={{ fontSize: 13, marginBottom: 20 }}>Comprueba que eres titular del Gmail de tu cuenta para publicar reportes y confirmar incidentes en Ica.</p>
         {error && <div className="notice notice-error" role="alert">{error}</div>}
@@ -83,7 +84,8 @@ export const VerifyEmailPage: React.FC<VerifyEmailPageProps> = ({ onBack, onGoMa
               <Mail size={22} color="var(--brand)" />
               <div><strong style={{ fontSize: 13, display: 'block' }}>{usuario?.correo || 'Inicia sesión para verificar tu correo'}</strong><span className="muted" style={{ fontSize: 11 }}>Dirección Gmail registrada</span></div>
             </div>
-            {offline && <div className="notice" role="status">Necesitas conexión para verificar tu Gmail con Google.</div>}
+            {offline && <div className="notice" role="status">Necesitas conexión para verificar tu Gmail.</div>}
+            <EmailCodeVerification key={`${usuario?.id}:${usuario?.correo}`} correo={usuario?.correo??''} onVerified={refresh} disabled={offline||!usuario}/>
             <label className="inline-checkbox" style={{ marginBottom: 20 }}>
               <input type="checkbox" checked={consent} onChange={event => setConsent(event.target.checked)} disabled={busy || prepared} />
               <span>Acepto que CiviGo compruebe mi dirección Gmail para validar mi cuenta ciudadana.</span>

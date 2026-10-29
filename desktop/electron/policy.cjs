@@ -22,7 +22,7 @@ function backendUrl(value = DEFAULT_BACKEND, development = false) {
 function requestOrigin(value = DEFAULT_ORIGIN, development = false) { return backendUrl(value, development); }
 const numeric = '[1-9][0-9]{0,9}';
 const readRoutes = [
-  /^\/admin(?:\/(?:incidents|users|catalog|businesses|config|rewards|redemptions|appeals|recoveries|audit|integrations|permissions|statistics|exports))?$/,
+  /^\/admin(?:\/(?:incidents|users|catalog|businesses|config|rewards|redemptions|appeals|recoveries|audit|integrations|integration-probes|permissions|statistics|site-statistics|control|exports))?$/,
   new RegExp(`^/admin/incidents/${numeric}/messages$`),
   /^\/catalog$/, /^\/users\/me$/, /^\/notifications$/,
   /^\/announcements\/(?:manage|traffic-moderation)$/, /^\/navigation\/traffic\/incidents$/,

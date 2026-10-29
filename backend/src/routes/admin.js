@@ -46,6 +46,8 @@ const {
   nicknameValue,
 } = require("../lib/account-input");
 const router = express.Router();
+const integrationProbes =
+  require("../lib/integration-probes").createIntegrationProbes({ db: prisma });
 router.use(auth);
 const adminOnly = (req, res, next) =>
   req.user.rol === "ADMIN"
@@ -56,12 +58,41 @@ router.get("/integrations", adminOnly, (req, res) => {
   res.json(require("../lib/integrations").integrationChecklist());
 });
 router.get(
+  "/integration-probes",
+  adminOnly,
+  asyncRoute(async (req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    res.json(await integrationProbes.run());
+  }),
+);
+router.get(
+  "/site-statistics",
+  adminOnly,
+  asyncRoute(async (req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    res.json(
+      await require("../lib/site-statistics").cachedSiteStatistics(prisma),
+    );
+  }),
+);
+router.get(
+  "/control",
+  adminOnly,
+  asyncRoute(async (req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    res.json(await require("../lib/telemetry").telemetry().snapshot());
+  }),
+);
+router.get(
   "/statistics",
   adminOnly,
   asyncRoute(async (req, res) => {
     res.setHeader("Cache-Control", "no-store");
     res.json(
-      await require("../lib/admin-statistics").adminStatistics(prisma, req.query),
+      await require("../lib/admin-statistics").adminStatistics(
+        prisma,
+        req.query,
+      ),
     );
   }),
 );
@@ -1143,7 +1174,11 @@ router.get(
   "/rewards",
   adminOnly,
   asyncRoute(async (req, res) =>
-    res.json((await prisma.reward.findMany({ orderBy: { id: 'desc' } })).map(require('../lib/reward-catalog').presentReward)),
+    res.json(
+      (await prisma.reward.findMany({ orderBy: { id: "desc" } })).map(
+        require("../lib/reward-catalog").presentReward,
+      ),
+    ),
   ),
 );
 router.post(

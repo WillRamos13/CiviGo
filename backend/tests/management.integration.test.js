@@ -188,6 +188,8 @@ test(
               "correo",
               "almacenamiento",
               "correoGoogle",
+              "lugares",
+              "pagos",
             ],
           );
           assert.equal(integrations.json.proveedores[0].configurado, false);

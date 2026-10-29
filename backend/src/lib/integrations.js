@@ -56,7 +56,7 @@ function integrationChecklist(env = process.env, state = services()) {
         configurado: !!state.correo?.configurado,
         variablesPendientes: missing(["RESEND_API_KEY", "EMAIL_FROM"]),
         indicacion:
-          "Resend envía recordatorios, no verifica cuentas. Verifica el dominio remitente y configura EMAIL_FROM con una dirección de ese dominio.",
+          "Resend envía recordatorios y códigos para verificar cuentas. Verifica el dominio remitente y configura EMAIL_FROM con una dirección de ese dominio.",
       },
       {
         id: "almacenamiento",
@@ -85,6 +85,38 @@ function integrationChecklist(env = process.env, state = services()) {
         indicacion:
           "Habilita Google en Firebase Authentication. FIREBASE_PROJECT_ID va en Railway y las cuatro variables públicas NEXT_PUBLIC_FIREBASE_* de la app web van en Vercel. Solo verifica el correo coincidente de la cuenta actual; no sustituye la sesión de CiviGo.",
       },
+      {
+        id: "lugares",
+        nombre: "Foursquare · lugares",
+        configurado:
+          env.FOURSQUARE_ENABLED === "true" && !!env.FOURSQUARE_SERVICE_KEY,
+        variablesPendientes: [
+          ...missing(["FOURSQUARE_SERVICE_KEY"]),
+          ...(env.FOURSQUARE_ENABLED === "true" ? [] : ["FOURSQUARE_ENABLED"]),
+        ],
+        indicacion:
+          "Service API Key privada en Railway. La cuota local limita consultas, pero no habilita fotos ni reseñas que no estén incluidas en tu plan o en la ficha del lugar.",
+      },
+      {
+        id: "pagos",
+        nombre: "Mercado Pago · Premium",
+        configurado:
+          env.PAYMENTS_ENABLED === "true" &&
+          !!env.MERCADOPAGO_ACCESS_TOKEN &&
+          !!env.MERCADOPAGO_WEBHOOK_SECRET &&
+          !!env.PUBLIC_APP_URL &&
+          !!env.PUBLIC_API_URL,
+        variablesPendientes: [
+          ...missing([
+            "MERCADOPAGO_ACCESS_TOKEN",
+            "MERCADOPAGO_WEBHOOK_SECRET",
+            "PUBLIC_APP_URL",
+            "PUBLIC_API_URL",
+          ]),
+          ...(env.PAYMENTS_ENABLED === "true" ? [] : ["PAYMENTS_ENABLED"]),
+        ],
+        indicacion: `Entorno: ${env.PAYMENTS_MODE === "production" ? "producción" : "prueba"}. Las pruebas requieren el Access Token APP_USR de un vendedor de prueba. Las claves privadas y el secreto de Webhooks van sólo en Railway. PUBLIC_APP_URL es el origen HTTPS de la web y PUBLIC_API_URL el origen HTTPS del backend.`,
+      },
     ].map((provider) => ({
       ...provider,
       ...(!provider.configurado &&
@@ -111,7 +143,10 @@ function integrationChecklist(env = process.env, state = services()) {
     },
     navegacion:
       "Más segura, más rápida y equilibrada sobre OpenStreetMap. TomTom aporta tráfico y avisos temporales sin sumar riesgo histórico. El GPS y la voz funcionan mientras la página está abierta.",
-    pagos: "Premium y canjes permanecen en demostración, sin pagos reales.",
+    pagos:
+      env.PAYMENTS_MODE === "production"
+        ? "Mercado Pago configurado en producción. Sólo una confirmación comprobada del proveedor concede Premium."
+        : "Mercado Pago en prueba: sin beneficios Premium reales. Los canjes de demostración no entregan tarjetas reales.",
   };
 }
 

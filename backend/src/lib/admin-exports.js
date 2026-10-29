@@ -221,8 +221,48 @@ function statisticsRows(statistics) {
 }
 async function collectExport(db, table, filters, now, maxRows) {
   const columns = COLUMNS[table];
-  if (table === "estadisticas")
-    return statisticsRows(await collectStatistics(db, filters, now));
+  if (table === "estadisticas") {
+    const rows = statisticsRows(await collectStatistics(db, filters, now));
+    const global = await require("./site-statistics").collectSiteStatistics(
+      db,
+      now,
+    );
+    rows.push({
+      grupo: "alcance-global",
+      clave: "scope",
+      etiqueta:
+        "Actividad general: todos los registros, sin filtros de distrito o tipo",
+      valor: "GLOBAL_ALL_TIME",
+    });
+    for (const [key, value] of Object.entries(global.totals))
+      rows.push({
+        grupo: "global-totals",
+        clave: key,
+        etiqueta: key,
+        cantidad: value,
+      });
+    for (const [group, values] of Object.entries(global.charts))
+      for (const row of values)
+        rows.push({
+          grupo: "global-" + group,
+          clave: row.label,
+          etiqueta: row.label,
+          cantidad: row.count,
+        });
+    for (const [group, values] of [
+      ["district", global.districtComparison],
+      ["type", global.typeComparison],
+    ])
+      for (const row of values)
+        rows.push({
+          grupo: "global-monthly-" + group,
+          clave: row.label,
+          etiqueta: row.label,
+          cantidad: row.current,
+          valor: `anteriorComparable=${row.previous}; variacion=${row.deltaPercent === null ? "sin base" : row.deltaPercent + " %"}`,
+        });
+    return rows.map((row) => projectRow(row, STATISTICS_COLUMNS));
+  }
   const model =
     table === "usuarios"
       ? db.user

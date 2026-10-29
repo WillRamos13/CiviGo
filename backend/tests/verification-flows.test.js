@@ -153,7 +153,7 @@ async function fixture() {
   };
 }
 
-test("Google es la única verificación disponible y conserva cooldown y cinco solicitudes por hora", async () => {
+test("Google conserva su verificación sin teléfono, con cooldown y cinco solicitudes por hora", async () => {
   const f = await fixture();
   try {
     for (const route of [

@@ -27,3 +27,4 @@
 .compact .controls button { min-height: 32px; padding: 5px 8px; }
 .compact .notice { max-height: 42px; overflow-y: auto; margin: 5px 0; }
 .guidance button:focus-visible { outline: 3px solid var(--brand); outline-offset: 2px; }
+.options{margin-top:12px;border-top:1px solid var(--border);padding-top:10px;max-height:min(48vh,390px);overflow:auto;overscroll-behavior:contain}.options>small{display:block;font-size:10px;line-height:1.4;margin-top:10px}.options .controls{margin:0 0 12px}.options a{font-size:11px}

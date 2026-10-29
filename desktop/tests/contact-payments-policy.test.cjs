@@ -6,6 +6,9 @@ test("desktop permits contact inbox and payment reads, but never checkout or man
     ["/admin/contact", "GET"],
     ["/admin/contact", "PATCH"],
     ["/payments/manage", "GET"],
+    ["/admin/control", "GET"],
+    ["/admin/site-statistics", "GET"],
+    ["/admin/integration-probes", "GET"],
   ])
     assert.doesNotThrow(() =>
       validateRequest({
@@ -25,6 +28,9 @@ test("desktop permits contact inbox and payment reads, but never checkout or man
     ["/payments/webhook", "POST"],
     ["/payments/manage", "PATCH"],
     ["/admin/contact", "DELETE"],
+    ["/admin/control", "POST"],
+    ["/admin/site-statistics", "PATCH"],
+    ["/admin/integration-probes", "POST"],
   ])
     assert.throws(() => validateRequest({ route, method }));
 });

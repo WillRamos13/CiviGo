@@ -27,6 +27,7 @@ test(
     const env = {
       PAYMENTS_ENABLED: "true",
       PAYMENTS_MODE: "production",
+      PREMIUM_PRICE_PEN_CENTS: "590",
       MERCADOPAGO_ACCESS_TOKEN: "test-fixture",
       MERCADOPAGO_WEBHOOK_SECRET: "test-fixture",
       PUBLIC_APP_URL: "https://civigo.example",
@@ -34,6 +35,8 @@ test(
     };
     const request = async (url, options) => {
       requests++;
+      if (url.endsWith("/users/me"))
+        return { ok: true, json: async () => ({ tags: ["test_user"] }) };
       if (url.endsWith("/checkout/preferences")) {
         const body = JSON.parse(options.body);
         reference = body.external_reference;
@@ -139,6 +142,10 @@ test(
         now: () => clock,
       });
       const sandboxCheckout = await sandbox.checkout(user, randomUUID());
+      assert.ok(
+        !sandboxCheckout.url.includes("sandbox."),
+        "Test seller uses the same official init_point redirect",
+      );
       payment = {
         ...payment,
         id: 99999,

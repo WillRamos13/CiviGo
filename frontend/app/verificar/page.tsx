@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import AuthGate from '@/components/AuthGate';
+import EmailCodeVerification from '@/components/EmailCodeVerification';
 import { useAuth } from '@/components/AuthProvider';
 import { api, post, ApiError, errorMessage } from '@/lib/api';
 import { GoogleEmailFlow, firebaseEmailConfig, googleEmailErrorMessage } from '@/lib/firebase-email';
@@ -80,6 +81,7 @@ function GmailVerification() {
         {message && <div className="notice notice-success" role="status">{message}</div>}
         <div className="card"><h2>Tu correo</h2><p className="muted">{usuario?.correo}</p>
             {usuario?.correoVerificado ? <div className="notice notice-success">Tu correo está verificado. {usuario.bloqueado ? 'Tu cuenta tiene una restricción de participación. Puedes solicitar revisión en Mis reportes.' : 'Puedes publicar reportes, confirmar incidentes y conversar.'}</div> : <>
+                <EmailCodeVerification correo={usuario?.correo??''} onVerified={refresh}/>
                 <p className="muted">Elige la misma dirección Gmail que registraste en CiviGo. Google comprobará que puedes acceder a ella; tu sesión de CiviGo se mantiene.</p>
                 {googleLoading ? <p className="muted" role="status">Comprobando la verificación con Google…</p> : !available && <div className="notice notice-warning">La verificación con Google todavía no está disponible en esta página.</div>}
                 <label className="inline-checkbox"><input type="checkbox" checked={consent} disabled={busy} onChange={event => setConsent(event.target.checked)} /><span>Acepto que Google compruebe mi dirección Gmail para verificarla en CiviGo.</span></label>
@@ -96,5 +98,5 @@ function Verification() {
 }
 
 export default function Page() {
-    return <div className="page" style={{ maxWidth: 680 }}><div className="page-heading"><span className="eyebrow">TU CUENTA</span><h1>Verifica tu Gmail</h1><p>Tu cuenta puede consultar rutas antes de verificar el correo. Para participar, comprueba tu Gmail con Google.</p></div><AuthGate><Verification /></AuthGate></div>;
+    return <div className="page" style={{ maxWidth: 680 }}><div className="page-heading"><span className="eyebrow">TU CUENTA</span><h1>Verifica tu Gmail</h1><p>Tu cuenta puede consultar rutas antes de verificar el correo. Para participar, recibe un código en tu Gmail o verifica con Google.</p></div><AuthGate><Verification /></AuthGate></div>;
 }

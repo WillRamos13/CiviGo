@@ -3,6 +3,7 @@ import { BarChart3, RefreshCw, TrendingDown, TrendingUp } from "lucide-react";
 import { formatDate } from "@/lib/api";
 import { useRemote } from "./common";
 import { ExportButton } from "./ExcelExport";
+import SiteStatisticsPanel from "./SiteStatisticsPanel";
 
 interface CountRow {
   key: string;
@@ -567,6 +568,7 @@ export default function StatisticsPanel() {
           </footer>
         </>
       )}
+      <SiteStatisticsPanel />
     </section>
   );
 }

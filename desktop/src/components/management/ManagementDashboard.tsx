@@ -1,4 +1,3 @@
-
 import { useState } from "react";
 import { useAuth } from "@/components/AuthProvider";
 import { hasAgentPermission } from "@/lib/agent-permissions";
@@ -20,11 +19,12 @@ import TrafficModerationPanel from "./TrafficModerationPanel";
 import StatisticsPanel from "./StatisticsPanel";
 import ContactPanel from "./ContactPanel";
 import PaymentsPanel from "./PaymentsPanel";
+import OperationsPanel from "./OperationsPanel";
 import { ExcelExportToolbar } from "./ExcelExport";
-
 
 type Tab =
   | "estadisticas"
+  | "control"
   | "incidentes"
   | "apelaciones"
   | "usuarios"
@@ -49,6 +49,7 @@ const tabs: {
 }[] = [
   { id: "incidentes", label: "Incidentes", permission: "consultar" },
   { id: "estadisticas", label: "Estadísticas", adminOnly: true },
+  { id: "control", label: "Control y rendimiento", adminOnly: true },
   { id: "apelaciones", label: "Apelaciones", adminOnly: true },
   { id: "usuarios", label: "Usuarios", adminOnly: true },
 
@@ -70,7 +71,6 @@ interface Overview {
   estadisticas: Record<string, number>;
   servicios?: {
     ia?: { configurado: boolean };
-
 
     correoGoogle?: { configurado: boolean };
   };
@@ -121,7 +121,7 @@ function OverviewPanel() {
                   ? "configurada"
                   : "pendiente de conexión"}
               </span>
-<span className="badge">
+              <span className="badge">
                 Correo con Google:{" "}
                 {data.servicios.correoGoogle?.configurado
                   ? "configurado"
@@ -147,72 +147,83 @@ function DashboardContent() {
         (!tab.permission || hasAgentPermission(usuario, tab.permission))),
   );
   return (
-    <div className="admin-workspace"><aside className="admin-sidebar"><strong className="admin-sidebar-title">Administración</strong>          <nav
-            aria-label="Herramientas de administración"
-            className="admin-navigation"
-          >
-            {availableTabs.map((tab) => (
-              <button
-                key={tab.id}
-                aria-current={active === tab.id ? "page" : undefined}
-                className={`btn ${active === tab.id ? "btn-primary" : "btn-secondary"}`}
-                onClick={() => setActive(tab.id)}
-              >
-                {tab.label}
-              </button>
-            ))}
-          </nav>
- {admin && <ExcelExportToolbar />}</aside><div className="page max-w-7xl admin-content">
-      <div className="page-heading">
-        <div>
-          <span className="badge">
-            {admin ? "Administración" : "Agente de CiviGo"}
-          </span>
-          <h1 className="mt-3">Centro de revisión</h1>
-          <p className="muted">
-            {admin
-              ? "Gestiona la comunidad y los incidentes de CiviGo."
-              : `Revisa la información de ${usuario?.distrito ?? "la provincia de Ica"} según tus permisos asignados.`}
-          </p>
+    <div className="admin-workspace">
+      <aside className="admin-sidebar">
+        <strong className="admin-sidebar-title">Administración</strong>{" "}
+        <nav
+          aria-label="Herramientas de administración"
+          className="admin-navigation"
+        >
+          {availableTabs.map((tab) => (
+            <button
+              key={tab.id}
+              aria-current={active === tab.id ? "page" : undefined}
+              className={`btn ${active === tab.id ? "btn-primary" : "btn-secondary"}`}
+              onClick={() => setActive(tab.id)}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </nav>
+      </aside>
+      <div className="page max-w-7xl admin-content">
+        <div className="page-heading">
+          <div>
+            <span className="badge">
+              {admin ? "Administración" : "Agente de CiviGo"}
+            </span>
+            <h1 className="mt-3">Centro de revisión</h1>
+            <p className="muted">
+              {admin
+                ? "Gestiona la comunidad y los incidentes de CiviGo."
+                : `Revisa la información de ${usuario?.distrito ?? "la provincia de Ica"} según tus permisos asignados.`}
+            </p>
+          </div>
         </div>
+        {admin && !["estadisticas", "control"].includes(active) && (
+          <OverviewPanel key={`${active}:${overviewRevision}`} />
+        )}
+        {admin && active === "estadisticas" && <ExcelExportToolbar />}
+        {admin && active === "control" && <OperationsPanel />}
+
+        {availableTabs.length === 0 ? (
+          <section className="card">
+            <h2 className="text-lg font-bold">Permisos pendientes</h2>
+            <p className="muted mt-2">
+              El administrador debe asignarte permisos y un ámbito de revisión
+              antes de comenzar.
+            </p>
+          </section>
+        ) : (
+          <>
+            {active === "incidentes" && (
+              <IncidentReviewPanel
+                onChanged={() =>
+                  setOverviewRevision((revision) => revision + 1)
+                }
+              />
+            )}
+            {admin && active === "apelaciones" && <AppealsPanel />}
+            {admin && active === "estadisticas" && <StatisticsPanel />}
+            {admin && active === "usuarios" && <UsersPanel />}
+
+            {admin && active === "catalogo" && <CatalogPanel />}
+            {admin && active === "negocios" && <BusinessesPanel />}
+            {admin && active === "anuncios" && <AnnouncementsPanel />}
+            {admin && active === "trafico" && <TrafficModerationPanel />}
+            {admin && active === "premios" && <RewardsAdminPanel />}
+            {admin && active === "ranking" && <RankingAdminPanel />}
+            {admin && active === "recuperaciones" && <RecoveriesPanel />}
+            {admin && active === "historicos" && <HistoricalImportPanel />}
+            {admin && active === "configuracion" && <ConfigPanel />}
+            {admin && active === "actividad" && <AuditPanel />}
+            {admin && active === "integraciones" && <IntegrationsPanel />}
+            {admin && active === "contacto" && <ContactPanel />}
+            {admin && active === "pagos" && <PaymentsPanel />}
+          </>
+        )}
       </div>
-      {admin && active !== "estadisticas" && <OverviewPanel key={`${active}:${overviewRevision}`} />}
-
-      {availableTabs.length === 0 ? (
-        <section className="card">
-          <h2 className="text-lg font-bold">Permisos pendientes</h2>
-          <p className="muted mt-2">
-            El administrador debe asignarte permisos y un ámbito de revisión
-            antes de comenzar.
-          </p>
-        </section>
-      ) : (
-        <>
-         {active === "incidentes" && (
-            <IncidentReviewPanel
-              onChanged={() => setOverviewRevision((revision) => revision + 1)}
-            />
-          )}
-          {admin && active === "apelaciones" && <AppealsPanel />}
-          {admin && active === "estadisticas" && <StatisticsPanel />}
-          {admin && active === "usuarios" && <UsersPanel />}
-
-          {admin && active === "catalogo" && <CatalogPanel />}
-          {admin && active === "negocios" && <BusinessesPanel />}
-          {admin && active === "anuncios" && <AnnouncementsPanel />}
-          {admin && active === "trafico" && <TrafficModerationPanel />}
-          {admin && active === "premios" && <RewardsAdminPanel />}
-          {admin && active === "ranking" && <RankingAdminPanel />}
-          {admin && active === "recuperaciones" && <RecoveriesPanel />}
-          {admin && active === "historicos" && <HistoricalImportPanel />}
-          {admin && active === "configuracion" && <ConfigPanel />}
-          {admin && active === "actividad" && <AuditPanel />}
-          {admin && active === "integraciones" && <IntegrationsPanel />}
-          {admin && active === "contacto" && <ContactPanel />}
-          {admin && active === "pagos" && <PaymentsPanel />}
-        </>
-      )}
-    </div></div>
+    </div>
   );
 }
 
@@ -227,5 +238,3 @@ export default function ManagementDashboard({
     </ManagementGate>
   );
 }
-
-

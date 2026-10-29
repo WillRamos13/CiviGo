@@ -73,6 +73,9 @@ const server = http.createServer(async (request, response) => {
     if (denySessionWithoutJson) { response.statusCode = 401; response.setHeader('Content-Type', 'text/html'); return response.end('<html>Session expired</html>'); }
     return response.end(JSON.stringify({ usuario: actor }));
   }
+  if(requestPath==='/api/admin/site-statistics')return response.end(JSON.stringify({generatedAt:'2026-10-28T12:00:00Z',totals:Object.fromEntries(['incidents','historical','unevaluated','accounts','blocked','premium','premiumManual','premiumPaid','coinBalance','messages','adImpressions','activeBusinesses','attachments','attachmentBytes','rewardCatalog','rewardStock','approvedProductionPayments','productionRevenueCents'].map(key=>[key,key==='incidents'?550:0])),charts:{registrations:[{label:'oct.',count:5}],years:[{label:'2024',count:150}],sources:[],evaluations:[],hours:[],weekdays:[]},districtComparison:[],typeComparison:[],notes:['Datos de prueba local']}));
+  if(requestPath==='/api/admin/control')return response.end(JSON.stringify({enabled:true,generatedAt:'2026-10-28T12:00:00Z',since:null,lastPersisted:null,persistenceError:false,online:{users:2,visitors:1,web:2,mobile:1},api:{count:120,errors:1,clientErrors:3,meanMs:50,p50Ms:50,p95Ms:100,errorPercent:.83,views:15},process:{uptimeSeconds:3600,memoryMb:100,heapMb:32,databaseOk:true,databaseMs:5},timeline:[],routes:[{label:'navigation',count:120,errors:1,meanMs:50,p95Ms:100}],pages:[],notes:['Ventana de prueba']}));
+  if(requestPath==='/api/admin/integration-probes')return response.end(JSON.stringify({checkedAt:'2026-10-28T12:00:00Z',providers:[{provider:'Mercado Pago',ok:true,message:'Vendedor de prueba confirmado.'},{provider:'Foursquare',ok:true,message:'Clave confirmada.'}]}));
   if (requestPath === '/api/admin/statistics') {
     if (statisticsUnavailable) { response.statusCode=503; return response.end('{"error":"Fixture indisponible"}'); }
     return response.end(JSON.stringify(statisticsFixture(url)));
@@ -216,6 +219,7 @@ async function run() {
   await window.webContents.executeJavaScript('document.querySelector(".desktop-notifications button").click()');
   const panels = [
     ['Estadísticas', '/api/admin/statistics'],
+    ['Control y rendimiento','/api/admin/control'],
     ['Incidentes', '/api/admin/incidents'], ['Apelaciones', '/api/admin/appeals'],
     ['Usuarios', '/api/admin/users'], ['Categorías y tipos', '/api/admin/catalog'],
     ['Negocios', '/api/admin/businesses'], ['Recompensas', '/api/admin/rewards'],
@@ -224,17 +228,23 @@ async function run() {
     ['Antecedentes', null], ['Configuración', '/api/admin/config'],
     ['Actividad y plazos', '/api/admin/audit'], ['Integraciones', '/api/admin/integrations'],
   ];
+  assert.equal(await window.webContents.executeJavaScript("document.querySelectorAll('.excel-export-toolbar').length"),0);
   for (const [label, endpoint] of panels) {
     await window.webContents.executeJavaScript(`Array.from(document.querySelectorAll('nav[aria-label="Herramientas de administración"] button')).find(button=>button.textContent===${JSON.stringify(label)}).click()`);
     await waitUntil(window, `document.querySelector('nav button[aria-current="page"]')?.textContent===${JSON.stringify(label)} && !document.body.innerText.includes('Cargando')`);
+    assert.equal(await window.webContents.executeJavaScript("document.querySelectorAll('.excel-export-toolbar').length"),label==='Estadísticas'?1:0);
     await window.webContents.executeJavaScript('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
     if (endpoint) assert.equal(calls.some(call => call.path === endpoint), true, label + ' debe leer su API');
     assert.deepEqual(await window.webContents.executeJavaScript('window.__smokeErrors'), [], label + ' no debe fallar en React');
     assert.equal(await window.webContents.executeJavaScript(`document.querySelectorAll('.notice-error').length`), 0, label + ' no debe mostrar un error');
+    if(label==='Control y rendimiento')await capture(window,'control-rendimiento.png');
   }
   await window.webContents.executeJavaScript(`Array.from(document.querySelectorAll('nav[aria-label="Herramientas de administración"] button')).find(button=>button.textContent==='Estadísticas').click()`);
   await waitUntil(window, `document.querySelectorAll('.statistics-chart svg[role="img"]').length===6`);
   assert.equal(await window.webContents.executeJavaScript(`document.querySelector('.statistics-totals strong').textContent`),'550');
+  await waitUntil(window,`!!document.querySelector('.site-statistics .metric-section-tabs')`);
+  await window.webContents.executeJavaScript(`document.querySelector('.site-statistics').scrollIntoView({block:'start'})`);
+  await capture(window,'actividad-general.png');
   assert.equal(await window.webContents.executeJavaScript(`document.querySelector('select[aria-label="Comparar registros de"]').value`),'all');
   assert.ok(await window.webContents.executeJavaScript(`document.querySelector('.statistics-comparison').textContent.includes('+100')`));
   await window.webContents.executeJavaScript(`document.querySelector('.statistics-panel').scrollIntoView({block:'start'})`);

@@ -32,6 +32,10 @@ export async function api<T>(path: string, options: ApiOptions = {}): Promise<T>
         let message = 'No se pudo completar la solicitud.';
         if (response.status >= 500) {
             message = 'El servicio de CiviGo no está disponible en este momento. Inténtalo de nuevo.';
+            if(response.status===503&&typeof data?.code==='string'&&data.code.startsWith('PAYMENT_')){
+                const messages:Record<string,string>={PAYMENT_TEST_SELLER_REQUIRED:'La prueba de Mercado Pago aún requiere configurar la cuenta vendedor de prueba. Comunícalo al administrador.',PAYMENT_CONFIGURATION:'La dirección del servicio de pagos no está configurada. Comunícalo al administrador.',PAYMENT_CREDENTIALS:'Mercado Pago rechazó la configuración del pago. Comunícalo al administrador.',PAYMENT_PROVIDER:'Mercado Pago no pudo preparar el pago. Inténtalo más tarde.'};
+                message=messages[data.code]||'No se pudo preparar el pago. Inténtalo más tarde.';
+            }
             if (response.status === 503 && data?.code === 'ROADS_UNAVAILABLE')
                 message = 'Los datos de calles no están disponibles en este momento. Inténtalo de nuevo más tarde.';
             else if (response.status === 503 && data?.code === 'PLACES_SEARCH_UNAVAILABLE')
@@ -42,6 +46,8 @@ export async function api<T>(path: string, options: ApiOptions = {}): Promise<T>
                 message = 'No se pudo acceder al archivo. Inténtalo de nuevo más tarde o comunícalo al administrador.';
             else if (response.status === 503 && data?.code === 'EMAIL_PROVIDER_MISSING')
                 message = 'La recuperación por correo aún no está disponible. Contacta con la administración.';
+            else if(response.status===503&&typeof data?.code==='string'&&(data.code.startsWith('EMAIL_CODE_')||data.code.startsWith('EMAIL_PROVIDER_')))
+                message='No se pudo enviar el correo. Inténtalo más tarde o comunícalo al administrador.';
         }
         else message = typeof data?.error === 'string' ? data.error : typeof data?.mensaje === 'string' ? data.mensaje : message;
         throw new ApiError(message, response.status, data?.code);

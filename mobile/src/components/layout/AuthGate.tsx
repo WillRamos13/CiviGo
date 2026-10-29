@@ -98,14 +98,14 @@ export const AuthGate: React.FC<AuthGateProps> = ({
         </div>
         <h2>Verifica tu correo</h2>
         <p className="muted" style={{ fontSize: 13, marginBottom: 20 }}>
-          Tu cuenta ({usuario.correo}) aún no ha sido verificada con Google. Es necesario verificarla para publicar reportes ciudadanos.
+          Tu cuenta ({usuario.correo}) aún no tiene el correo verificado. Es necesario verificarla para publicar reportes ciudadanos.
         </p>
         <button
           type="button"
           className="btn btn-primary btn-full"
           onClick={onGoVerify}
         >
-          Verificar con Google
+          Verificar Gmail
         </button>
       </div>
     );

@@ -59,7 +59,7 @@ function requireEmail(req, res, next) {
     return next(
       new HttpError(
         403,
-        "Verifica tu correo con Google para participar.",
+        "Verifica tu correo con un código o con Google para participar.",
         "EMAIL_REQUIRED",
       ),
     );
@@ -81,7 +81,7 @@ async function currentParticipant(db, usuarioId) {
   if (!user.correoVerificado)
     throw new HttpError(
       403,
-      "Verifica tu correo con Google para participar.",
+      "Verifica tu correo con un código o con Google para participar.",
       "EMAIL_REQUIRED",
     );
   return user;

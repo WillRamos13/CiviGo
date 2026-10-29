@@ -158,6 +158,8 @@ export async function api<T>(path: string, options: ApiOptions = {}): Promise<T>
           message = 'No se pudo ampliar la búsqueda de lugares.';
         } else if (response.status === 503 && typeof errorData.code === 'string' && errorData.code.startsWith('EMAIL_GOOGLE_')) {
           message = 'La verificación con Google no está disponible en este momento.';
+        } else if(response.status===503&&typeof errorData.code==='string'&&(errorData.code.startsWith('EMAIL_CODE_')||errorData.code.startsWith('EMAIL_PROVIDER_'))){
+          message='No se pudo enviar el correo. Inténtalo más tarde o comunícalo al administrador.';
         } else if (response.status === 503 && typeof errorData.code === 'string' && errorData.code.startsWith('STORAGE_')) {
           message = 'No se pudo acceder al archivo multimedia.';
         }

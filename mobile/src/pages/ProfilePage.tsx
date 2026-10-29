@@ -297,7 +297,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
               <div style={{ flex: 1 }}>
                 <strong style={{ fontSize: 13, display: 'block' }}>{usuario?.correo}</strong>
                 <span className="muted" style={{ fontSize: 11 }}>
-                  {usuario?.correoVerificado ? 'Correo verificado con Google' : 'No verificado'}
+                  {usuario?.correoVerificado ? 'Correo verificado' : 'No verificado'}
                 </span>
               </div>
               {!usuario?.correoVerificado && (

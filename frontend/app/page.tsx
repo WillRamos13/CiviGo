@@ -4,21 +4,10 @@ import HomeVideo from '@/components/HomeVideo';
 export default function Home() {
   return (
     <div className="page">
-      <section className="hero">
-        <div>
-          <span className="badge">ICA, CONECTADA POR SU GENTE</span>
-          <h1>
-            Tu ciudad.
-            <br />
-            Tu camino.
-            <br />
-            <em>Más información.</em>
-          </h1>
-          <p>
-            Conoce lo que pasa en tu entorno, comparte incidentes y elige un
-            recorrido según los reportes disponibles.
-          </p>
-          <div className="actions">
+      <section className="home-film" aria-label="Conoce CiviGo">
+        <h1 className="sr-only">CiviGo: tu ciudad, tu camino, más información</h1>
+        <HomeVideo />
+        <div className="actions" style={{margin: '16px 0 28px'}}>
             <Link href="/mapa" className="btn btn-primary">
               Explorar el mapa <ArrowUpRight size={17} />
             </Link>
@@ -26,22 +15,6 @@ export default function Home() {
               Sumarme a CiviGo
             </Link>
           </div>
-          <div className="stats-row">
-            <div className="stat">
-              <strong>Ica</strong>
-              <span>Provincia de cobertura</span>
-            </div>
-            <div className="stat">
-              <strong>3</strong>
-              <span>Formas de recorrer tu ciudad</span>
-            </div>
-            <div className="stat">
-              <strong>50 m</strong>
-              <span>Confirmaciones cerca del incidente</span>
-            </div>
-          </div>
-        </div>
-        <HomeVideo />
       </section>
       <div className="grid-3">
         <div className="card">
