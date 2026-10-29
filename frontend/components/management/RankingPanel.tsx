@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import {Trophy,Users,ShieldCheck,ArrowUpRight} from 'lucide-react';
 import { number, RemoteStatus, useRemote } from "./common";
 
 interface RankingEntry {
@@ -33,11 +34,11 @@ export default function RankingPanel() {
     `/ranking?mes=${encodeURIComponent(month)}`,
   );
   return (
-    <div className="page max-w-5xl">
+    <div className="page max-w-5xl community-page">
       <div className="page-heading">
         <div>
           <span className="badge">Comunidad de Ica</span>
-          <h1 className="mt-3">Ranking mensual</h1>
+          <h1 className="mt-3">Comunidad de CiviGo</h1>
           <p className="muted">
             Reconocemos los aportes que ayudan a mejorar la información de
             CiviGo.
@@ -60,10 +61,11 @@ export default function RankingPanel() {
         personal y las monedas acumuladas se contabilizan por separado.
       </p>
       <RemoteStatus loading={loading} error={error} retry={reload} />
+      {data&&!loading&&!error&&<><section className="community-overview"><article><Users size={19}/><strong>{data.entries.length}</strong><span>Participantes con puntos</span></article><article><Trophy size={19}/><strong>{number(data.entries.reduce((sum,entry)=>sum+entry.puntos,0))}</strong><span>Puntos del mes</span></article><article><ShieldCheck size={19}/><strong>{data.finalized?'Cerrado':'En curso'}</strong><span>Reconocimientos mensuales</span></article></section>{data.entries.length>0&&<section className="community-podium" aria-label="Aportes destacados">{data.entries.slice(0,3).map((entry,index)=><article key={entry.nickname+index} data-position={entry.position}><span className="community-medal"><Trophy size={22}/></span><span>#{entry.position}</span><h2>{entry.nickname}</h2><strong>{number(entry.puntos)} <small>puntos</small></strong></article>)}</section>}</>}
       {!loading && !error && data && (
         <section className="card overflow-x-auto">
           <div className="flex items-center justify-between gap-4 mb-4">
-            <h2 className="text-xl font-bold">Participación del mes</h2>
+            <h2 className="text-xl font-bold">Ranking mensual · Participación del mes</h2>
             <span className="badge">
               {data.finalized ? "Mes cerrado" : "En curso"}
             </span>
@@ -77,6 +79,7 @@ export default function RankingPanel() {
                 Los aportes validados y las contribuciones admitidas se
                 reflejarán aquí.
               </p>
+              <Link className="btn btn-primary mt-4" href="/reportar">Haz tu primer aporte <ArrowUpRight size={16}/></Link>
             </div>
           ) : (
             <table className="w-full min-w-[460px] text-left">

@@ -24,3 +24,12 @@ test('multiple years combine, all and none differ, and dates and input arrays st
  assert.deepEqual(toggleIncidentYear(null,'2024',options),options.slice(1));
  assert.deepEqual(toggleIncidentYear([],'2024',options),['2024']);
 });
+
+test('últimos doce meses excluye antiguos, futuros y fechas ausentes y permite volver al histórico',()=>{
+ const now=new Date(),recent=new Date(now),old=new Date(now),future=new Date(now);recent.setUTCMonth(now.getUTCMonth()-6);old.setUTCFullYear(now.getUTCFullYear()-2);future.setUTCDate(now.getUTCDate()+1);
+ const rows=[{id:1,fechaEvento:recent.toISOString()},{id:2,fechaEvento:old.toISOString()},{id:3,fechaEvento:future.toISOString()},{id:4}];
+ assert.deepEqual(filterIncidentsByYears(rows,['ultimos-12-meses']).map(row=>row.id),[1]);
+ assert.deepEqual(toggleIncidentYear(['ultimos-12-meses'],'2024',['2024','2023']),['2024']);
+ assert.equal(incidentYearOptions(rows,['ultimos-12-meses']).includes('ultimos-12-meses'),false);
+ assert.equal(filterIncidentsByYears(rows,[String(old.getUTCFullYear())])[0].id,2);
+});

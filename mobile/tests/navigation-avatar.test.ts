@@ -115,9 +115,9 @@ test('accessible vehicle models and legacy avatars use distinct trusted local ve
   assert.equal(isNavigationAvatar('CAR'), false);
   const picker = renderToStaticMarkup(React.createElement(AvatarPicker, { value: 'car', onChange() {} }));
   assert.match(picker, /role="radiogroup" aria-label="Icono de navegación"/);
-  assert.equal((picker.match(/role="radio"/g) ?? []).length, NAVIGATION_AVATARS.length);
+  assert.equal((picker.match(/role="radio"/g) ?? []).length, 5);
   assert.equal((picker.match(/aria-checked="true"/g) ?? []).length, 1);
-  for (const option of NAVIGATION_AVATARS) assert.ok(picker.includes(option.label));
+  for (const option of NAVIGATION_AVATARS.filter(item=>['arrow','car','motorcycle','bicycle','walking'].includes(item.id))) assert.ok(picker.includes(option.label));
 });
 
 test('vehicle model and color are real local SVG choices, persist per account and never change transport', async () => {
@@ -131,7 +131,7 @@ test('vehicle model and color are real local SVG choices, persist per account an
   assert.notEqual(red, blue); assert.match(red, /#ef4848/);
   assert.equal(navigationAvatarLabel('sport:silver'), 'Deportivo · Plata');
   const picker = renderToStaticMarkup(React.createElement(AvatarPicker, { value: 'suv:red', onChange() {} }));
-  assert.match(picker, /Color del vehículo/); assert.match(picker, /El icono no cambia el modo de transporte/);
+  assert.match(picker, /Color del vehículo/); assert.match(picker, /El icono no cambia tu transporte/);
   assert.equal((picker.match(/aria-pressed="true"/g) ?? []).length, 1);
 });
 

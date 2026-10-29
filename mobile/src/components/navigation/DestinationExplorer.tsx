@@ -13,6 +13,8 @@ import PlaceDetails from './PlaceDetails';
 
 export interface DestinationExplorerProps {
   open: boolean;
+  initialQuery?: string;
+  initialPlace?: NavigationPlace | null;
   /** Hidden while Android's requested system speech Activity is in front. */
   suspended?: boolean;
   onClose: () => void;
@@ -33,7 +35,9 @@ export const DestinationExplorer: React.FC<DestinationExplorerProps> = props => 
   <DestinationExplorerContent key={props.ownerId ?? 'guest'} {...props} />
 );
 
-const DestinationExplorerContent: React.FC<DestinationExplorerProps> = ({ open, suspended = false, onClose, ownerId, currentPosition, activeRoute, navigationActive = false, onChooseDestination, onChooseStop, onShowPlace }) => {
+const DestinationExplorerContent: React.FC<DestinationExplorerProps> = ({ open, initialQuery, initialPlace, suspended = false, onClose, ownerId, currentPosition, activeRoute, navigationActive = false, onChooseDestination, onChooseStop, onShowPlace }) => {
+  useEffect(()=>{if(open&&initialQuery!==undefined){setQuery(initialQuery);setSelected(null);}},[open,initialQuery]);
+  useEffect(()=>{if(open&&initialPlace)setSelected(initialPlace);},[open,initialPlace]);
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<NavigationPlace[]>([]);
   const [selected, setSelected] = useState<NavigationPlace | null>(null);
@@ -190,9 +194,7 @@ const DestinationExplorerContent: React.FC<DestinationExplorerProps> = ({ open, 
       <div className="place-explorer-content">
         {storageError && <p className="place-notice" role="status">{storageError}</p>}
         {selected ? <article className="place-detail">
-          <span className="place-detail-pin"><MapPin size={26} aria-hidden="true" /></span><h2>{selected.nombre}</h2>
-          {selected.descripcion && <p className="place-address">{selected.descripcion}</p>}
-          {selected.fuente && <p className="place-source">Fuente: {selected.fuente}</p>}
+          <PlaceDetails key={`${selected.latitud}:${selected.longitud}:${selected.nombre}`} place={selected}><h2>{selected.nombre}</h2>{selected.descripcion && <p className="place-address">{selected.descripcion}</p>}</PlaceDetails>
           <dl className="place-facts"><div><dt>Ubicación</dt><dd>{selected.latitud.toFixed(6)}, {selected.longitud.toFixed(6)}</dd></div>
             {lineDistance !== null && <div><dt>Distancia en línea recta</dt><dd>{formatDistance(lineDistance)}</dd></div>}
             {navigationActive && routeDistance !== null && <div><dt>Separación geométrica de la ruta</dt><dd>{formatDistance(routeDistance)}</dd></div>}
@@ -206,7 +208,6 @@ const DestinationExplorerContent: React.FC<DestinationExplorerProps> = ({ open, 
           {ownerId ? <div className="place-save-labels"><span>Guardar como</span><button type="button" disabled={saving} onClick={() => void applyPreference(() => preferences.current!.save(selected, 'home'))}><Home size={15} aria-hidden="true" />Casa</button><button type="button" disabled={saving} onClick={() => void applyPreference(() => preferences.current!.save(selected, 'work'))}><BriefcaseBusiness size={15} aria-hidden="true" />Trabajo</button></div> : <p className="place-note">Inicia sesión para guardar lugares e historial en este dispositivo.</p>}
           {shareStatus && <p className="place-notice" role="status">{shareStatus}</p>}
           {navigationActive && <p className="place-note">La proximidad a la ruta no indica el desvío por carretera. Tu destino y recorrido siguen activos.{!onChooseStop && ' Las paradas con desvíos calculados todavía no están disponibles.'}</p>}
-          <PlaceDetails key={`${selected.latitud}:${selected.longitud}:${selected.nombre}`} place={selected}/>
         </article> : <>
           <div className="place-category-list" aria-label="Categorías de lugares">{PLACE_CATEGORIES.map(category => { const Icon = categoryIcons[category.icon]; return <button key={category.id} type="button" aria-pressed={cleanedQuery === category.query} onClick={() => { cancelSpeech(); setQuery(category.query); inputRef.current?.blur(); }}><Icon size={17} aria-hidden="true" />{category.label}</button>; })}</div>
           {cleanedQuery.length >= 3 ? <section className="place-results" aria-label="Resultados de lugares">

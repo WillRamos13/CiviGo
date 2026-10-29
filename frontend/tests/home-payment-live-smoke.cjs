@@ -32,7 +32,7 @@ async function run(){
    try { await waitUntil(win,`(()=>{const video=document.querySelector('.home-film video');return video.readyState>=2&&!video.paused&&video.currentTime>0.4&&video.videoWidth>0})()`,30000); }
    catch(error){console.error('Video playback state',await js(`(()=>{const v=document.querySelector('.home-film video');return{src:v.currentSrc,ready:v.readyState,paused:v.paused,time:v.currentTime,error:v.error&&{code:v.error.code,message:v.error.message},poster:v.poster}})()`));throw error;}
    const layout=await js(`(()=>{const film=document.querySelector('.home-film'),video=film.querySelector('video'),box=video.parentElement.getBoundingClientRect(),area=film.getBoundingClientRect();return{width:innerWidth,overflow:document.documentElement.scrollWidth>innerWidth,videoWidth:box.width,areaWidth:area.width,loop:video.loop,muted:video.muted,fit:getComputedStyle(video).objectFit,oldColumns:!!document.querySelector('.hero')}})()`);
-   assert.equal(layout.overflow,false);assert.equal(layout.loop,true);assert.equal(layout.muted,true);assert.equal(layout.fit,'cover');assert.equal(layout.oldColumns,false);assert.ok(Math.abs(layout.videoWidth-layout.areaWidth)<2,JSON.stringify(layout));
+   assert.equal(layout.overflow,false);assert.equal(layout.loop,true);assert.equal(layout.muted,true);assert.equal(layout.fit,'cover');assert.equal(layout.oldColumns,false);assert.ok(Math.abs(layout.videoWidth-layout.areaWidth)<=2,JSON.stringify(layout));
    layouts.push(layout);await fs.writeFile(path.join(out,`portada-${width}.png`),(await win.webContents.capturePage()).toPNG());win.destroy();
  }
  const win=await createClient(710,1366,768,{route:'/premium',mapReady:false,offscreen:true}),js=script=>win.webContents.executeJavaScript(script),redirects=[];

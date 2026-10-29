@@ -112,8 +112,9 @@ router.get(
     res.json(
       await prisma.business.findMany({
         where: { activo: true },
+        include: require('../lib/business-media').mediaInclude,
         orderBy: { nombre: "asc" },
-      }),
+      }).then(rows=>rows.map(row=>require('../lib/business-media').presentBusiness(row))),
     ),
   ),
 );

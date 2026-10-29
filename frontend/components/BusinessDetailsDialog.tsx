@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useRef } from "react";
+import { createPortal } from "react-dom";
 import type { MapBusiness } from "./MapAnnouncements";
 
 function safeWebsite(value?: string) {
@@ -59,8 +60,8 @@ export default function BusinessDetailsDialog({
   }, [business]);
   if (!business) return null;
   const website = safeWebsite(business.sitioWeb);
-  return (
-    <div className="modal-backdrop" onClick={onClose}>
+  return createPortal(
+    <div className="modal-backdrop" style={{zIndex:2100}} onClick={onClose}>
       <section
         ref={panel}
         className="modal-panel"
@@ -80,7 +81,7 @@ export default function BusinessDetailsDialog({
           </button>
         </div>
         <div className="card">
-          <span className="badge">Negocio participante · Demostración</span>
+          <span className="badge">Negocio participante</span>
           <p style={{ marginTop: 15 }}>{business.descripcion}</p>
           <p>
             <strong>Dirección:</strong> {business.direccion || "No indicada"}
@@ -110,6 +111,6 @@ export default function BusinessDetailsDialog({
           )}
         </div>
       </section>
-    </div>
+    </div>, document.fullscreenElement ?? document.body
   );
 }

@@ -98,7 +98,7 @@ router.get(
   asyncRoute(async (req, res) => {
     res.json(
       await prisma.mapAnnouncement.findMany({
-        ...(req.query.ubicacion !== undefined ? { where: { ubicacion: announcementPlacement(req.query.ubicacion) } } : {}),
+        where: { ubicacion: req.query.ubicacion !== undefined ? announcementPlacement(req.query.ubicacion) : {in:['CABECERA','REPORTAR']} },
         include: { negocio: true, imagen: { select: IMAGE_SELECT } },
         orderBy: [{ orden: "asc" }, { id: "asc" }],
         take: 500,

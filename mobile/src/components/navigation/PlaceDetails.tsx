@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { post } from "../../services/api";
 type Point = { nombre: string; latitud: number; longitud: number };
 type Details = {
@@ -16,7 +16,7 @@ type Details = {
   opiniones?: { texto: string; autor: string; url: string | null }[];
   aviso?: string;
 };
-export default function PlaceDetails({ place }: { place: Point }) {
+export default function PlaceDetails({ place, children }: { place: Point; children?: ReactNode }) {
   const [data, setData] = useState<Details | null>(null),
     [loading, setLoading] = useState(true),
     [error, setError] = useState("");
@@ -70,12 +70,12 @@ export default function PlaceDetails({ place }: { place: Point }) {
             height={500}
             onError={() => setFailed((value) => [...value, current.url])}
           />
-          <figcaption>
+          <figcaption><details><summary>Créditos de la imagen</summary>
             Foto:{" "}
             <a href={current.fuente} target="_blank" rel="noopener noreferrer">
               {current.autor}
             </a>
-          </figcaption>
+          </details></figcaption>
           {photos.length > 1 && (
             <div className="actions">
               <button
@@ -103,6 +103,7 @@ export default function PlaceDetails({ place }: { place: Point }) {
           )}
         </figure>
       )}
+      {children}
       {data && (
         <>
           <div className="place-detail-rating">
@@ -113,7 +114,7 @@ export default function PlaceDetails({ place }: { place: Point }) {
                   ` · ${data.totalValoraciones} valoraciones`}
               </strong>
             ) : (
-              <span>Sin calificación disponible</span>
+              <span>Sin valoraciones de esta fuente</span>
             )}
           </div>
           <dl>

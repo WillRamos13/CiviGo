@@ -4,33 +4,18 @@ type Data = {
   enabled: boolean;
   generatedAt: string;
   since: string | null;
-  lastPersisted: string | null;
   persistenceError: boolean;
-  online: { users: number; visitors: number; web: number; mobile: number };
+  online: { users: number; visitors: number };
   api: {
     count: number;
     errors: number;
     clientErrors: number;
-    meanMs: number | null;
-    p50Ms: number | null;
     p95Ms: number | null;
     errorPercent: number | null;
     views: number;
   };
-  process: {
-    uptimeSeconds: number;
-    memoryMb: number;
-    heapMb: number;
-    databaseOk: boolean;
-    databaseMs: number | null;
-  };
-  timeline: {
-    at: string;
-    count: number;
-    errors: number;
-    views: number;
-    meanMs: number | null;
-  }[];
+  process: { databaseOk: boolean; databaseMs: number | null };
+  timeline: { at: string; count: number }[];
   routes: {
     label: string;
     count: number;
@@ -47,7 +32,20 @@ type Data = {
   }[];
   notes: string[];
 };
-const ms = (n: number | null) => (n === null ? "Sin muestras" : `${n} ms`);
+const ms = (value: number | null) =>
+  value === null ? "Sin muestras" : `${value} ms`;
+const names: Record<string, string> = {
+  navigation: "Rutas y lugares",
+  users: "Cuentas",
+  incidents: "Incidentes",
+  reports: "Reportes",
+  uploads: "Archivos",
+  payments: "Pagos",
+  admin: "Administración",
+  announcements: "Anuncios",
+  chatbot: "Asistente",
+  otros: "Otros servicios",
+};
 export default function OperationsPanel() {
   const r = useRemote<Data>("/admin/control"),
     d = r.data;
@@ -57,9 +55,12 @@ export default function OperationsPanel() {
     hours.set(hour, (hours.get(hour) || 0) + row.count);
   }
   return (
-    <section>
+    <section className="operations-panel">
       <div className="card-header">
-        <h2>Control y rendimiento</h2>
+        <div>
+          <span className="admin-section-kicker">ESTADO DEL SERVICIO</span>
+          <h2>Control y rendimiento</h2>
+        </div>
         <button
           className="btn btn-secondary"
           disabled={r.loading}
@@ -68,8 +69,8 @@ export default function OperationsPanel() {
           Actualizar control
         </button>
       </div>
-      <p className="muted">
-        Actualización automática cada 30 segundos mientras este panel está
+      <p className="muted text-sm">
+        Las cifras se actualizan cada 30 segundos mientras este panel está
         visible.
       </p>
       <RemoteStatus loading={r.loading} error={r.error} retry={r.reload} />
@@ -80,12 +81,12 @@ export default function OperationsPanel() {
         <>
           {!d.enabled && (
             <p className="notice notice-warning">
-              La recopilación de métricas está desactivada en este servidor.
+              La recopilación está desactivada en el servidor.
             </p>
           )}
           {d.persistenceError && (
             <p className="notice notice-warning">
-              No se pudo guardar la muestra más reciente. Las cifras pueden
+              Las últimas métricas no pudieron guardarse; las cifras pueden
               estar incompletas.
             </p>
           )}
@@ -94,52 +95,43 @@ export default function OperationsPanel() {
               {
                 label: "Usuarios en línea",
                 value: d.online.users,
-                detail: "Cuentas autenticadas · últimos 120 s",
+                detail: "Cuentas activas en los últimos 2 minutos",
               },
               {
                 label: "Visitantes en línea",
                 value: d.online.visitors,
-                detail: "Sesiones estimadas · últimos 120 s",
+                detail: "Sesiones visibles sin iniciar sesión",
               },
               {
-                label: "Sesiones visibles web / app",
-                value: `${d.online.web} / ${d.online.mobile}`,
-              },
-              { label: "Latencia media de API", value: ms(d.api.meanMs) },
-              {
-                label: "API · p50 / p95",
-                value: `${ms(d.api.p50Ms)} / ${ms(d.api.p95Ms)}`,
+                label: "Tiempo de respuesta · p95",
+                value: ms(d.api.p95Ms),
+                detail: "El 95 % de las solicitudes no supera este intervalo",
               },
               {
-                label: "Errores de servidor",
+                label: "Errores del servicio",
                 value:
                   d.api.errorPercent === null
                     ? null
                     : `${d.api.errorPercent} %`,
-                detail: `${d.api.errors} respuestas 5xx · ${d.api.clientErrors} respuestas 4xx`,
-              },
-              { label: "Solicitudes de API · 24 h", value: d.api.count },
-              { label: "Vistas registradas · 24 h", value: d.api.views },
-              {
-                label: "Base de datos · consulta actual",
-                value: d.process.databaseOk
-                  ? ms(d.process.databaseMs)
-                  : "No disponible",
+                detail: `${d.api.errors} respuestas 5xx · últimas 24 h`,
               },
               {
-                label: "Memoria de esta instancia",
-                value: `${d.process.memoryMb} MB`,
-                detail: `Heap: ${d.process.heapMb} MB`,
+                label: "Vistas de páginas · 24 h",
+                value: d.api.views,
+                detail: "Muestras recibidas desde web y app",
               },
               {
-                label: "Proceso iniciado hace",
-                value: `${Math.floor(d.process.uptimeSeconds / 3600)} h ${Math.floor(d.process.uptimeSeconds / 60) % 60} min`,
+                label: "Base de datos",
+                value: d.process.databaseOk ? "Disponible" : "Sin respuesta",
+                detail: d.process.databaseOk
+                  ? `Consulta actual: ${ms(d.process.databaseMs)}`
+                  : "Revisar conexión del servicio",
               },
             ]}
           />
           <div className="statistics-grid">
             <MetricBars
-              title="Solicitudes por hora · últimas 24 h"
+              title="Actividad por hora · últimas 24 h"
               rows={[...hours].map(([hour, count]) => ({
                 label: new Date(hour + ":00:00Z").toLocaleString("es-PE", {
                   timeZone: "America/Lima",
@@ -150,15 +142,51 @@ export default function OperationsPanel() {
               }))}
             />
             <MetricBars
-              title="Errores 5xx por servicio"
-              rows={d.routes.map((row) => ({
-                label: row.label,
-                count: row.errors,
-              }))}
+              title="Errores por servicio · últimas 24 h"
+              rows={d.routes
+                .filter((row) => row.errors > 0)
+                .map((row) => ({
+                  label: names[row.label] || row.label,
+                  count: row.errors,
+                }))}
             />
           </div>
           <article className="card">
-            <h3>Rendimiento de la API por servicio</h3>
+            <h3>Carga de las páginas</h3>
+            <p className="muted text-sm">
+              LCP mide cuánto tarda en aparecer el contenido principal. Sin
+              muestra significa que aún no llegó una medición de ese navegador.
+            </p>
+            <div className="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Página</th>
+                    <th>Muestras</th>
+                    <th>Contenido principal · LCP</th>
+                    <th>Primera respuesta</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {d.pages.map((row) => (
+                    <tr key={row.path}>
+                      <th>{row.path}</th>
+                      <td>{row.samples}</td>
+                      <td>{ms(row.lcp)}</td>
+                      <td>{ms(row.ttfb)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            {!d.pages.length && (
+              <p className="muted">
+                Todavía no se recibieron muestras de carga.
+              </p>
+            )}
+          </article>
+          <details className="card">
+            <summary>Detalle por servicio y alcance de las mediciones</summary>
             <div className="table-wrap">
               <table>
                 <thead>
@@ -167,13 +195,13 @@ export default function OperationsPanel() {
                     <th>Solicitudes</th>
                     <th>Media</th>
                     <th>p95</th>
-                    <th>Errores 5xx</th>
+                    <th>Errores</th>
                   </tr>
                 </thead>
                 <tbody>
                   {d.routes.map((row) => (
                     <tr key={row.label}>
-                      <th>{row.label}</th>
+                      <th>{names[row.label] || row.label}</th>
                       <td>{row.count}</td>
                       <td>{ms(row.meanMs)}</td>
                       <td>{ms(row.p95Ms)}</td>
@@ -183,46 +211,6 @@ export default function OperationsPanel() {
                 </tbody>
               </table>
             </div>
-          </article>
-          <article className="card">
-            <h3>Carga de las páginas</h3>
-            <p className="muted text-sm">
-              TTFB: primera respuesta · LCP: contenido principal · CLS:
-              movimientos del diseño. Promedios de muestras recibidas; «—»
-              indica que el navegador no aportó ese dato.
-            </p>
-            <div className="table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Página</th>
-                    <th>Muestras</th>
-                    <th>TTFB</th>
-                    <th>LCP</th>
-                    <th>CLS</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {d.pages.map((row) => (
-                    <tr key={row.path}>
-                      <th>{row.path}</th>
-                      <td>{row.samples}</td>
-                      <td>{ms(row.ttfb)}</td>
-                      <td>{ms(row.lcp)}</td>
-                      <td>{row.cls === null ? "—" : row.cls.toFixed(3)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            {!d.pages.length && (
-              <p className="muted">
-                Todavía no se han recibido muestras de páginas.
-              </p>
-            )}
-          </article>
-          <details className="card">
-            <summary>Cómo se miden estas cifras</summary>
             {d.notes.map((note) => (
               <p className="muted text-sm" key={note}>
                 {note}
@@ -230,9 +218,8 @@ export default function OperationsPanel() {
             ))}
           </details>
           <p className="muted text-sm">
-            Desde: {d.since ? dateTime(d.since) : "sin datos"} · Última lectura:{" "}
-            {dateTime(d.generatedAt)} · Guardado:{" "}
-            {d.lastPersisted ? dateTime(d.lastPersisted) : "pendiente"}
+            Última lectura: {dateTime(d.generatedAt)} · Datos desde:{" "}
+            {d.since ? dateTime(d.since) : "sin muestras"}
           </p>
         </>
       )}

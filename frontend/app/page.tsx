@@ -1,51 +1,5 @@
-import Link from "next/link";
-import { MapPin, ShieldCheck, Route, ArrowUpRight } from "lucide-react";
+import Link from 'next/link';
+import {ArrowUpRight,MapPin,Route,ShieldCheck,Users} from 'lucide-react';
 import HomeVideo from '@/components/HomeVideo';
-export default function Home() {
-  return (
-    <div className="page">
-      <section className="home-film" aria-label="Conoce CiviGo">
-        <h1 className="sr-only">CiviGo: tu ciudad, tu camino, más información</h1>
-        <HomeVideo />
-        <div className="actions" style={{margin: '16px 0 28px'}}>
-            <Link href="/mapa" className="btn btn-primary">
-              Explorar el mapa <ArrowUpRight size={17} />
-            </Link>
-            <Link href="/registro" className="btn btn-secondary">
-              Sumarme a CiviGo
-            </Link>
-          </div>
-      </section>
-      <div className="grid-3">
-        <div className="card">
-          <ShieldCheck color="var(--brand)" size={26} />
-          <h3 style={{ marginTop: 15 }}>Información con contexto</h3>
-          <p className="muted">
-            La gravedad de un incidente, su validación y su antigüedad
-            determinan su aporte al tramo de calle.
-          </p>
-        </div>
-        <div className="card">
-          <Route color="var(--brand)" size={26} />
-          <h3 style={{ marginTop: 15 }}>La decisión es tuya</h3>
-          <p className="muted">
-            CiviGo informa de incidentes importantes durante el recorrido. Tú
-            eliges si deseas buscar otra ruta.
-          </p>
-        </div>
-        <div className="card">
-          <MapPin color="var(--brand)" size={26} />
-          <h3 style={{ marginTop: 15 }}>Privacidad al participar</h3>
-          <p className="muted">
-            La comunidad ve tu nickname. Las pruebas de delitos se reservan al
-            personal autorizado.
-          </p>
-        </div>
-      </div>
-      <p className="muted" style={{ fontSize: 11 }}>
-        Los niveles describen los reportes registrados. CiviGo ofrece
-        información en la provincia de Ica.
-      </p>
-    </div>
-  );
-}
+const actions=[{href:'/mapa',Icon:MapPin,label:'Explora tu ciudad',text:'Incidentes, lugares y tráfico en un mismo mapa.'},{href:'/reportar',Icon:ShieldCheck,label:'Tu aporte cuenta',text:'Comparte lo que sucede cerca de ti.'},{href:'/ranking',Icon:Users,label:'Una comunidad conectada',text:'Participa, suma puntos y conoce a quienes aportan.'}];
+export default function Home(){return <div className="page home-refresh"><header className="home-welcome"><div><span className="home-kicker"><span/>ICA, CONECTADA POR SU GENTE</span><h1>Conoce tu entorno.<br/><em>Encuentra tu camino.</em></h1><p>Explora Ica, compara recorridos y comparte lo que pasa cerca de ti.</p></div><Link className="btn btn-primary" href="/mapa">Vamos al mapa <ArrowUpRight size={18}/></Link></header><section className="home-film" aria-label="Conoce CiviGo"><HomeVideo/><div className="home-film-footer"><div><Route size={21}/><span><strong>Tu ciudad se mueve contigo</strong><small>A pie, en bicicleta o en auto.</small></span></div><Link href="/registro">Súmate a CiviGo <ArrowUpRight size={16}/></Link></div></section><section className="home-action-grid" aria-label="Descubre CiviGo">{actions.map(({href,Icon,label,text},index)=><Link href={href} className="home-action-card" key={href}><span className="home-action-index">0{index+1}</span><Icon size={25}/><h2>{label}</h2><p>{text}</p><ArrowUpRight size={19} className="home-action-arrow"/></Link>)}</section></div>}

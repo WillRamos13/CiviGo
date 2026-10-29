@@ -211,6 +211,7 @@ function trafficModerationData(input) {
 
 module.exports = {
   announcementPlacement,
+  announcementImageId,
   announcementData,
   publicAnnouncement,
   trafficModerationData,

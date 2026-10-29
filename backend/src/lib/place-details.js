@@ -32,6 +32,8 @@ function curatedDetails(place) {
       ],
       fuente: "UTP",
       fuenteUrl: "https://www.utp.edu.pe/como-llegar",
+      web: "https://www.utp.edu.pe/ica",
+      horario: "Lunes a sábado, 8:30 a. m. a 8:00 p. m. · Atención del campus. Puede variar según disponibilidad.",
     };
   return { fotos: [] };
 }
@@ -147,7 +149,7 @@ function createPlaceDetailsService({
           ...fallback,
           opiniones: [],
           calificacion: null,
-          horario: null,
+          horario: fallback.horario || null,
           aviso:
             "Las valoraciones y los horarios sólo se muestran cuando la fuente los proporciona.",
         };
@@ -160,14 +162,15 @@ function createPlaceDetailsService({
             aviso:
               "No se pudieron ampliar los datos del lugar en este momento.",
           };
+        const matchingTokens = value => significantTokens(value).filter(token=>!['sede','campus','ica'].includes(token));
+        const tokens = [...new Set(matchingTokens(place.nombre))];
         const search = await get("/places/search", {
-          query: place.nombre,
+          query: tokens.join(' '),
           ll: `${place.latitud},${place.longitud}`,
-          radius: "200",
-          limit: "5",
+          radius: "600",
+          limit: "10",
           fields: "fsq_place_id,name,latitude,longitude",
         });
-        const tokens = significantTokens(place.nombre);
         const candidates = (search.results || [])
           .filter(
             (p) =>
@@ -176,8 +179,8 @@ function createPlaceDetailsService({
               Number.isFinite(p.latitude) &&
               Number.isFinite(p.longitude) &&
               distance(place, { latitud: p.latitude, longitud: p.longitude }) <=
-                150 &&
-              tokens.filter((t) => significantTokens(p.name).includes(t))
+                400 &&
+              tokens.filter((t) => matchingTokens(p.name).includes(t))
                 .length /
                 Math.max(tokens.length, 1) >=
                 0.75,
@@ -203,12 +206,14 @@ function createPlaceDetailsService({
           !Number.isFinite(raw.latitude) ||
           !Number.isFinite(raw.longitude) ||
           distance(place, { latitud: raw.latitude, longitud: raw.longitude }) >
-            150
+            400
         )
           throw new Error("Ficha de otra ubicación.");
         const data = normalizeDetails(raw);
         if (!data.fotos.length && fallback.fotos.length)
           data.fotos = fallback.fotos;
+        if(!data.horario && fallback.horario){data.horario=fallback.horario;data.horarioFuente=fallback.fuenteUrl;}
+        if(!data.web && fallback.web)data.web=fallback.web;
         if (cache.size >= 100) cache.delete(cache.keys().next().value);
         cache.set(key, { data, expires: now() + 15 * 60000 });
         return data;

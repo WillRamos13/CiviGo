@@ -40,6 +40,7 @@ interface MapViewProps {
   editor?: boolean;
   onSelectIncident?: (incidente: Incidente) => void;
   onSelectCoordinates?: (pos: Posicion) => void;
+  onSelectPlace?: (place: Posicion & {nombre:string})=>void;
   onLocateMe?: () => Promise<LocationFix | null> | LocationFix | null;
   locating?: boolean;
   onBoundsChange?: (bounds: MapBounds) => void;
@@ -66,6 +67,7 @@ export const MapView: React.FC<MapViewProps> = ({
   editor = false,
   onSelectIncident,
   onSelectCoordinates,
+  onSelectPlace,
   onLocateMe,
   locating = false,
   onBoundsChange,
@@ -162,6 +164,7 @@ export const MapView: React.FC<MapViewProps> = ({
   const trafficReady = trafficAvailable(trafficStatus) && Boolean(tileUrl);
   const [markerBounds, setMarkerBounds] = useState<MapBounds | null>(null);
   const locateAttempt = useRef(0);
+  const placeCallback=useRef(onSelectPlace);placeCallback.current=onSelectPlace;
   const coordinatesCallback = useRef(onSelectCoordinates);
   coordinatesCallback.current = onSelectCoordinates;
   const boundsCallback = useRef(onBoundsChange);
@@ -501,6 +504,7 @@ export const MapView: React.FC<MapViewProps> = ({
       });
     });
 
+    map.on('click',event=>{if(editor||!placeCallback.current||(event.originalEvent.target as HTMLElement)?.closest('.mapboxgl-marker'))return;const feature=map.queryRenderedFeatures(event.point).find(item=>item.layer?.type==='symbol'&&item.geometry.type==='Point'&&(item.properties?.name_es||item.properties?.name));if(feature?.geometry.type==='Point'){const [longitud,latitud]=feature.geometry.coordinates;placeCallback.current({nombre:String(feature.properties?.name_es||feature.properties?.name),latitud,longitud});}});
     // Handle click on editor mode
     if (editor) {
       map.on('click', (e) => {

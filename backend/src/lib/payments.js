@@ -115,7 +115,7 @@ function createPaymentService({
   transaction,
   now = Date.now,
 } = {}) {
-  let testSellerUntil = 0;
+  let sellerUntil = 0, sellerMode = null;
   const transact =
     transaction ||
     ((work) => db.$transaction(work, { isolationLevel: "Serializable" }));
@@ -166,15 +166,19 @@ function createPaymentService({
       throw new HttpError(400, "Identificador de compra inválido.");
     const app = publicOrigin(env.PUBLIC_APP_URL),
       api = publicOrigin(env.PUBLIC_API_URL);
-    if (config.mode === "test" && now() >= testSellerUntil) {
+    if (now() >= sellerUntil || sellerMode !== config.mode) {
       const seller = await provider("/users/me");
-      if (!Array.isArray(seller.tags) || !seller.tags.includes("test_user"))
+      const isTest = Array.isArray(seller.tags) && seller.tags.includes("test_user");
+      if (config.mode === "production" && isTest)
+        throw new HttpError(503, "Los cobros reales requieren las credenciales de producción de una cuenta real de Mercado Pago.", "PAYMENT_PRODUCTION_SELLER_REQUIRED");
+      if (config.mode === "test" && !isTest)
         throw new HttpError(
           503,
           "La prueba requiere las credenciales de la cuenta vendedor de prueba de Mercado Pago.",
           "PAYMENT_TEST_SELLER_REQUIRED",
         );
-      testSellerUntil = now() + 300000;
+      sellerMode = config.mode;
+      sellerUntil = now() + 300000;
     }
     const ledgerKey = `payments:order:${user.id}:${key}`;
     let existing = await db.appConfig.findUnique({
@@ -182,6 +186,8 @@ function createPaymentService({
     });
     if (existing?.valor?.checkout && (existing.valor.centimos!==config.price || existing.valor.modo!==config.mode))
       throw new HttpError(409,"El precio o el entorno de pago cambió. Vuelve a iniciar la compra.","PAYMENT_PRICE_CHANGED");
+    if (existing?.valor?.checkout && Date.parse(existing.valor.creadoEn)+30*60000<=now())
+      throw new HttpError(409,"El enlace de pago venció. Inicia una nueva compra desde CiviGo.","PAYMENT_CHECKOUT_EXPIRED");
     if (existing?.valor?.checkout)
       return {
         referencia: existing.valor.referencia,

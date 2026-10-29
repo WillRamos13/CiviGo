@@ -2,7 +2,7 @@
 // Real Chromium/React/Mapbox. GPS, civic data and route API are local fixtures.
 const {app,server,windows,requests,errors,rendererConsoleErrors,createClient,waitUntil,delay,setIncidents,incident}=require('./map-live-smoke.cjs');
 const assert=require('node:assert/strict'),fs=require('node:fs/promises'),path=require('node:path'),{once}=require('node:events');
-const out=path.resolve(__dirname,'../.local/oct20-years/screenshots');
+const out=path.resolve(__dirname,'../.local/oct29-map/screenshots');
 app.commandLine.appendSwitch('enable-unsafe-swiftshader');
 app.on('window-all-closed',()=>{});
 const results=[];
@@ -35,8 +35,8 @@ async function run() {
       document.querySelector('.map-recenter').click();`);
     await waitUntil(win,`document.querySelector('summary')?.textContent.includes('Mi ubicación')`,12000);
     await js(`document.querySelector('.map-controls > button').click()`);
-    await waitUntil(win,`Array.from(document.querySelectorAll('fieldset legend')).some(e=>e.textContent==='Años del incidente')`);
-    await js(`Array.from(document.querySelectorAll('fieldset label')).find(e=>e.textContent==='Todos los años').querySelector('input').click()`);
+    await waitUntil(win,`Array.from(document.querySelectorAll('fieldset legend')).some(e=>e.textContent==='Antigüedad de los reportes')`);
+    await js(`Array.from(document.querySelectorAll('fieldset label')).find(e=>e.textContent==='Últimos 12 meses').querySelector('input').click()`);
     await waitUntil(win,`document.querySelector('.map-route-panel > button').textContent.includes('0 en mapa')`);
     await js(`Array.from(document.querySelectorAll('fieldset label')).find(e=>e.textContent==='2024').querySelector('input').click()`);
     await waitUntil(win,`document.querySelector('.map-route-panel > button').textContent.includes('1 en mapa')`);
@@ -89,25 +89,27 @@ async function run() {
     assert.equal(await js(`document.querySelectorAll('section[aria-label="Alternativas de recorrido"] > button').length`),3);
     await js(`Array.from(document.querySelectorAll('.map-route-panel button')).find(b=>b.textContent.includes('Iniciar recorrido')).click()`);
     await waitUntil(win,`!!document.querySelector('.navigation-guidance')`);
-    await js(`Array.from(document.querySelectorAll('.navigation-guidance button')).find(b=>b.textContent.includes('Opciones')).click()`);
+    await js(`document.querySelector('.navigation-guidance button[aria-label="Opciones del recorrido"]').click()`);
     await waitUntil(win,`document.querySelector('.navigation-avatar-picker')!==null`);
-    await js(`document.querySelector('[data-navigation-avatar="suv"]').click()`);
+    await js(`document.querySelector('[data-navigation-avatar="car"]').click()`);
+    await waitUntil(win,`!!document.querySelector('select[aria-label="Modelo de auto"]')`);
+    await js(`(()=>{const select=document.querySelector('select[aria-label="Modelo de auto"]');Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype,'value').set.call(select,'suv');select.dispatchEvent(new Event('change',{bubbles:true}));})()`);
     await waitUntil(win,`document.querySelector('button[aria-label="Rojo"]')!==null`);
     await js(`document.querySelector('button[aria-label="Rojo"]').click()`);
     await waitUntil(win,`document.querySelector('.web-navigation-avatar')?.dataset.navigationAvatar==='suv:red'`);
-    assert.equal(await js(`document.querySelectorAll('.navigation-avatar-picker [role="radio"]').length`),9);
+    assert.equal(await js(`document.querySelectorAll('.navigation-avatar-picker [role="radio"]').length`),5);
     assert.equal(await js(`document.querySelectorAll('.navigation-vehicle-colors button').length`),5);
     await js(`document.querySelector('button[aria-label="Ampliar mapa a pantalla completa"]').click()`);
     await waitUntil(win,`document.querySelector('.map-frame').dataset.mapFullscreen==='true'`);
-    await js(`document.querySelector('button[aria-label="Abrir asistente de CiviGo"]').click()`);
+    await js(`Array.from(document.querySelectorAll('.navigation-guidance button')).find(b=>b.textContent==='Asistente').click()`);
     await waitUntil(win,`!!document.querySelector('.map-frame #civigo-assistant')`);
     await js(`document.querySelector('#civigo-assistant button[aria-label="Cerrar ayuda"]').click();document.querySelector('button[aria-label="Salir de pantalla completa"]').click()`);
     await waitUntil(win,`document.querySelector('.map-frame').dataset.mapFullscreen==='false'`);
-    await js(`Array.from(document.querySelectorAll('.navigation-guidance button')).find(b=>b.textContent.includes('Capas y ambiente')).click()`);
+    await js(`document.querySelector('.map-controls > button').click()`);
     await waitUntil(win,`document.querySelector('.map-controls > button').getAttribute('aria-expanded')==='true'`);
     await js(`document.querySelector('.map-controls > button').click();Array.from(document.querySelectorAll('.navigation-guidance button')).find(b=>b.textContent.includes('Ver ruta completa')).click()`);
     assert.equal(await js(`window.__originalCanvas===document.querySelector('.mapboxgl-canvas')`),true);
-    await js(`Array.from(document.querySelectorAll('.navigation-guidance button')).find(b=>b.textContent==='Centrar').click();Array.from(document.querySelectorAll('.navigation-guidance button')).find(b=>b.textContent.includes('Opciones')).click()`);
+    await js(`document.querySelector('.map-recenter').click();document.querySelector('.navigation-guidance button[aria-label="Opciones del recorrido"]').click()`);
 
     await delay(500);
     await js(`document.querySelector('.map-controls > button').click()`);
@@ -126,13 +128,13 @@ async function run() {
     for(const theme of ['light','dark']) {
       await themeTo(theme);await js(`window.scrollTo(0,0)`);await delay(700);
       const layout=await js(`(()=>{const e=document.querySelector('.map-route-panel'),r=e.getBoundingClientRect();return{height:r.height,width:r.width,overflow:document.documentElement.scrollWidth>innerWidth,canvasSame:window.__originalCanvas===document.querySelector('.mapboxgl-canvas'),text:e.innerText}})()`);
-      assert.equal(layout.overflow,false);assert.equal(layout.canvasSame,true);assert.match(layout.text,/EN CAMINO/);assert.match(layout.text,/Finalizar/);
-      if(width===390)assert.ok(layout.height<=230);
+      assert.equal(layout.overflow,false);assert.equal(layout.canvasSame,true);assert.match(layout.text,/Finalizar/);assert.equal(await js(`document.querySelectorAll('.risk-legend,.traffic-legend').length`),0);
+      const hud=await js(`(()=>{const turn=document.querySelector('.next-maneuver').getBoundingClientRect(),area=document.querySelector('.navigation-guidance').getBoundingClientRect();return {turnY:turn.y,center:turn.x+turn.width/2,areaWidth:area.width,areaHeight:area.height}})()`);assert.ok(hud.turnY<50);assert.ok(Math.abs(hud.center-width/2)<3);assert.ok(Math.abs(hud.areaWidth-width)<2);assert.ok(Math.abs(hud.areaHeight-height)<2);
       results.push({width,height,theme,mode:'navigation',layout});
       await screenshot(`navegacion-${width}x${height}-${theme}.png`);
     }
     await js(`document.querySelector('.map-route-panel > button').click()`);
-    await js(`Array.from(document.querySelectorAll('.navigation-guidance button')).find(b=>b.textContent.includes('Opciones')).click()`);
+    await js(`document.querySelector('.navigation-guidance button[aria-label="Opciones del recorrido"]').click()`);
     await waitUntil(win,`Array.from(document.querySelectorAll('.navigation-guidance button')).some(b=>b.textContent.includes('Recalcular'))`);
     const beforeReplan=requests.filter(r=>r.planBody).length;
     await js(`Array.from(document.querySelectorAll('.navigation-guidance button')).find(b=>b.textContent.includes('Recalcular')).click()`);

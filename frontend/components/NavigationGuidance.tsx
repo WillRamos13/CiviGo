@@ -3,26 +3,22 @@ import {
   ArrowUp,
   CornerUpLeft,
   CornerUpRight,
-  LocateFixed,
   Volume2,
   VolumeX,
   Square,
-  LoaderCircle,
   SlidersHorizontal,
-  Layers,
   Route as RouteIcon,
-  Compass,
   MessageCircle,
-  TriangleAlert,
+  RefreshCw,
 } from "lucide-react";
+import { useEffect, useState } from "react";
 import { AvatarPicker } from "./NavigationAvatar";
 import type { NavigationAvatar } from "@/lib/navigation-avatar";
 import { formatMeters, type NavigationProgress } from "@/lib/navigation";
-import type { Ruta } from "@/lib/types";
 import { reliableSpeed, routeTimeSource } from "@/lib/navigation-presentation";
-import { useEffect, useState } from "react";
-import styles from "./NavigationGuidance.module.css";
 import { formatDuration } from "@/lib/duration";
+import type { Ruta } from "@/lib/types";
+import styles from "./NavigationGuidance.module.css";
 export type GuidanceProps = {
   progress: NavigationProgress | null;
   notice: string;
@@ -46,18 +42,14 @@ export default function NavigationGuidance({
   recalculating,
   muted,
   toggleMuted,
-  recenter,
   recalculate,
-  compact = false,
+  onOverview,
   avatar = "arrow",
   onAvatarChange,
-  onLayers,
-  onOverview,
-  onNorth,
   avatarNotice,
 }: GuidanceProps & { route: Ruta; onFinish: () => void; compact?: boolean }) {
-  const [options, setOptions] = useState(false);
-  const [now, setNow] = useState(() => Date.now());
+  const [options, setOptions] = useState(false),
+    [now, setNow] = useState(Date.now);
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(timer);
@@ -76,40 +68,33 @@ export default function NavigationGuidance({
   const speed = reliableSpeed(progress?.position, now);
   return (
     <section
-      className={`navigation-guidance ${styles.guidance} ${compact ? styles.compact : ""}`}
+      className={`navigation-guidance ${styles.guidance}`}
       aria-label="Navegación del recorrido"
-      data-compact={compact}
     >
-      {route.copiaGuardada && (
-        <p className="navigation-notice">
-          Copia guardada: tiempos y condiciones anteriores. Se intentará
-          actualizar desde tu ubicación cuando haya conexión.
-        </p>
-      )}
       <div className={`next-maneuver ${styles.maneuver}`}>
-        <Icon size={30} aria-hidden="true" />
-        <div title={progress?.instruction}>
+        <Icon size={32} />
+        <div>
           <strong>
             {progress
               ? formatMeters(progress.distanceToTurn)
               : "Esperando GPS…"}
           </strong>
           <p>
-            {progress?.instruction ??
+            {progress?.instruction ||
               "Permite el acceso a tu ubicación para iniciar."}
           </p>
         </div>
       </div>
       <div className={styles.metrics}>
-        <div className={styles.remaining}>
+        <div>
           <strong>
             {formatDuration(progress?.secondsRemaining ?? route.duracion)}
           </strong>
           <span>
-            {formatMeters(progress?.distanceRemaining ?? route.distancia)} ·{" "}
-            {arrival && Number.isFinite(arrival.getTime())
-              ? `Llegada ${arrival.toLocaleTimeString("es-PE", { hour: "2-digit", minute: "2-digit", timeZone: "America/Lima" })}`
-              : "Llegada pendiente del GPS"}
+            {formatMeters(progress?.distanceRemaining ?? route.distancia)}
+            {arrival &&
+              Number.isFinite(arrival.getTime()) &&
+              ` · Llegada ${arrival.toLocaleTimeString("es-PE", { hour: "2-digit", minute: "2-digit", timeZone: "America/Lima" })}`}
           </span>
         </div>
         <div
@@ -119,134 +104,85 @@ export default function NavigationGuidance({
               ? "Velocidad GPS no disponible"
               : `Velocidad GPS ${speed} kilómetros por hora`
           }
-          title={
-            speed === null
-              ? "Se necesita una lectura GPS reciente y precisa."
-              : undefined
-          }
         >
           <strong>{speed ?? "—"}</strong>
           <small>km/h</small>
         </div>
-        <button type="button" className={styles.finish} onClick={onFinish}>
-          <Square size={12} aria-hidden="true" />
+        <button className={styles.finish} onClick={onFinish}>
+          <Square size={12} />
           Finalizar
         </button>
       </div>
-      <small className={styles.source}>{routeTimeSource(route, now)}</small>
       {notice && (
         <p className={styles.notice} role="status">
-          {recalculating && <LoaderCircle size={13} className="spin" />}
+          {recalculating && "Actualizando · "}
           {notice}
         </p>
       )}
-      <div className={`navigation-actions ${styles.controls}`}>
-        <button
-          type="button"
-          className="icon-btn"
-          aria-label={muted ? "Activar voz" : "Silenciar voz"}
-          onClick={toggleMuted}
-        >
-          {muted ? <VolumeX size={19} /> : <Volume2 size={19} />}
-        </button>
-        <button
-          type="button"
-          className="btn btn-secondary btn-small"
-          onClick={recenter}
-        >
-          <LocateFixed size={14} />
-          Centrar
-        </button>
-        <button
-          type="button"
-          className="icon-btn"
-          aria-label="Abrir asistente de CiviGo"
-          onClick={() =>
-            window.dispatchEvent(new Event("civigo:open-assistant"))
-          }
-        >
-          <MessageCircle size={18} />
-        </button>
-        <button
-          type="button"
-          className="btn btn-secondary btn-small"
-          aria-expanded={options}
-          onClick={() => setOptions((value) => !value)}
-        >
-          <SlidersHorizontal size={15} />
-          Opciones
-        </button>
-      </div>
+      <button
+        type="button"
+        className={`icon-btn ${styles.optionsButton}`}
+        aria-label="Opciones del recorrido"
+        title="Opciones del recorrido"
+        aria-expanded={options}
+        onClick={() => setOptions((v) => !v)}
+      >
+        <SlidersHorizontal size={20} />
+      </button>
       {options && (
-        <div className={styles.options} aria-label="Opciones del recorrido">
+        <aside className={styles.options} aria-label="Opciones del recorrido">
+          <h3>Tu recorrido</h3>
           <div className={styles.controls}>
-            {onLayers && (
-              <button
-                className="btn btn-secondary btn-small"
-                onClick={onLayers}
-              >
-                <Layers size={14} />
-                Capas y ambiente
-              </button>
-            )}
+            <button
+              className="btn btn-secondary btn-small"
+              aria-label={muted ? "Activar voz" : "Silenciar voz"}
+              onClick={toggleMuted}
+            >
+              {muted ? <VolumeX size={16} /> : <Volume2 size={16} />}{" "}
+              {muted ? "Activar voz" : "Silenciar voz"}
+            </button>
+            <button
+              className="btn btn-secondary btn-small"
+              onClick={() =>
+                window.dispatchEvent(new Event("civigo:open-assistant"))
+              }
+            >
+              <MessageCircle size={16} />
+              Asistente
+            </button>
             {onOverview && (
               <button
                 className="btn btn-secondary btn-small"
                 onClick={onOverview}
               >
-                <RouteIcon size={14} />
+                <RouteIcon size={16} />
                 Ver ruta completa
-              </button>
-            )}
-            {onNorth && (
-              <button className="btn btn-secondary btn-small" onClick={onNorth}>
-                <Compass size={14} />
-                Orientar al norte
               </button>
             )}
             {recalculate && (
               <button
-                type="button"
                 className="btn btn-secondary btn-small"
                 disabled={recalculating}
                 onClick={() =>
                   recalculate("Actualizando el recorrido a petición tuya…")
                 }
               >
-                <LoaderCircle size={14} />
+                <RefreshCw size={16} />
                 Recalcular
               </button>
             )}
-            <a
-              className="btn btn-secondary btn-small"
-              href="/reportar"
-              target="_blank"
-              rel="noopener noreferrer"
-              title="Abre el formulario en otra pestaña y conserva la navegación"
-            >
-              <TriangleAlert size={14} />
-              Reportar incidente ↗
-            </a>
           </div>
           {onAvatarChange && (
             <AvatarPicker value={avatar} onChange={onAvatarChange} />
           )}
-          {avatarNotice && (
-            <p className="notice" role="status">
-              {avatarNotice}
+          <small>{routeTimeSource(route, now)}</small>
+          {route.copiaGuardada && (
+            <p className="notice">
+              Copia guardada. Actualiza las condiciones antes de circular.
             </p>
           )}
-          <small className="muted">
-            La voz requiere que el navegador la admita. Reportar abre otra
-            pestaña para mantener el recorrido. Detente en un lugar seguro antes
-            de cambiar opciones.
-          </small>
-        </div>
-      )}
-      {!compact && (
-        <small className="muted">
-          Mantén esta página abierta durante el recorrido.
-        </small>
+          {avatarNotice && <p role="status">{avatarNotice}</p>}
+        </aside>
       )}
     </section>
   );

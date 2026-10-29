@@ -2,18 +2,5 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {getIncidentIconPath} from '../src/services/incidentIcons';
-test('Hurto has a dedicated bundled PNG with alpha instead of the generic alert badge',()=>{
-    assert.equal(getIncidentIconPath('HURTO'),'/iconos/hurto.png');
-    assert.equal(getIncidentIconPath(undefined,'Hurto'),'/iconos/hurto.png');
-    const png=readFileSync('public/iconos/hurto.png');
-    assert.equal(png.subarray(0,8).toString('hex'),'89504e470d0a1a0a');
-    assert.equal(png.readUInt32BE(16),256);assert.equal(png.readUInt32BE(20),256);assert.equal(png[25],6);
-});
-
-test('Extorsión normalizes accents and uses its dedicated transparent PNG',()=>{
-    assert.equal(getIncidentIconPath('Extorsión'),'/iconos/extorsion.png');
-    assert.equal(getIncidentIconPath(undefined,'extorsion'),'/iconos/extorsion.png');
-    const png=readFileSync('public/iconos/extorsion.png');
-    assert.equal(png.subarray(0,8).toString('hex'),'89504e470d0a1a0a');
-    assert.equal(png.readUInt32BE(16),256);assert.equal(png.readUInt32BE(20),256);assert.equal(png[25],6);
-});
+for(const name of ['hurto','extorsion','amenazas','humo','pelea','animal-peligroso'])test(name+' usa una insignia propia local sin fondo',()=>{const path='/incident-symbols/'+name+'.svg';assert.equal(getIncidentIconPath(name.toUpperCase()),path);const svg=readFileSync('public'+path,'utf8');assert.match(svg,/<svg/);assert.doesNotMatch(svg,/<(?:script|image|foreignObject)|href=|onload=/i);});
+test('insignias normalizan acentos y familias históricas',()=>{assert.equal(getIncidentIconPath('Extorsión'),'/incident-symbols/extorsion.svg');assert.equal(getIncidentIconPath('hurto-agravado'),'/incident-symbols/hurto.svg');});

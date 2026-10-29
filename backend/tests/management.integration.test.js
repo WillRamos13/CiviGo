@@ -415,7 +415,7 @@ test(
           });
           assert.equal(business.status, 201, JSON.stringify(business.json));
           businessIds.push(business.json.id);
-          assert.equal(business.json.demo, true);
+          assert.equal(business.json.demo, false);
           assert.equal(
             (
               await request(`/admin/businesses/${business.json.id}`, {

@@ -33,7 +33,7 @@ export async function api<T>(path: string, options: ApiOptions = {}): Promise<T>
         if (response.status >= 500) {
             message = 'El servicio de CiviGo no está disponible en este momento. Inténtalo de nuevo.';
             if(response.status===503&&typeof data?.code==='string'&&data.code.startsWith('PAYMENT_')){
-                const messages:Record<string,string>={PAYMENT_TEST_SELLER_REQUIRED:'La prueba de Mercado Pago aún requiere configurar la cuenta vendedor de prueba. Comunícalo al administrador.',PAYMENT_CONFIGURATION:'La dirección del servicio de pagos no está configurada. Comunícalo al administrador.',PAYMENT_CREDENTIALS:'Mercado Pago rechazó la configuración del pago. Comunícalo al administrador.',PAYMENT_PROVIDER:'Mercado Pago no pudo preparar el pago. Inténtalo más tarde.'};
+                const messages:Record<string,string>={PAYMENT_PRODUCTION_SELLER_REQUIRED:'Los cobros reales requieren configurar la cuenta real de Mercado Pago. Comunícalo al administrador.',PAYMENT_TEST_SELLER_REQUIRED:'La prueba de Mercado Pago aún requiere configurar la cuenta vendedor de prueba. Comunícalo al administrador.',PAYMENT_CONFIGURATION:'La dirección del servicio de pagos no está configurada. Comunícalo al administrador.',PAYMENT_CREDENTIALS:'Mercado Pago rechazó la configuración del pago. Comunícalo al administrador.',PAYMENT_PROVIDER:'Mercado Pago no pudo preparar el pago. Inténtalo más tarde.'};
                 message=messages[data.code]||'No se pudo preparar el pago. Inténtalo más tarde.';
             }
             if (response.status === 503 && data?.code === 'ROADS_UNAVAILABLE')

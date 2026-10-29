@@ -178,7 +178,7 @@ function AccountCheckout() {
           Pago preparado.{" "}
           <a className="btn btn-primary" href={checkoutLink}>
             Abrir Mercado Pago
-          </a>
+          </a>{" "}<button type="button" className="btn btn-secondary" onClick={()=>{setCheckoutLink('');setError('');setOrder(null);setCatalogBusy(true);setCatalogRevision(value=>value+1);}}>Preparar otro enlace</button>
         </p>
       )}
       {!catalog && !catalogBusy && (

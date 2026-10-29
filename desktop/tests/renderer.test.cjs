@@ -108,7 +108,7 @@ function componentFixture(file, imports = {}) {
     useRef(initial) { return react.useState(() => ({ current: initial }))[0]; },
   };
   const runtime = { jsx: (type, props) => ({ type, props }), jsxs: (type, props) => ({ type, props }), Fragment: 'fragment' };
-  const source = loadSource(file, { react, 'react/jsx-runtime': runtime, ...imports }, {}, {
+  const source = loadSource(file, { react, 'react/jsx-runtime': runtime, '@/lib/announcements': loadSource('lib/announcements.ts',{},{}), '@/components/AnnouncementImagePreview': {default:'advert-preview'}, ...imports }, {}, {
     FormData: class { constructor(fields) { this.fields = fields; } get(name) { return this.fields[name] ?? null; } },
   });
   function mount(Component, props = {}) {

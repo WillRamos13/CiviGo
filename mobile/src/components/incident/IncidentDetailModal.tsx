@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { X, CheckCircle, MessageSquare, Send, Shield, AlertTriangle, Image as ImageIcon, Flag, CheckCheck } from 'lucide-react';
 import { IncidentIcon } from '../map/IncidentIcon';
+import {getIncidentIconPath} from '../../services/incidentIcons';
 import { AuthenticatedMedia } from './AuthenticatedMedia';
 import { api, post, formatDate, errorMessage } from '../../services/api';
 import { useAuth } from '../../hooks/useAuth';
@@ -318,6 +319,7 @@ export const IncidentDetailModal: React.FC<IncidentDetailModalProps> = ({
         <div style={{ flex: 1, overflowY: 'auto', marginBottom: 12 }}>
           {activeTab === 'info' ? (
             <>
+              {!incidente.adjuntos?.some(item=>item.mimeType?.startsWith('image/')&&!item.privado)&&<figure className="incident-type-illustration"><img src={getIncidentIconPath(incidente.tipoSlug,incidente.tipoNombre,incidente.tipo)} width={105} height={105} alt={incidente.tipoNombre||incidente.tipo}/><figcaption>Ilustración del tipo de incidente{incidente.individual?' · Pruebas privadas':''}</figcaption></figure>}
               {incidente.descripcion ? (
                 <div style={{ marginBottom: 16 }}>
                   <h4 style={{ fontSize: 13, marginBottom: 6 }}>Descripción del hecho</h4>

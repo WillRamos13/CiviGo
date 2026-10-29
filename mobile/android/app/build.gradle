@@ -8,8 +8,8 @@ android {
         applicationId "com.civigo.app"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 3
-        versionName "1.1.0"
+        versionCode 4
+        versionName "1.1.1"
         // Public application identifiers; Spotify client secrets never belong in an APK.
         resValue 'string', 'spotify_client_id', providers.environmentVariable('CIVIGO_SPOTIFY_CLIENT_ID').getOrElse('').trim()
         resValue 'string', 'spotify_redirect_uri', providers.environmentVariable('CIVIGO_SPOTIFY_REDIRECT_URI').getOrElse('civigo://spotify-callback').trim()

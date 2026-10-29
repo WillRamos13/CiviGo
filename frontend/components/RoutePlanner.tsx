@@ -1,5 +1,6 @@
 'use client';
 import Link from 'next/link';
+import CiviDroid from './CiviDroid';
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { Footprints, Bike, Car, MapPin, Bookmark, Navigation, Square, ArrowDownUp, Search, ShieldCheck, Timer, Scale, ChevronRight, Check, AlertTriangle } from 'lucide-react';
 import { useAuth } from './AuthProvider';
@@ -32,9 +33,9 @@ function AccountRoutePlanner({ onRoute, active, following, onFollow, recalculate
     const cleanupRequests = useCallback(() => { mounted.current = false; planEpoch.current++; selectionEpoch.current++; requests.current.forEach(c => c.abort()); requests.current.clear(); }, []);
     useEffect(() => { mounted.current = true; return cleanupRequests; }, [cleanupRequests]);
     const newRequest = () => { const controller = new AbortController(); requests.current.add(controller); return controller; };
-    const invalidate = () => { planEpoch.current++; selectionEpoch.current++; planRequest.current?.abort(); setRoutes([]); setBusy(false); setMessage(''); setError(''); setLoadedCopy(false); onRoute(null); onFollow(false); };
+    const invalidate = useCallback(() => { planEpoch.current++; selectionEpoch.current++; planRequest.current?.abort(); setRoutes([]); setBusy(false); setMessage(''); setError(''); setLoadedCopy(false); onRoute(null); onFollow(false); },[onRoute,onFollow]);
     const changeOrigin = (value: Punto | null) => { originTouched.current = true; invalidate(); setOrigin(value); setManualOrigin(value ? [String(value.latitud), String(value.longitud)] : ['', '']); };
-    const changeDestination = (value: Punto | null) => { invalidate(); setDestination(value); setManualDestination(value ? [String(value.latitud), String(value.longitud)] : ['', '']); };
+    const changeDestination = useCallback((value: Punto | null) => { invalidate(); setDestination(value); setManualDestination(value ? [String(value.latitud), String(value.longitud)] : ['', '']); },[invalidate]);
     const changeManual = (isOrigin: boolean, axis: number, text: string) => {
         if (isOrigin) originTouched.current = true;
         const values = [...isOrigin ? manualOrigin : manualDestination]; values[axis] = text;
@@ -64,7 +65,7 @@ function AccountRoutePlanner({ onRoute, active, following, onFollow, recalculate
         }).catch(() => {});
         return () => { current = false; controller.abort(); };
     }, [accountId, premium, offline]);
-    const plan = async () => {
+    const plan = async (selectedMode = mode) => {
         if (!isPosition(origin) || !isPosition(destination)) return setError('Selecciona un origen y destino con coordenadas válidas.');
         if (offline) return setError('Para actualizar las condiciones del recorrido necesitas conexión. Puedes consultar tus copias guardadas.');
         planRequest.current?.abort();
@@ -72,7 +73,7 @@ function AccountRoutePlanner({ onRoute, active, following, onFollow, recalculate
         planRequest.current = controller;
         setBusy(true); setError(''); setMessage(''); setRoutes([]); setLoadedCopy(false); onFollow(false); onRoute(null);
         try {
-            const data = await post<{rutas: Ruta[]}>('/navigation/plan', {origen: origin, destino: destination, modo: mode}, {signal: controller.signal});
+            const data = await post<{rutas: Ruta[]}>('/navigation/plan', {origen: origin, destino: destination, modo: selectedMode}, {signal: controller.signal});
             if (!mounted.current || epoch !== planEpoch.current) return;
             if (!Array.isArray(data.rutas) || !data.rutas.every(isRoute)) throw new Error('El servicio devolvió recorridos incompletos. Inténtalo de nuevo.');
             setRoutes(data.rutas);
@@ -81,7 +82,7 @@ function AccountRoutePlanner({ onRoute, active, following, onFollow, recalculate
         finally { requests.current.delete(controller); if (mounted.current && epoch === planEpoch.current) setBusy(false); }
     };
     useEffect(() => {
-        if (recalculate > 0) void Promise.resolve().then(plan);
+        if (recalculate > 0) void Promise.resolve().then(()=>plan());
         // Recalculation is explicitly triggered by the route alert button.
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [recalculate]);
@@ -134,6 +135,7 @@ function AccountRoutePlanner({ onRoute, active, following, onFollow, recalculate
             if (mounted.current) setError(errorMessage(e));
         } finally { if (mounted.current) setLocating(false); }
     };
+    useEffect(()=>{const choose=(event:Event)=>{const value=(event as CustomEvent<Punto>).detail;if(isPosition(value)&&typeof value.nombre==='string'){changeDestination(value);setMessage('Destino elegido. Selecciona tu transporte.');}};window.addEventListener('civigo:choose-place',choose);return()=>window.removeEventListener('civigo:choose-place',choose);},[changeDestination]);
     const swapPoints = () => {
         originTouched.current = true;
         invalidate();
@@ -151,11 +153,10 @@ function AccountRoutePlanner({ onRoute, active, following, onFollow, recalculate
         </div>;
     }
     return <div className={'card ' + styles.planner}>
-        <div className="card-header"><h2>¿A dónde vamos?</h2><Navigation size={18} aria-hidden="true"/></div>
-        <p className={'muted ' + styles.intro}>Rutas desde tu ubicación GPS.</p>
-        <div className={'route-mode ' + styles.modes} role="group" aria-label="Modo de recorrido">
+        <CiviDroid destination={destination?.nombre} onSearch={query=>setExplorer({open:true,query})}/>
+        <div className={'route-mode ' + styles.modes} role="group" aria-label="Modo de recorrido" hidden={!destination}>
             {[{ id: 'walking', name: 'A pie', icon: Footprints }, { id: 'cycling', name: 'Bicicleta', icon: Bike }, { id: 'driving', name: 'Auto', icon: Car }].map(({ id, name, icon: Icon }) =>
-                <button type="button" aria-pressed={mode === id} className={mode === id ? 'selected' : ''} key={id} onClick={() => { invalidate(); setMode(id); }}>
+                <button type="button" aria-pressed={mode === id} className={mode === id ? 'selected' : ''} key={id} onClick={() => { setMode(id); if(destination && origin)void plan(id); else invalidate(); }}>
                     <Icon size={20} aria-hidden="true"/><span>{name}</span>
                 </button>)}
         </div>
@@ -194,7 +195,7 @@ function AccountRoutePlanner({ onRoute, active, following, onFollow, recalculate
             {saved.slice(0, 8).map(item => <button type="button" key={`saved-${item.id}`} onClick={() => loadCopy(item.datos, item.origen, item.destino, item.modo, 'Favorito cargado. Actualiza sus condiciones antes de iniciar.')}><Bookmark size={13} aria-hidden="true"/>{item.nombre}</button>)}
         </div>
         <div className={'route-planner-search ' + styles.searchAction}>
-            <button type="button" className={'btn btn-primary ' + styles.fullWidth} disabled={busy || offline || !origin || !destination} onClick={plan}>
+            <button type="button" className={'btn btn-primary ' + styles.fullWidth} disabled={busy || offline || !origin || !destination} onClick={() => void plan()}>
                 <Navigation size={16} aria-hidden="true"/>{busy ? 'Calculando alternativas…' : 'Buscar recorridos'}
             </button>
         </div>

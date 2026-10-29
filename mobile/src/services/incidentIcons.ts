@@ -14,8 +14,12 @@ const ICON_MAP: Record<string, string> = {
   'intento-de-robo': '/iconos/intento de robo.png',
   'inundacion': '/iconos/inundacion.png',
   'robo': '/iconos/robo.png',
-  'hurto': '/iconos/hurto.png',
-  'extorsion': '/iconos/extorsion.png',
+  'hurto': '/incident-symbols/hurto.svg',
+  'extorsion': '/incident-symbols/extorsion.svg',
+  'amenazas': '/incident-symbols/amenazas.svg',
+  'humo': '/incident-symbols/humo.svg',
+  'pelea': '/incident-symbols/pelea.svg',
+  'animal-peligroso': '/incident-symbols/animal-peligroso.svg',
   'semaforo': '/iconos/semaforo.png',
   'semaforo-danado': '/iconos/semaforo.png',
   'persona-sospechosa': '/iconos/sospechoso.png',
@@ -36,9 +40,8 @@ export const normalizeIconSlug = normalizeIncidentSlug;
 export function getIncidentIconPath(...candidates: (string | undefined | null)[]): string {
   for (const candidate of candidates) {
     const slug = normalizeIncidentSlug(candidate);
-    if (slug && ICON_MAP[slug]) {
-      return ICON_MAP[slug];
-    }
+    const family=slug.startsWith('hurto-')?'hurto':slug.startsWith('extorsion-')?'extorsion':slug.startsWith('amenaza')?'amenazas':slug.startsWith('humo')?'humo':['rina','peleas'].includes(slug)?'pelea':slug;
+    if (family && ICON_MAP[family]) return ICON_MAP[family];
   }
   return '/iconos/alerta.svg';
 }

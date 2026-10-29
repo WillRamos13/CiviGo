@@ -3,6 +3,9 @@ import { filterIncidentsByYears, incidentYearOptions, type IncidentYears } from 
 import { MapView } from '../components/map/MapView';
 import { MapStatusNotice } from '../components/map/MapStatusNotice';
 import { RoutePlanner } from '../components/navigation/RoutePlanner';
+import {DestinationExplorer} from '../components/navigation/DestinationExplorer';
+import NearbyBusinessCard from '../components/navigation/NearbyBusinessCard';
+import {useNearbyBusiness} from '../hooks/useNearbyBusiness';
 import { IncidentDetailModal } from '../components/incident/IncidentDetailModal';
 import { NearbyIncidentCards } from '../components/incident/NearbyIncidentCards';
 import { ChatBotModal } from '../components/chat/ChatBotModal';
@@ -25,8 +28,9 @@ export const MapPage: React.FC<MapPageProps> = ({ visible = true, onGoReport, on
   const { usuario, loading: sessionLoading } = useAuth();
   const foreground = useAppActivity();
   const [incidents, setIncidents] = useState<Incidente[]>([]);
-  const [selectedYears, setSelectedYears] = useState<IncidentYears>(null);
+  const [selectedYears, setSelectedYears] = useState<IncidentYears>(['ultimos-12-meses']);
   const [selectedIncident, setSelectedIncident] = useState<Incidente | null>(null);
+  const [placeCard,setPlaceCard]=useState<(Posicion&{nombre:string})|null>(null);
   const [focusedLocation, setFocusedLocation] = useState<Posicion | null>(null);
   const [activeRoute, setActiveRoute] = useState<Ruta | null>(null);
   const [isNavigating, setIsNavigating] = useState(false);
@@ -40,6 +44,7 @@ export const MapPage: React.FC<MapPageProps> = ({ visible = true, onGoReport, on
   const navigating = isNavigating && currentRouteAccount;
   const displayedRoute = currentRouteAccount ? activeRoute : null;
   const refreshEnabled = foreground && (visible || navigating);
+  const businessPromo=useNearbyBusiness(navigating,position,displayedRoute,usuario?.id??null,!!(usuario?.premium&&usuario.ocultarAnuncios),foreground);
   const tripController = useRef<ActiveTripController | null>(null);
   if (!tripController.current) tripController.current = new ActiveTripController(StorageService);
   tripController.current.setOwner(usuario && !usuario.bloqueado ? usuario.id : null);
@@ -297,7 +302,7 @@ export const MapPage: React.FC<MapPageProps> = ({ visible = true, onGoReport, on
   };
 
   return <div className={`map-mobile-screen ${navigating ? 'map-navigation-active' : ''}`} style={{ position: 'relative', width: '100%', height: '100%', overflow: 'hidden', '--map-sheet-height': `${sheetHeight}px` } as React.CSSProperties}>
-    {visible && <MapView incidentes={visibleIncidents} yearFilter={{options: years, selected: selectedYears, onChange: value => {setSelectedYears(value); setSelectedIncident(null);}}} ruta={displayedRoute} posicion={position} onSelectIncident={setSelectedIncident} onLocateMe={() => { setFocusedLocation(null); return locate(); }} locating={gpsLoading} onBoundsChange={onBoundsChange} refreshEnabled={refreshEnabled} following={navigating} recenterNonce={recenterNonce} onLayersOpen={() => setSheetOpen(false)} navigationMode={navigating} navigationExpanded={sheetOpen} layersOpen={layersOpen} onLayersOpenChange={setLayersOpen} navigationAvatar={navigationAvatar} restoredProgress={restoredProgress} focusedLocation={focusedLocation} statusNotices={<>
+    {visible && <MapView incidentes={visibleIncidents} yearFilter={{options: years, selected: selectedYears, onChange: value => {setSelectedYears(value); setSelectedIncident(null);}}} ruta={displayedRoute} posicion={position} onSelectIncident={setSelectedIncident} onSelectPlace={place=>{setSelectedIncident(null);setPlaceCard(place);}} onLocateMe={() => { setFocusedLocation(null); return locate(); }} locating={gpsLoading} onBoundsChange={onBoundsChange} refreshEnabled={refreshEnabled} following={navigating} recenterNonce={recenterNonce} onLayersOpen={() => setSheetOpen(false)} navigationMode={navigating} navigationExpanded={sheetOpen} layersOpen={layersOpen} onLayersOpenChange={setLayersOpen} navigationAvatar={navigationAvatar} restoredProgress={restoredProgress} focusedLocation={focusedLocation} statusNotices={<>
       {offline && <MapStatusNotice title="Sin conexión" retryDisabled={loadingIncidents} retryLabel="Reintentar alertas" onRetry={() => void loadIncidents()}><p>Se conserva la última información disponible.{!lastUpdated ? ' Aún no hay alertas cargadas.' : ''}</p>{error && <p>Consulta de alertas: {error}</p>}{lastUpdated && <small>Última actualización: {lastUpdated.toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit' })}</small>}</MapStatusNotice>}
       {historyError && (!navigating || sheetOpen) && <MapStatusNotice title="Historial sin guardar"><p>{historyError}</p></MapStatusNotice>}
       {!offline && error && <MapStatusNotice title="Alertas sin actualizar" retryDisabled={loadingIncidents} retryLabel="Reintentar alertas" onRetry={() => void loadIncidents()}><p>{error} {lastUpdated ? 'Se conserva la última información.' : 'Aún no hay alertas cargadas.'}</p>{lastUpdated && <small>Última actualización: {lastUpdated.toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit' })}</small>}</MapStatusNotice>}
@@ -326,6 +331,8 @@ export const MapPage: React.FC<MapPageProps> = ({ visible = true, onGoReport, on
       </div>
     </div>
     {selectedIncident && <IncidentDetailModal incidente={selectedIncident} onClose={() => setSelectedIncident(null)} onRefresh={loadIncidents} />}
+    <DestinationExplorer open={!!placeCard} initialPlace={placeCard} onClose={()=>setPlaceCard(null)} ownerId={usuario?.id??null} currentPosition={position} activeRoute={displayedRoute} navigationActive={navigating} onChooseDestination={place=>{window.dispatchEvent(new CustomEvent('civigo:choose-place',{detail:place}));setSheetOpen(true);}} onChooseStop={place=>{window.dispatchEvent(new CustomEvent('civigo:choose-place',{detail:place}));setSheetOpen(true);}} onShowPlace={place=>{setFocusedLocation(place);setPlaceCard(null);}}/>
+    {foreground&&businessPromo.ad&&<NearbyBusinessCard key={businessPromo.ad.id} business={businessPromo.ad} onClose={businessPromo.close} onInteract={businessPromo.pause} onDetails={()=>{businessPromo.pause();setFocusedLocation(businessPromo.ad);setSheetOpen(false);}}/>}
     <ChatBotModal isOpen={chatOpen} onClose={() => setChatOpen(false)} />
   </div>;
 };

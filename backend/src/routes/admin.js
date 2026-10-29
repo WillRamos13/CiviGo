@@ -1106,7 +1106,7 @@ function businessData(b, create = false) {
       throw new HttpError(400, "Estado inválido.");
     data.activo = b.activo;
   }
-  data.demo = true;
+  if(create)data.demo = false;
   return data;
 }
 router.get(
@@ -1115,9 +1115,9 @@ router.get(
   asyncRoute(async (req, res) =>
     res.json(
       await prisma.business.findMany({
-        include: { _count: { select: { impresiones: true } } },
+        include: { _count: { select: { impresiones: true } }, ...require('../lib/business-media').mediaInclude },
         orderBy: { id: "desc" },
-      }),
+      }).then(rows=>rows.map(row=>require('../lib/business-media').presentBusiness(row,{admin:true}))),
     ),
   ),
 );
@@ -1126,8 +1126,11 @@ router.post(
   adminOnly,
   asyncRoute(async (req, res) => {
     const data = businessData(req.body, true);
-    const row = await prisma.business.create({ data });
-    await audit(prisma, req.user, "CREAR", "NEGOCIO", row.id, data);
+    const row = await require('../lib/upload-quota').serializable(prisma,async db=>{
+      const row=await db.business.create({data});
+      await require('../lib/business-media').saveBusinessBanner(db,row,req.body,req.user.id);
+      await audit(db, req.user, "CREAR", "NEGOCIO", row.id, data);return row;
+    });
     res.status(201).json(row);
   }),
 );
@@ -1136,11 +1139,14 @@ router.patch(
   adminOnly,
   asyncRoute(async (req, res) => {
     const data = businessData(req.body);
-    const row = await prisma.business.update({
+    const row = await require('../lib/upload-quota').serializable(prisma,async db=>{
+    const row = await db.business.update({
       where: { id: id(req.params.id) },
       data,
     });
-    await audit(prisma, req.user, "ACTUALIZAR", "NEGOCIO", row.id, data);
+    await require('../lib/business-media').saveBusinessBanner(db,row,req.body,req.user.id);
+    await audit(db, req.user, "ACTUALIZAR", "NEGOCIO", row.id, data);return row;
+    });
     res.json(row);
   }),
 );

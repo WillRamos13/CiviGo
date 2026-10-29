@@ -1,7 +1,8 @@
-
-import { useState } from "react";
+import { useRef, useState } from "react";
 import EditorPanel from "@/components/EditorPanel";
-import { api } from "@/lib/api";
+import { api, upload } from "@/lib/api";
+import { validateAnnouncementImage } from "@/lib/announcements";
+import AnnouncementImagePreview from "@/components/AnnouncementImagePreview";
 import { Feedback, message, number, RemoteStatus, useRemote } from "./common";
 
 interface Business {
@@ -15,6 +16,8 @@ interface Business {
   latitud: number;
   longitud: number;
   activo: boolean;
+  imagenId?: string | null;
+  imagenAlt?: string;
   _count?: { impresiones: number };
   visualizaciones?: number;
 }
@@ -38,6 +41,50 @@ export default function BusinessesPanel() {
   const [pending, setPending] = useState(false);
   const [failure, setFailure] = useState("");
   const [success, setSuccess] = useState("");
+  const staged = useRef<string | null>(null);
+  async function removeStaged() {
+    if (staged.current) {
+      try {
+        await api("/uploads/" + staged.current, { method: "DELETE" });
+        staged.current = null;
+      } catch {
+        /* Normal upload cleanup retries later. */
+      }
+    }
+  }
+  async function chooseBanner(file?: File) {
+    if (!file || !draft || pending) return;
+    setPending(true);
+    setFailure("");
+    try {
+      validateAnnouncementImage(file);
+      const image = await upload(file, false, "ANUNCIO");
+      const previous = staged.current;
+      staged.current = image.id;
+      setDraft({
+        ...draft,
+        imagenId: image.id,
+        imagenAlt: draft.imagenAlt || `Publicidad de ${draft.nombre}`,
+      });
+      if (previous)
+        try {
+          await api("/uploads/" + previous, { method: "DELETE" });
+        } catch {
+          /* The server can remove an abandoned previous upload later. */
+        }
+    } catch (reason) {
+      setFailure(message(reason));
+    } finally {
+      setPending(false);
+    }
+  }
+  async function cancel() {
+    if (pending) return;
+    setPending(true);
+    await removeStaged();
+    setDraft(null);
+    setPending(false);
+  }
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!draft || pending) return;
@@ -56,10 +103,13 @@ export default function BusinessesPanel() {
           latitud: draft.latitud,
           longitud: draft.longitud,
           activo: draft.activo,
+          imagenId: draft.imagenId ?? null,
+          imagenAlt: draft.imagenAlt || draft.nombre,
         }),
       });
+      staged.current = null;
       setDraft(null);
-      setSuccess("El negocio de demostración se guardó.");
+      setSuccess("El negocio y su publicidad se guardaron.");
       reload();
     } catch (reason: unknown) {
       setFailure(message(reason));
@@ -79,7 +129,7 @@ export default function BusinessesPanel() {
           disabled={pending}
           onClick={() => {
             setDraft({ ...emptyBusiness });
-            setEditorOpening(value => value + 1);
+            setEditorOpening((value) => value + 1);
             setFailure("");
             setSuccess("");
           }}
@@ -117,7 +167,9 @@ export default function BusinessesPanel() {
                         )}{" "}
                         visualizaciones
                       </span>
-                      <span className="badge">Demostración</span>
+                      <span className="badge">
+                        {business.imagenId ? "Con banner" : "Sin banner"}
+                      </span>
                     </div>
                   </div>
                   <button
@@ -129,7 +181,7 @@ export default function BusinessesPanel() {
                         sitioWeb: business.sitioWeb ?? "",
                         telefono: business.telefono ?? "",
                       });
-                      setEditorOpening(value => value + 1);
+                      setEditorOpening((value) => value + 1);
                       setFailure("");
                     }}
                   >
@@ -142,154 +194,211 @@ export default function BusinessesPanel() {
         </section>
       )}
       {draft && (
-        <EditorPanel label={draft.id ? "Editar negocio" : "Registrar negocio"} selectionKey={`${draft.id ?? "new-business"}:${editorOpening}`}>
-        <form className="card mt-5 brand-border" onSubmit={submit}>
-          <fieldset disabled={pending} className="contents">
-          <h2 className="text-xl font-bold mb-5">
-            {draft.id ? "Editar negocio" : "Nuevo negocio"}
-          </h2>
-          <div className="grid-2">
-            <label className="field">
-              Nombre
-              <input
-                required
-                minLength={3}
-                maxLength={120}
-                value={draft.nombre}
-                onChange={(event) =>
-                  setDraft({ ...draft, nombre: event.target.value })
-                }
-              />
-            </label>
-            <label className="field">
-              Dirección
-              <input
-                required
-                minLength={3}
-                maxLength={300}
-                value={draft.direccion}
-                onChange={(event) =>
-                  setDraft({ ...draft, direccion: event.target.value })
-                }
-              />
-            </label>
-            <label className="field">
-              Horario
-              <input
-                maxLength={150}
-                value={draft.horario}
-                onChange={(event) =>
-                  setDraft({ ...draft, horario: event.target.value })
-                }
-                placeholder="Lunes a sábado, 9:00 a 18:00"
-              />
-            </label>
-            <label className="field">
-              Teléfono
-              <input
-                type="tel"
-                maxLength={30}
-                value={draft.telefono}
-                onChange={(event) =>
-                  setDraft({ ...draft, telefono: event.target.value })
-                }
-              />
-            </label>
-            <label className="field">
-              Sitio web
-              <input
-                type="url"
-                maxLength={500}
-                value={draft.sitioWeb}
-                onChange={(event) =>
-                  setDraft({ ...draft, sitioWeb: event.target.value })
-                }
-                placeholder="https://"
-              />
-            </label>
-          </div>
-          <label className="field mt-4">
-            Descripción o promoción
-            <textarea
-              required
-              rows={3}
-              minLength={5}
-              maxLength={500}
-              value={draft.descripcion}
-              onChange={(event) =>
-                setDraft({ ...draft, descripcion: event.target.value })
-              }
-            />
-          </label>
-          <fieldset className="mt-5">
-            <legend className="font-bold mb-3">Ubicación del negocio</legend>
-            <div className="grid-2">
-              <label className="field">
-                Latitud
-                <input
+        <EditorPanel
+          label={draft.id ? "Editar negocio" : "Registrar negocio"}
+          selectionKey={`${draft.id ?? "new-business"}:${editorOpening}`}
+        >
+          <form className="card mt-5 brand-border" onSubmit={submit}>
+            <fieldset disabled={pending} className="contents">
+              <h2 className="text-xl font-bold mb-5">
+                {draft.id ? "Editar negocio" : "Nuevo negocio"}
+              </h2>
+              <section className="business-banner-editor">
+                <h3>Banner del negocio</h3>
+                <p className="muted text-sm">
+                  Se muestra en la tarjeta deslizable cuando una persona pasa
+                  cerca durante su recorrido. Usa una imagen horizontal o
+                  cuadrada; se adapta sin deformarse.
+                </p>
+                <label className="field">
+                  Cargar publicidad
+                  <input
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp,image/gif"
+                    onChange={(event) => {
+                      void chooseBanner(event.target.files?.[0]);
+                      event.target.value = "";
+                    }}
+                  />
+                </label>
+                {draft.imagenId && (
+                  <>
+                    <AnnouncementImagePreview
+                      id={draft.imagenId}
+                      alt={draft.imagenAlt || draft.nombre}
+                    />
+                    <label className="field">
+                      Descripción de la imagen
+                      <input
+                        value={draft.imagenAlt || ""}
+                        maxLength={250}
+                        onChange={(event) =>
+                          setDraft({ ...draft, imagenAlt: event.target.value })
+                        }
+                      />
+                    </label>
+                    <button
+                      type="button"
+                      className="btn btn-quiet btn-small"
+                      onClick={() => {
+                        setDraft({ ...draft, imagenId: null, imagenAlt: "" });
+                        void removeStaged();
+                      }}
+                    >
+                      Quitar banner
+                    </button>
+                  </>
+                )}
+              </section>
+              <div className="grid-2">
+                <label className="field">
+                  Nombre
+                  <input
+                    required
+                    minLength={3}
+                    maxLength={120}
+                    value={draft.nombre}
+                    onChange={(event) =>
+                      setDraft({ ...draft, nombre: event.target.value })
+                    }
+                  />
+                </label>
+                <label className="field">
+                  Dirección
+                  <input
+                    required
+                    minLength={3}
+                    maxLength={300}
+                    value={draft.direccion}
+                    onChange={(event) =>
+                      setDraft({ ...draft, direccion: event.target.value })
+                    }
+                  />
+                </label>
+                <label className="field">
+                  Horario
+                  <input
+                    maxLength={150}
+                    value={draft.horario}
+                    onChange={(event) =>
+                      setDraft({ ...draft, horario: event.target.value })
+                    }
+                    placeholder="Lunes a sábado, 9:00 a 18:00"
+                  />
+                </label>
+                <label className="field">
+                  Teléfono
+                  <input
+                    type="tel"
+                    maxLength={30}
+                    value={draft.telefono}
+                    onChange={(event) =>
+                      setDraft({ ...draft, telefono: event.target.value })
+                    }
+                  />
+                </label>
+                <label className="field">
+                  Sitio web
+                  <input
+                    type="url"
+                    maxLength={500}
+                    value={draft.sitioWeb}
+                    onChange={(event) =>
+                      setDraft({ ...draft, sitioWeb: event.target.value })
+                    }
+                    placeholder="https://"
+                  />
+                </label>
+              </div>
+              <label className="field mt-4">
+                Descripción o promoción
+                <textarea
                   required
-                  type="number"
-                  min={-90}
-                  max={90}
-                  step="any"
-                  value={draft.latitud}
+                  rows={3}
+                  minLength={5}
+                  maxLength={500}
+                  value={draft.descripcion}
                   onChange={(event) =>
-                    setDraft({ ...draft, latitud: Number(event.target.value) })
+                    setDraft({ ...draft, descripcion: event.target.value })
                   }
                 />
               </label>
-              <label className="field">
-                Longitud
+              <fieldset className="mt-5">
+                <legend className="font-bold mb-3">
+                  Ubicación del negocio
+                </legend>
+                <div className="grid-2">
+                  <label className="field">
+                    Latitud
+                    <input
+                      required
+                      type="number"
+                      min={-90}
+                      max={90}
+                      step="any"
+                      value={draft.latitud}
+                      onChange={(event) =>
+                        setDraft({
+                          ...draft,
+                          latitud: Number(event.target.value),
+                        })
+                      }
+                    />
+                  </label>
+                  <label className="field">
+                    Longitud
+                    <input
+                      required
+                      type="number"
+                      min={-180}
+                      max={180}
+                      step="any"
+                      value={draft.longitud}
+                      onChange={(event) =>
+                        setDraft({
+                          ...draft,
+                          longitud: Number(event.target.value),
+                        })
+                      }
+                    />
+                  </label>
+                </div>
+                <p className="muted text-sm mt-2">
+                  Introduce y verifica las coordenadas del negocio: la cercanía
+                  durante el recorrido se calcula desde este punto.
+                </p>
+              </fieldset>
+              <label className="flex items-center gap-2 mt-5">
                 <input
-                  required
-                  type="number"
-                  min={-180}
-                  max={180}
-                  step="any"
-                  value={draft.longitud}
+                  type="checkbox"
+                  checked={draft.activo}
                   onChange={(event) =>
-                    setDraft({ ...draft, longitud: Number(event.target.value) })
+                    setDraft({ ...draft, activo: event.target.checked })
                   }
                 />
+                Anuncio habilitado
               </label>
-            </div>
-            <p className="muted text-sm mt-2">
-              Introduce y verifica las coordenadas del negocio: la cercanía durante el recorrido se
-              calcula desde este punto.
-            </p>
-          </fieldset>
-          <label className="flex items-center gap-2 mt-5">
-            <input
-              type="checkbox"
-              checked={draft.activo}
-              onChange={(event) =>
-                setDraft({ ...draft, activo: event.target.checked })
-              }
-            />
-            Anuncio habilitado
-          </label>
-          <p className="notice mt-4">
-            Este registro es de demostración. No registra
-            cobros ni convenios reales.
-          </p>
-          <div className="flex gap-3 mt-5">
-            <button className="btn btn-primary" disabled={pending}>
-              {pending ? "Guardando…" : "Guardar negocio"}
-            </button>
-            <button
-              className="btn btn-secondary"
-              type="button"
-              disabled={pending}
-              onClick={() => setDraft(null)}
-            >
-              Cancelar
-            </button>
-          </div>
-          </fieldset>
-        </form>
+              <p className="notice mt-4">
+                La tarjeta aparece por cercanía. La publicidad no altera la ruta
+                ni el cálculo de riesgo.
+              </p>
+              <div className="flex gap-3 mt-5">
+                <button className="btn btn-primary" disabled={pending}>
+                  {pending ? "Guardando…" : "Guardar negocio"}
+                </button>
+                <button
+                  className="btn btn-secondary"
+                  type="button"
+                  disabled={pending}
+                  onClick={() => void cancel()}
+                >
+                  Cancelar
+                </button>
+              </div>
+            </fieldset>
+          </form>
         </EditorPanel>
       )}
     </>
   );
 }
-

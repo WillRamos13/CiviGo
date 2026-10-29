@@ -33,6 +33,7 @@ type Props = {
     incidentes?: Incidente[];
     ruta?: Ruta | null;
     onSelect?: (incidente: Incidente) => void;
+    onPlaceSelect?: (place: Posicion & {nombre:string}) => void;
     onPosition?: (p: Posicion) => void | boolean;
     onLocate?: (p: LocationFix) => void;
     onRequestLocation?: () => void;
@@ -51,13 +52,13 @@ type Props = {
 const brandColor = (element: HTMLElement | null) => element ? getComputedStyle(element).getPropertyValue('--map-route-color').trim() || '#1554D8' : '#1554D8';
 const EMPTY_INCIDENTS: Incidente[] = [];
 type IncidentMarkerRecord = { marker: mapboxgl.Marker; incident: Incidente; signature: string };
-export default function MapView({ incidentes = EMPTY_INCIDENTS, ruta = null, onSelect, onPosition, onLocate, onRequestLocation, compactLegend = false, posicion = null, editor = false, typeFilter, yearFilter, navigating = false, heading, centerVersion = 0, focusPoint, onTrafficChange, onBounds,avatar='arrow',controlsVersion=0,overviewVersion=0,northVersion=0 }: Props) {
+export default function MapView({ incidentes = EMPTY_INCIDENTS, ruta = null, onSelect, onPlaceSelect, onPosition, onLocate, onRequestLocation, compactLegend = false, posicion = null, editor = false, typeFilter, yearFilter, navigating = false, heading, centerVersion = 0, focusPoint, onTrafficChange, onBounds,avatar='arrow',controlsVersion=0,overviewVersion=0,northVersion=0 }: Props) {
     const {appearance,change:changeAppearance}=useMapAppearance();
     const appearanceRef=useRef(appearance);
     const overviewApplied=useRef(0);
     useEffect(()=>{appearanceRef.current=appearance;},[appearance]);
     const container = useRef<HTMLDivElement>(null), mapRef = useRef<mapboxgl.Map | null>(null), markers = useRef<Map<number, IncidentMarkerRecord>>(new Map()), positionMarker = useRef<mapboxgl.Marker | null>(null);
-    const callbacks = useRef({ onSelect, onPosition, onLocate, onBounds });
+    const callbacks = useRef({ onSelect, onPlaceSelect, onPosition, onLocate, onBounds });
     const [loaded, setLoaded] = useState(false), [risk, setRisk] = useState(true), [events, setEvents] = useState(true), [zones, setZones] = useState(true), [error, setError] = useState(''), [roads, setRoads] = useState<GeoJSON.FeatureCollection>(EMPTY_MAP_DATA), [roadError, setRoadError] = useState('');
     useEffect(()=>{
         if(!loaded)return;
@@ -95,7 +96,7 @@ export default function MapView({ incidentes = EMPTY_INCIDENTS, ruta = null, onS
     const token = process.env.NEXT_PUBLIC_MAPBOX_TOKEN
     const [online, setOnline] = useState(true);
     useEffect(() => { const change = () => setOnline(navigator.onLine); window.addEventListener('online', change); window.addEventListener('offline', change); void Promise.resolve().then(change); return () => { window.removeEventListener('online', change); window.removeEventListener('offline', change); }; }, []);
-    useEffect(() => { callbacks.current = { onSelect, onPosition, onLocate, onBounds }; }, [onSelect, onPosition, onLocate, onBounds]);
+    useEffect(() => { callbacks.current = { onSelect, onPlaceSelect, onPosition, onLocate, onBounds }; }, [onSelect, onPlaceSelect, onPosition, onLocate, onBounds]);
     useEffect(() => {
         layerState.current = { roads, incidents: incidentes, route: ruta, risk, events, zones, editor,
             brand: brandColor(container.current),
@@ -136,6 +137,11 @@ export default function MapView({ incidentes = EMPTY_INCIDENTS, ruta = null, onS
             if (Date.now() - lastTrafficDiagnostic.current >= 10000) { lastTrafficDiagnostic.current = Date.now(); refreshTrafficRef.current(); }
         } else if (e.error?.message?.includes('token') || e.error?.message?.includes('401') || e.error?.message?.includes('403'))
             setError('No se pudo cargar Mapbox. Revisa el token público y sus restricciones.'); });
+        if (!editor) map.on('click',event=>{
+            if((event.originalEvent?.target as HTMLElement)?.closest?.('.incident-marker'))return;
+            const place=map.queryRenderedFeatures(event.point).find(feature=>feature.geometry.type==='Point'&&feature.layer?.type==='symbol'&&typeof(feature.properties?.name_es||feature.properties?.name)==='string');
+            if(place?.geometry.type==='Point')callbacks.current.onPlaceSelect?.({nombre:String(place.properties?.name_es||place.properties?.name).slice(0,200),latitud:place.geometry.coordinates[1],longitud:place.geometry.coordinates[0]});
+        });
         if (editor)
             map.on('click', e => callbacks.current.onPosition?.({ latitud: e.lngLat.lat, longitud: e.lngLat.lng }));
         return () => { resizeObserver.disconnect(); stopMarkerZoom(); styleReady.current = false; incidentMarkers.forEach(record => record.marker.remove()); incidentMarkers.clear(); externalMarkers.current.forEach(m => m.remove()); externalMarkers.current = []; positionMarker.current?.remove(); positionMarker.current = null; placeMarker.current?.remove(); placeMarker.current=null; map.remove(); mapRef.current = null; };
@@ -325,7 +331,7 @@ export default function MapView({ incidentes = EMPTY_INCIDENTS, ruta = null, onS
             {yearFilter && <IncidentYearFilter {...yearFilter}/>}
             <small className="muted">Los años filtran incidentes y reportes recientes. El riesgo vial conserva todos los antecedentes aplicables y el tráfico sigue siendo actual.</small>
         </CollapsiblePanel>
-        {traffic ? <TrafficLegend compact={compactLegend}/> : <RiskLegend compact={compactLegend}/>}
+        {!navigating && (traffic ? <TrafficLegend compact={compactLegend}/> : <RiskLegend compact={compactLegend}/>)}
         {(posicion || onRequestLocation) && <button type="button" className="map-recenter icon-btn" aria-label={posicion ? 'Centrar mi ubicación' : 'Usar mi ubicación'} title="Mi ubicación" onClick={posicion ? centerOnPosition : onRequestLocation}><LocateFixed size={20}/></button>}
         <button type="button" data-map-control="orientation" className={`${styles.orientation} ${posicion ? styles.besidePosition : ''} icon-btn`} aria-label="Restablecer orientación" title="Restablecer orientación del mapa" onClick={restoreOrientation} disabled={!loaded}><Compass size={20}/></button>
         {traffic && trafficError && <div className="map-message notice notice-warning" role="status">{trafficError}</div>}

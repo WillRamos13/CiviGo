@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import headerTemplate from '../../../public/banners/rewards-header.webp?inline';
+import headerTemplate from '../../../public/banners/rewards-header-v2.webp?inline';
 import wideTemplate from '../../../public/banners/rewards-wide.webp?inline';
 import portraitTemplate from '../../../public/banners/rewards-portrait.webp?inline';
 import EditorPanel from '@/components/EditorPanel';

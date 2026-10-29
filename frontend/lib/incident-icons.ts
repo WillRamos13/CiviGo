@@ -12,14 +12,15 @@ import incendio from '@/iconos/incendio.png';
 import intentoDeRobo from '@/iconos/intento de robo.png';
 import inundacion from '@/iconos/inundacion.png';
 import robo from '@/iconos/robo.png';
-import hurto from '@/iconos/hurto.png';
-import extorsion from '@/iconos/extorsion.png';
+
 import semaforo from '@/iconos/semaforo.png';
 import sospechoso from '@/iconos/sospechoso.png';
 
+const symbol=(name:string):StaticImageData=>({src:`/incident-symbols/${name}.svg`,width:64,height:64});
 type IncidentIconAsset = { image: StaticImageData; scale?: number };
 
 const icons = new Map<string, IncidentIconAsset>([
+    ...['hurto','extorsion','amenazas','humo','pelea','animal-peligroso'].map(name=>[name,{image:symbol(name)}] as [string,IncidentIconAsset]),
     ['bache', { image: bache }],
     ['basura-acumulada', { image: basura }],
     // The supplied barrier has wide transparent margins. Frame it with CSS;
@@ -35,8 +36,7 @@ const icons = new Map<string, IncidentIconAsset>([
     ['intento-de-robo', { image: intentoDeRobo }],
     ['inundacion', { image: inundacion }],
     ['robo', { image: robo }],
-    ['hurto', { image: hurto }],
-    ['extorsion', { image: extorsion }],
+
     ['semaforo-danado', { image: semaforo }],
     ['persona-sospechosa', { image: sospechoso }],
 ]);
@@ -45,7 +45,8 @@ export function getIncidentIcon(...types: (string | undefined)[]) {
     for (const type of types) {
         const key = type?.trim().toLowerCase().normalize('NFD')
             .replace(/[\u0300-\u036f]/g, '').replace(/[\s_]+/g, '-');
-        const icon = key ? icons.get(key) : undefined;
+        const family=key?.startsWith('hurto-')?'hurto':key?.startsWith('extorsion-')?'extorsion':key?.startsWith('amenaza')?'amenazas':key?.startsWith('humo')?'humo':['rina','peleas'].includes(key||'')?'pelea':key;
+        const icon = family ? icons.get(family) : undefined;
         if (icon) return icon;
     }
     return undefined;

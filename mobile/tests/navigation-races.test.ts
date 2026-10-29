@@ -79,6 +79,7 @@ test('a destination or mode change with lost GPS discards late routes and cannot
       await dialog.getByRole('button', { name, exact: false }).filter({ hasText: name }).first().click();
       await dialog.getByRole('heading', { name, exact: true }).waitFor();
       await dialog.getByRole('button', { name: 'Ver rutas', exact: true }).click();
+      await page.getByRole('button', { name: 'A pie', exact: true }).click();
     };
     await choose('Plaza de Armas de Ica');
     await page.waitForFunction(() => (window as any).pending.length === 1);
@@ -112,7 +113,7 @@ test('a destination or mode change with lost GPS discards late routes and cannot
     await page.waitForFunction(() => !document.querySelector('.gn-destination'));
     assert.equal(await page.locator('#route-latitude').inputValue(), '');
     assert.equal(await page.locator('#route-longitude').inputValue(), '');
-    assert.equal(await page.getByRole('button', { name: 'A pie', exact: true }).getAttribute('aria-pressed'), 'true');
+    assert.equal(await page.getByRole('button', { name: 'A pie', exact: true, includeHidden: true }).getAttribute('aria-pressed'), 'true');
     assert.deepEqual(errors, []);
   } finally { await browser.close(); }
 });
@@ -130,6 +131,8 @@ test('map records one history entry per started trip, not per reroute, and cance
     createRoot(document.getElementById('root')).render(<Test />);
   `, {
     'hooks/useAuth': 'export const useAuth = () => ({ usuario: window.user });',
+    'hooks/useNearbyBusiness': 'export const useNearbyBusiness = () => ({ad:null,close(){},pause(){}});',
+    'navigation/NearbyBusinessCard': 'export default function Card(){return null}',
     'hooks/useGeolocation': 'export const useGeolocation = () => ({ position: null, locate: async () => null });',
     'services/api': 'export const post = async () => ({fotos: [], opiniones: []}); export const errorMessage = e => e.message; export const onUnauthorized = cb => { window.unauthorize = cb; return () => {}; };',
     'services/native': 'export const triggerHaptic = async () => {}; export const onNetworkChange = () => () => {}; export const StorageService = {get:async()=>null,set:async()=>{},remove:async()=>{}};',
@@ -143,6 +146,7 @@ test('map records one history entry per started trip, not per reroute, and cance
     'incident/IncidentDetailModal': 'export const IncidentDetailModal = () => null;',
     'chat/ChatBotModal': 'export const ChatBotModal = () => null;',
     'navigation/RoutePlanner': 'export const RoutePlanner = props => { window.planner = props; return null; };',
+    'navigation/DestinationExplorer': 'export const DestinationExplorer = () => null;',
   });
   try {
     await page.waitForFunction(() => !!(window as any).planner);

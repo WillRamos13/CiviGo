@@ -1,3 +1,9 @@
+import symbol0 from '../../public/incident-symbols/hurto.svg';
+import symbol1 from '../../public/incident-symbols/extorsion.svg';
+import symbol2 from '../../public/incident-symbols/amenazas.svg';
+import symbol3 from '../../public/incident-symbols/humo.svg';
+import symbol4 from '../../public/incident-symbols/pelea.svg';
+import symbol5 from '../../public/incident-symbols/animal-peligroso.svg';
 
 import bache from '@/iconos/bache.png';
 import basura from '@/iconos/basura.png';
@@ -18,6 +24,12 @@ import sospechoso from '@/iconos/sospechoso.png';
 type IncidentIconAsset = { image: string; scale?: number };
 
 const icons = new Map<string, IncidentIconAsset>([
+    ['hurto',{image:symbol0}],
+    ['extorsion',{image:symbol1}],
+    ['amenazas',{image:symbol2}],
+    ['humo',{image:symbol3}],
+    ['pelea',{image:symbol4}],
+    ['animal-peligroso',{image:symbol5}],
     ['bache', { image: bache }],
     ['basura-acumulada', { image: basura }],
     // The supplied barrier has wide transparent margins. Frame it with CSS;
@@ -41,7 +53,8 @@ export function getIncidentIcon(...types: (string | undefined)[]) {
     for (const type of types) {
         const key = type?.trim().toLowerCase().normalize('NFD')
             .replace(/[\u0300-\u036f]/g, '').replace(/[\s_]+/g, '-');
-        const icon = key ? icons.get(key) : undefined;
+        const family=key?.startsWith('hurto-')?'hurto':key?.startsWith('extorsion-')?'extorsion':key?.startsWith('amenaza')?'amenazas':key?.startsWith('humo')?'humo':['rina','peleas'].includes(key||'')?'pelea':key;
+        const icon = family ? icons.get(family) : undefined;
         if (icon) return icon;
     }
     return undefined;

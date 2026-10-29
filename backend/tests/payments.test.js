@@ -63,8 +63,12 @@ test("a real seller cannot be used for a supposedly free test checkout", async (
     (error) => error.code === "PAYMENT_TEST_SELLER_REQUIRED",
   );
 });
+test('a test seller cannot receive a production checkout or create a Premium order',async()=>{
+ const service=createPaymentService({db:{},env:{PAYMENTS_ENABLED:'true',PAYMENTS_MODE:'production',MERCADOPAGO_ACCESS_TOKEN:'fixture',MERCADOPAGO_WEBHOOK_SECRET:'fixture',PUBLIC_APP_URL:'https://civigo.online',PUBLIC_API_URL:'https://api.example.invalid'},request:async()=>({ok:true,json:async()=>({tags:['test_user']})})});
+ await assert.rejects(()=>service.checkout({id:1},'12345678-1234-1234-1234-123456789012'),error=>error.code==='PAYMENT_PRODUCTION_SELLER_REQUIRED');
+});
 test('an old checkout cannot silently keep a previous price after the catalog changes',async()=>{
- const service=createPaymentService({env:{PAYMENTS_ENABLED:'true',PAYMENTS_MODE:'production',MERCADOPAGO_ACCESS_TOKEN:'fixture',MERCADOPAGO_WEBHOOK_SECRET:'fixture',PUBLIC_APP_URL:'https://civigo.online',PUBLIC_API_URL:'https://api.example.invalid'},db:{appConfig:{findUnique:async()=>({valor:{checkout:'https://www.mercadopago.com/checkout/v1/redirect?pref_id=fixture',centimos:590,modo:'production'}})}}});
+ const service=createPaymentService({request:async()=>({ok:true,json:async()=>({tags:['normal']})}),env:{PAYMENTS_ENABLED:'true',PAYMENTS_MODE:'production',MERCADOPAGO_ACCESS_TOKEN:'fixture',MERCADOPAGO_WEBHOOK_SECRET:'fixture',PUBLIC_APP_URL:'https://civigo.online',PUBLIC_API_URL:'https://api.example.invalid'},db:{appConfig:{findUnique:async()=>({valor:{checkout:'https://www.mercadopago.com/checkout/v1/redirect?pref_id=fixture',centimos:590,modo:'production'}})}}});
  await assert.rejects(()=>service.checkout({id:1},'12345678-1234-1234-1234-123456789012'),error=>error.code==='PAYMENT_PRICE_CHANGED');
 });
 test("official global checkout URLs are accepted; credentials, odd ports and lookalikes are rejected", () => {
@@ -118,4 +122,11 @@ test("Checkout is disabled without explicit configuration and never sends users 
     "javascript:alert(1)",
   ])
     assert.throws(() => checkoutUrl(value));
+});
+
+test('un enlace de pago vencido exige preparar una compra nueva sin contactar al proveedor de cobros',async()=>{
+ const current=Date.parse('2026-10-29T12:00:00Z'),calls=[];
+ const service=createPaymentService({now:()=>current,request:async url=>{calls.push(url);return {ok:true,json:async()=>({tags:['normal']})};},env:{PAYMENTS_ENABLED:'true',PAYMENTS_MODE:'production',MERCADOPAGO_ACCESS_TOKEN:'fixture',MERCADOPAGO_WEBHOOK_SECRET:'fixture',PUBLIC_APP_URL:'https://civigo.online',PUBLIC_API_URL:'https://api.example.invalid'},db:{appConfig:{findUnique:async()=>({valor:{checkout:'https://www.mercadopago.com/checkout/v1/redirect?pref_id=fixture',centimos:100,modo:'production',creadoEn:'2026-10-29T11:00:00Z'}})}}});
+ await assert.rejects(()=>service.checkout({id:1},'12345678-1234-1234-1234-123456789012'),error=>error.code==='PAYMENT_CHECKOUT_EXPIRED');
+ assert.deepEqual(calls,['https://api.mercadopago.com/users/me']);
 });

@@ -254,8 +254,8 @@ function shortestPath(graph, profile, mode = "walking", penalties = new Map()) {
       const seconds = edge.length / speed(edge, mode);
       const risk =
         s.points + (s.pending ? 5 : 0) + (s.emergencies.length ? 10 : 0);
-      // Safety is lexicographic: minimum cumulative exposure, then time. There
-      // is deliberately no maximum detour or fixed safety-vs-time multiplier.
+      // Candidate discovery considers exposure; selection below bounds detours
+      // against a legal fast route so sparse risk data cannot cause city loops.
       const base =
         profile === "segura"
           ? edge.length * risk
@@ -303,7 +303,21 @@ function speed(edge, mode) {
   const factor =
     parsed?.[2] === "mph" ? 1.609344 : parsed?.[2] === "knots" ? 1.852 : 1;
   const limit = parsed ? Number(parsed[1]) * factor : NaN;
-  return Math.min(Number.isFinite(limit) && limit > 0 ? limit : 35, 80) / 3.6;
+  const defaults = { motorway: 70, motorway_link: 35, trunk: 55, trunk_link: 30,
+    primary: 40, primary_link: 25, secondary: 32, secondary_link: 22,
+    tertiary: 28, residential: 22, unclassified: 24, service: 12, living_street: 8, track: 10 };
+  const expected = defaults[edge.segment.tags.highway] || 22;
+  // A speed limit is a ceiling, not an observed travel speed. Preserve explicit
+  // low limits; sparse OSM tags must not imply 35 km/h through every alley.
+  return Math.min(Number.isFinite(limit) && limit > 0 ? limit * .8 : expected, 80) / 3.6;
+}
+
+function practicalRoutes(candidates) {
+  if (!candidates.length) return [];
+  const fastest = candidates.reduce((a,b)=>a.duracion<=b.duracion?a:b);
+  const extra = fastest.modo === 'driving' ? 300 : 180;
+  return candidates.filter(route=>route.duracion <= fastest.duracion * 1.6 + extra &&
+    route.distancia <= fastest.distancia * 1.75 + 400);
 }
 function routeFrom(edges, type, mode, snaps, updated) {
   const geometria = { type: "LineString", coordinates: [] };
@@ -458,9 +472,8 @@ function routeCandidates(
   add(fast, "rapida");
   add(shortestPath(snaps.graph, "segura", modo), "segura");
   add(shortestPath(snaps.graph, "equilibrada", modo), "equilibrada");
-  // A few legal local alternatives allow live travel times to change the fast
-  // and balanced selections. Limits bound computation and provider requests,
-  // never the allowed distance of the minimum-risk path.
+  // Discover different legal alternatives without promising that the least-risk
+  // path is useful regardless of its duration. No street or access rule changes.
   const rankedEdges = [...fast]
     .filter((edge) => edge.length > 1)
     .sort((a, b) => b.length - a.length);
@@ -477,7 +490,7 @@ function routeCandidates(
     );
   }
   return {
-    candidates,
+    candidates: practicalRoutes(candidates),
     cobertura: "Provincia de Ica",
     fuente: "OpenStreetMap",
     atribucion: roads.atribucion,
@@ -486,6 +499,7 @@ function routeCandidates(
   };
 }
 function selectRoutes(candidates, criterio = "rapida") {
+  candidates = practicalRoutes(candidates);
   const selected = [],
     shapes = new Map();
   const fastest = Math.min(...candidates.map((route) => route.duracion));
@@ -575,4 +589,5 @@ module.exports = {
   routeFrom,
   directionFor,
   speed,
+  practicalRoutes,
 };

@@ -33,3 +33,5 @@
 .conversation h3 { display: flex; align-items: center; gap: 6px; }
 @media (max-width: 900px) { .mapCardPosition { left: 15px; top: 78px; } }
 @media (max-width: 600px) { .mapCardPosition { top: 64px; left: 9px; width: calc(100% - 18px); } .mapCard { max-height: min(480px, 100%); } .heading { padding: 11px; } .body { padding: 11px; } }
+
+.illustration{display:grid;place-items:center;gap:10px;min-height:205px;margin:0 0 16px;padding:20px;border-radius:18px;background:radial-gradient(ellipse at center,#148bf421,transparent 70%);border:1px solid var(--line)}.illustration>span:last-of-type{font-size:18px;font-weight:700}.illustration small{font-size:10px;color:var(--muted)}

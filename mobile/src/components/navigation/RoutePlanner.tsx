@@ -12,6 +12,7 @@ import { RISK_COLORS, RISK_NAMES } from '../../types';
 import type { Posicion, Ruta, LocationFix } from '../../types';
 import { SpotifyNavPlayer } from './SpotifyNavPlayer';
 import { DestinationExplorer } from './DestinationExplorer';
+import CiviDroid from './CiviDroid';
 import { compactNavigationStatus, headingLabel, maneuverDirection, routeArrivalLabel, routeCriterionLabel, routeEstimateSource, routeRiskSummary, splitNavigationWarnings } from '../../services/navigationPresentation';
 import { navigationVoiceSupported, speakNavigation, stopNavigationVoice } from '../../services/navigationVoice';
 import './navigation-glass.css';
@@ -47,6 +48,7 @@ export const RoutePlanner: React.FC<RoutePlannerProps> = ({
   const appActive = useAppActivity();
   const [destinationName, setDestinationName] = useState('');
   const [explorerOpen, setExplorerOpen] = useState(false);
+  const [explorerQuery,setExplorerQuery]=useState<string>();
   const [latitudeInput, setLatitudeInput] = useState('');
   const [longitudeInput, setLongitudeInput] = useState('');
   const [destCoords, setDestCoords] = useState<Posicion | null>(null);
@@ -122,7 +124,7 @@ export const RoutePlanner: React.FC<RoutePlannerProps> = ({
     setSavedRoute('');
     setRoutes([]);
     setFavorites([]);
-    setExplorerOpen(false);
+    setExplorerOpen(false); setExplorerQuery(undefined);
     setStopPreview(null); setStopBusy(false);
     setDestinationName(''); setDestCoords(null);
     setLatitudeInput(''); setLongitudeInput(''); setMode('walking');
@@ -238,12 +240,14 @@ export const RoutePlanner: React.FC<RoutePlannerProps> = ({
     void handlePlan(activeRoute.destino, activeRoute.modo, true, activeRoute.destinoNombre);
   }, [now, isNavigating, appActive, busy, stopBusy, stopPreview, activeRoute, progress?.hasFix, progress?.offRoute, navigationArrived]);
 
-  const selectDestination = (place: { nombre: string } & Posicion, selectedMode = mode) => {
+  const selectDestination = (place: { nombre: string } & Posicion, selectedMode?: Mode) => {
+    request.current?.abort(); setBusy(false); setError('');
     setExplorerOpen(false);
     setDestinationName(place.nombre);
     const destination = { latitud: place.latitud, longitud: place.longitud };
     setDestCoords(destination);
-    void handlePlan(destination, selectedMode, false, place.nombre);
+    setRoutes([]); onSelectRoute(null);
+    if(selectedMode)void handlePlan(destination, selectedMode, false, place.nombre);
   };
 
   const saveFavorite = async (route: Ruta) => {
@@ -300,7 +304,10 @@ export const RoutePlanner: React.FC<RoutePlannerProps> = ({
     } finally { if (mounted.current && request.current === controller) setBusy(false); }
   };
 
-  const explorer = <DestinationExplorer key="destination-explorer" open={explorerOpen} suspended={!appActive} onClose={() => setExplorerOpen(false)} ownerId={usuario?.id ?? null}
+  const destinationHandler=useRef<(place:NavigationPlace)=>void>(()=>{});
+  destinationHandler.current=place=>{if(isNavigating)void calculateStop(place);else selectDestination(place);};
+  useEffect(()=>{const choose=(event:Event)=>{const place=(event as CustomEvent<NavigationPlace>).detail;if(place&&isPosition(place)&&typeof place.nombre==='string')destinationHandler.current(place);};window.addEventListener('civigo:choose-place',choose);return()=>window.removeEventListener('civigo:choose-place',choose);},[]);
+  const explorer = <DestinationExplorer key="destination-explorer" open={explorerOpen} initialQuery={explorerQuery} suspended={!appActive} onClose={() => setExplorerOpen(false)} ownerId={usuario?.id ?? null}
     currentPosition={currentPosition} activeRoute={activeRoute} navigationActive={isNavigating}
     onChooseDestination={selectDestination} onChooseStop={isNavigating ? onChooseStop || (place => void calculateStop(place)) : undefined}
     onShowPlace={onShowPlace ? place => { onShowPlace(place); setExplorerOpen(false); } : undefined} />;
@@ -392,9 +399,8 @@ export const RoutePlanner: React.FC<RoutePlannerProps> = ({
   }
 
   return <section className="civigo-navigation-glass route-planner-mobile" aria-label="Planificar recorrido">
-    <header className="gn-planner-heading"><h2><button type="button" onClick={() => setExplorerOpen(true)}>¿A dónde vamos?</button></h2><Navigation size={18} aria-hidden="true" /></header>
-    <p className="gn-intro">Rutas desde tu ubicación GPS.</p>
-    <div className="route-mode-switch gn-mode-switch" role="group" aria-label="Modo de recorrido">
+    <CiviDroid key={usuario?.id??'guest'} destination={destinationName} onSearch={query=>{setExplorerQuery(query);setExplorerOpen(true);}}/>
+    <div className="route-mode-switch gn-mode-switch" hidden={!destCoords} role="group" aria-label="Modo de recorrido">
       {([{ id: 'walking', icon: Footprints }, { id: 'cycling', icon: Bike }, { id: 'driving', icon: Car }] as const).map(({ id, icon: Icon }) => <button key={id} type="button" className={`btn btn-small ${mode === id ? 'btn-primary' : 'btn-secondary'}`} aria-pressed={mode === id} onClick={() => { setMode(id); if (destCoords) void handlePlan(destCoords, id); }}><Icon size={16} aria-hidden="true" /><span>{modeLabels[id]}</span></button>)}
     </div>
     <div className="field gn-search-field">

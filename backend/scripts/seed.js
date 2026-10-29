@@ -4,6 +4,8 @@ const { seedCatalog, CATALOG, DEFAULT_CONFIG } = require("../src/lib/catalog");
 async function seed() {
   await seedCatalog();
   await require('../src/lib/reward-catalog').seedGiftCards(prisma);
+  await require('../src/lib/reward-catalog').refreshGiftCardDefaults(prisma);
+  await require('../src/lib/campaign-seed').seedCampaigns(prisma);
   await prisma.appConfig.upsert({
     where: { clave: "reglas" },
     update: {},

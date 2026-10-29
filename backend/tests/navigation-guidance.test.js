@@ -31,7 +31,7 @@ function response(route, seconds) {
     },
   };
 }
-test("seguridad admite un recorrido mucho más largo sin límite manual de desvío", () => {
+test("seguridad descarta un rodeo de varias horas sin pedir al usuario ajustar límites", () => {
   const longRoads = {
     ...roads,
     boundary: {
@@ -67,8 +67,9 @@ test("seguridad admite un recorrido mucho más largo sin límite manual de desv�
   );
   const fast = result.rutas.find((route) => route.criterios.includes("rapida"));
   const safe = result.rutas.find((route) => route.criterios.includes("segura"));
-  assert.ok(safe.duracion > fast.duracion * 10);
-  assert.ok(safe.exposicionTotal < fast.exposicionTotal);
+  assert.ok(safe.duracion <= fast.duracion * 1.6 + 300);
+  assert.ok(result.rutas.every(route=>route.distancia<=fast.distancia*1.75+400));
+  assert.ok(safe.exposicionTotal <= fast.exposicionTotal);
   assert.equal(result.limitesDesvio, undefined);
 });
 test("la ruta rápida minimiza tiempo y no longitud; conserva modos y criterios coincidentes", () => {

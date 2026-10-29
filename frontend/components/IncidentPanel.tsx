@@ -113,7 +113,8 @@ export default function IncidentPanel({ incidente, onClose, onRefresh, variant =
             </header>
             <div className={styles.body}>
                 {cover && <div className={styles.cover}>{cover.mimeType.startsWith('video/') ? <video src={cover.url!} controls preload="metadata"/> : <a href={cover.url!} target="_blank" rel="noopener noreferrer"><Image src={cover.url!} alt={coverReference ? 'Fotografía de referencia: ' + coverReference.caption : 'Fotografía pública: ' + (detail.tipoNombre || detail.tipo)} width={640} height={360} unoptimized/></a>}</div>}
-                {coverReference && <p className={styles.referenceCaption}>Fotografía de referencia: {coverReference.caption}. <a href={coverReference.source} target="_blank" rel="noopener noreferrer">{coverReference.author} · {coverReference.license}</a></p>}
+                {!cover&&<div className={styles.illustration}><IncidentIcon tipo={detail.tipoNombre||detail.tipo} slug={detail.tipoSlug} size={105}/><span>{detail.tipoNombre||detail.tipo}</span><small>Ilustración del tipo de incidente{individual?' · Pruebas privadas':''}</small></div>}
+                {coverReference && <details className={styles.referenceCaption}><summary>Créditos de la imagen</summary><p>Fotografía de referencia: {coverReference.caption}. <a href={coverReference.source} target="_blank" rel="noopener noreferrer">{coverReference.author} · {coverReference.license}</a></p></details>}
                 <dl className={styles.information}>
                     <div><dt><MapPin size={20}/>Ubicación</dt><dd>{detail.distrito || 'Provincia de Ica'}<small>{detail.latitud.toFixed(5)}, {detail.longitud.toFixed(5)}</small>{onShowOnMap && <button type="button" className={styles.mapLink} onClick={onShowOnMap}>Ver en el mapa <ExternalLink size={13}/></button>}</dd></div>
                     <div><dt><FileText size={20}/>Tipo de incidente</dt><dd>{detail.tipoNombre || detail.tipo}</dd></div>

@@ -36,7 +36,7 @@ test(
     const request = async (url, options) => {
       requests++;
       if (url.endsWith("/users/me"))
-        return { ok: true, json: async () => ({ tags: ["test_user"] }) };
+        return { ok: true, json: async () => ({ tags: options.headers.Authorization.includes('sandbox') ? ['test_user'] : ['normal'] }) };
       if (url.endsWith("/checkout/preferences")) {
         const body = JSON.parse(options.body);
         reference = body.external_reference;
@@ -77,7 +77,7 @@ test(
         (await service.checkout(user, key)).referencia,
         checkout.referencia,
       );
-      assert.equal(requests, 1);
+      assert.equal(requests, 2);
       const orderReference = reference;
       await assert.rejects(
         () => service.ownedOrder(orderReference, user.id + 100000),
@@ -137,7 +137,7 @@ test(
       );
       const sandbox = createPaymentService({
         db,
-        env: { ...env, PAYMENTS_MODE: "test" },
+        env: { ...env, PAYMENTS_MODE: "test",MERCADOPAGO_ACCESS_TOKEN:'sandbox-fixture' },
         request,
         now: () => clock,
       });
