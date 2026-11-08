@@ -3,6 +3,8 @@ import { useEffect, useMemo, useRef } from "react";
 import { usePathname } from "next/navigation";
 import { useAuth } from "./AuthProvider";
 import { api } from "@/lib/api";
+import { captureProductEvent } from '@/lib/product-analytics';
+import { analyticsPage } from '@/lib/analytics-policy';
 // Only coarse page names and numerical performance samples are sent. Never URLs
 // with query parameters, precise locations, form values or message contents.
 export default function PerformanceTelemetry() {
@@ -68,9 +70,14 @@ export default function PerformanceTelemetry() {
     const controller = new AbortController();
     let busy = false,
       stopped = false;
+    let capturedVitals = false;
     const send = async (includeVitals = false) => {
       if (stopped || busy || !navigator.onLine) return;
       busy = true;
+      if (includeVitals && !capturedVitals && measurement.current.active && Object.keys(measurement.current.vitals).length) {
+        capturedVitals = true;
+        captureProductEvent('civigo_performance', { page: analyticsPage(path), ttfb_ms: measurement.current.vitals.ttfb, lcp_ms: measurement.current.vitals.lcp, cls: measurement.current.vitals.cls });
+      }
       try {
         await api("/telemetry", {
           method: "POST",

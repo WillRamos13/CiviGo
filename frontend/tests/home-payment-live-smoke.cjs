@@ -28,11 +28,13 @@ async function run(){
  const layouts=[];
  for(const [index,[width,height]]of [[390,844],[768,1024],[1366,768],[1920,1080]].entries()){
    const win=await createClient(700+index,width,height,{route:'/',mapReady:false,offscreen:true}),js=script=>win.webContents.executeJavaScript(script);
-   await waitUntil(win,`!!document.querySelector('.home-film video')`);
-   try { await waitUntil(win,`(()=>{const video=document.querySelector('.home-film video');return video.readyState>=2&&!video.paused&&video.currentTime>0.4&&video.videoWidth>0})()`,30000); }
-   catch(error){console.error('Video playback state',await js(`(()=>{const v=document.querySelector('.home-film video');return{src:v.currentSrc,ready:v.readyState,paused:v.paused,time:v.currentTime,error:v.error&&{code:v.error.code,message:v.error.message},poster:v.poster}})()`));throw error;}
-   const layout=await js(`(()=>{const film=document.querySelector('.home-film'),video=film.querySelector('video'),box=video.parentElement.getBoundingClientRect(),area=film.getBoundingClientRect();return{width:innerWidth,overflow:document.documentElement.scrollWidth>innerWidth,videoWidth:box.width,areaWidth:area.width,loop:video.loop,muted:video.muted,fit:getComputedStyle(video).objectFit,oldColumns:!!document.querySelector('.hero')}})()`);
-   assert.equal(layout.overflow,false);assert.equal(layout.loop,true);assert.equal(layout.muted,true);assert.equal(layout.fit,'cover');assert.equal(layout.oldColumns,false);assert.ok(Math.abs(layout.videoWidth-layout.areaWidth)<=2,JSON.stringify(layout));
+   await waitUntil(win,`!!document.querySelector('#home-title')`);
+   await js(`document.querySelector('section[aria-label="Conoce CiviGo"]').scrollIntoView({block:'center',behavior:'instant'})`);
+   await waitUntil(win,`!!document.querySelector('[data-home-video] video')`);
+   try { await waitUntil(win,`(()=>{const video=document.querySelector('[data-home-video] video');return video.readyState>=2&&!video.paused&&video.currentTime>0.4&&video.videoWidth>0})()`,30000); }
+   catch(error){console.error('Video playback state',await js(`(()=>{const v=document.querySelector('[data-home-video] video');return{src:v.currentSrc,ready:v.readyState,paused:v.paused,time:v.currentTime,error:v.error&&{code:v.error.code,message:v.error.message},poster:v.poster}})()`));throw error;}
+   const layout=await js(`(()=>{const video=document.querySelector('[data-home-video] video'),box=video.parentElement.getBoundingClientRect(),area=video.parentElement.parentElement.getBoundingClientRect();return{width:innerWidth,overflow:document.documentElement.scrollWidth>innerWidth,videoWidth:box.width,areaWidth:area.width,loop:video.loop,muted:video.muted,fit:getComputedStyle(video).objectFit}})()`);
+   assert.equal(layout.overflow,false);assert.equal(layout.loop,true);assert.equal(layout.muted,true);assert.equal(layout.fit,'cover');assert.ok(Math.abs(layout.videoWidth-layout.areaWidth)<=2,JSON.stringify(layout));
    layouts.push(layout);await fs.writeFile(path.join(out,`portada-${width}.png`),(await win.webContents.capturePage()).toPNG());win.destroy();
  }
  const win=await createClient(710,1366,768,{route:'/premium',mapReady:false,offscreen:true}),js=script=>win.webContents.executeJavaScript(script),redirects=[];

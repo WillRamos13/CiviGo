@@ -10,6 +10,7 @@ import {
   Route as RouteIcon,
   MessageCircle,
   RefreshCw,
+  Music2,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { AvatarPicker } from "./NavigationAvatar";
@@ -19,6 +20,7 @@ import { reliableSpeed, routeTimeSource } from "@/lib/navigation-presentation";
 import { formatDuration } from "@/lib/duration";
 import type { Ruta } from "@/lib/types";
 import styles from "./NavigationGuidance.module.css";
+import RouteMusic from './RouteMusic';
 export type GuidanceProps = {
   progress: NavigationProgress | null;
   notice: string;
@@ -49,6 +51,8 @@ export default function NavigationGuidance({
   avatarNotice,
 }: GuidanceProps & { route: Ruta; onFinish: () => void; compact?: boolean }) {
   const [options, setOptions] = useState(false),
+    [musicOpen, setMusicOpen] = useState(false),
+    [musicMounted, setMusicMounted] = useState(false),
     [now, setNow] = useState(Date.now);
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), 1000);
@@ -125,7 +129,7 @@ export default function NavigationGuidance({
         aria-label="Opciones del recorrido"
         title="Opciones del recorrido"
         aria-expanded={options}
-        onClick={() => setOptions((v) => !v)}
+        onClick={() => { setOptions((v) => !v); setMusicOpen(false); }}
       >
         <SlidersHorizontal size={20} />
       </button>
@@ -133,6 +137,7 @@ export default function NavigationGuidance({
         <aside className={styles.options} aria-label="Opciones del recorrido">
           <h3>Tu recorrido</h3>
           <div className={styles.controls}>
+            <button className="btn btn-secondary btn-small" onClick={() => { setOptions(false); setMusicMounted(true); setMusicOpen(true); }}><Music2 size={16} /> Spotify</button>
             <button
               className="btn btn-secondary btn-small"
               aria-label={muted ? "Activar voz" : "Silenciar voz"}
@@ -184,6 +189,7 @@ export default function NavigationGuidance({
           {avatarNotice && <p role="status">{avatarNotice}</p>}
         </aside>
       )}
+      {musicMounted && <RouteMusic open={musicOpen} onClose={() => setMusicOpen(false)} />}
     </section>
   );
 }

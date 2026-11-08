@@ -67,7 +67,10 @@ async function createWindow(width, height, name, options = {}) {
   // pixels to Electron's mobile emulation surface.
   await window.webContents.debugger.sendCommand('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor:1, mobile:false });
   await window.loadURL(origin);
-  await waitUntil(window, `!!document.querySelector('[data-home-video] video') && !!document.querySelector('.map-announcements')`);
+  await waitUntil(window, `!!document.querySelector('#home-title') && !!document.querySelector('.map-announcements')`);
+  assert.equal(requests.includes('/civigo-spot.mp4'),false,'The film is deferred below the hero');
+  await window.webContents.executeJavaScript(`document.querySelector('section[aria-label="Conoce CiviGo"]').scrollIntoView({block:'center',behavior:'instant'})`);
+  await waitUntil(window, `!!document.querySelector('[data-home-video] video')`);
   assert.equal(window.isVisible(), false);
   return { window, requests };
 }
@@ -77,10 +80,10 @@ async function clickControl(window) {
   window.webContents.sendInputEvent({ type:'mouseUp', button:'left', clickCount:1, ...position });
 }
 async function inspectLayout(window, width, name) {
-  await window.webContents.executeJavaScript(`scrollTo(0,0)`);
+  await window.webContents.executeJavaScript(`document.querySelector('[data-home-video]').scrollIntoView({block:'center',behavior:'instant'})`);
   const layout = await window.webContents.executeJavaScript(`(() => {
     const frame=document.querySelector('[data-home-video]'),video=frame.querySelector('video'),button=frame.querySelector('button'),rect=frame.getBoundingClientRect(),media=video.getBoundingClientRect(),control=button?.getBoundingClientRect();
-    const content=document.querySelector('.hero > div:first-child').getBoundingClientRect();
+    const content=document.querySelector('#home-title').parentElement.getBoundingClientRect();
     return {width:innerWidth,clientWidth:document.documentElement.clientWidth,visualWidth:visualViewport.width,documentWidth:document.documentElement.scrollWidth,theme:document.documentElement.dataset.theme,
       frame:{x:rect.x,y:rect.y,width:rect.width,height:rect.height,right:rect.right,bottom:rect.bottom},
       media:{x:media.x,y:media.y,width:media.width,height:media.height},
@@ -93,12 +96,11 @@ async function inspectLayout(window, width, name) {
   assert.ok(layout.frame.x >= 0 && layout.frame.right <= width + 1, `${name}: video fits the viewport`);
   assert.ok(layout.frame.width > 200 && layout.frame.height > 100, `${name}: video has useful visible dimensions`);
   assert.ok(Math.abs(layout.frame.width / layout.frame.height - 16 / 9) < 0.03, `${name}: original 16:9 ratio preserved`);
-  assert.equal(layout.fit, 'contain');
+  assert.equal(layout.fit, 'cover');
   assert.ok(Math.abs(layout.media.width - layout.frame.width) < 3 && Math.abs(layout.media.height - layout.frame.height) < 3);
   assert.equal(layout.oldCards, 0);
   assert.ok(layout.heading.includes('Tu ciudad.'));
-  if (width > 980) assert.ok(layout.content.right <= layout.frame.x + 1, `${name}: desktop uses the requested right column`);
-  else assert.ok(layout.content.bottom <= layout.frame.y + 1, `${name}: video stacks after the content`);
+  assert.ok(layout.content.bottom <= layout.frame.y + 1, `${name}: video follows the cinematic content`);
   assert.ok(layout.control.width >= 44 && layout.control.height >= 44, `${name}: touch target stays accessible`);
   assert.ok(layout.control.right <= layout.frame.right && layout.control.bottom <= layout.frame.bottom, `${name}: playback control stays inside the frame`);
   layouts.push({ name, ...layout });

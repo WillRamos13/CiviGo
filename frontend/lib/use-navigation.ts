@@ -4,6 +4,8 @@ import { post, errorMessage } from './api';
 import { isRoute } from './route-cache';
 import { navigationProgress, watchRoutePosition, type NavigationProgress } from './navigation';
 import type { LocationFix, Ruta, RouteCriterion } from './types';
+import { beginRouteVoice } from './route-audio';
+import { captureProductEvent } from './product-analytics';
 
 export function useNavigation(route: Ruta | null, following: boolean, onRoute: (route: Ruta) => void, onFollow: (value: boolean) => void, incidentRevision: number) {
     const [position, setPosition] = useState<LocationFix | null>(null), [progress, setProgress] = useState<NavigationProgress | null>(null);
@@ -16,6 +18,7 @@ export function useNavigation(route: Ruta | null, following: boolean, onRoute: (
     const retry = useRef<ReturnType<typeof setTimeout> | null>(null);
     const pendingReason = useRef('');
     const previousProgress = useRef<NavigationProgress | null>(null);
+    const releaseVoice = useRef<(() => void) | null>(null);
     const updateProgress = useCallback((fix: LocationFix, selected: Ruta) => {
         const next = navigationProgress(fix, selected, previousProgress.current);
         if ((fix.accuracy ?? 0) <= 60) previousProgress.current = next;
@@ -27,7 +30,10 @@ export function useNavigation(route: Ruta | null, following: boolean, onRoute: (
         if (speechKeys.current.has(key) || state.current.muted || typeof window === 'undefined' || !window.speechSynthesis) return;
         speechKeys.current.add(key);
         const utterance = new SpeechSynthesisUtterance(text); utterance.lang = 'es-PE'; utterance.rate = 1;
-        window.speechSynthesis.cancel(); window.speechSynthesis.speak(utterance);
+        const release = beginRouteVoice();
+        window.speechSynthesis.cancel(); releaseVoice.current?.(); releaseVoice.current = release;
+        utterance.onend = utterance.onerror = () => { release(); if (releaseVoice.current === release) releaseVoice.current = null; };
+        try { window.speechSynthesis.speak(utterance); } catch { release(); }
     }, []);
     const recalculate = useCallback(async function replan(reason: string) {
         const current = state.current, fix = lastFix.current;
@@ -63,6 +69,9 @@ export function useNavigation(route: Ruta | null, following: boolean, onRoute: (
     useEffect(() => {
         if (!following) return;
         let active = true;
+        const startedAt = Date.now();
+        const transport = state.current.route?.modo;
+        captureProductEvent('civigo_route_started', { page: '/mapa', transport });
         deviation.current = 0; arrivalSince.current = 0; lastRecalculation.current = 0; speechKeys.current.clear(); lastFix.current = null; pendingReason.current = state.current.route?.copiaGuardada ? 'Actualizando las condiciones de la copia guardada…' : '';
         previousProgress.current = null;
         void Promise.resolve().then(() => { if (active) { setNotice('Esperando tu ubicación…'); setProgress(null); setPosition(null); setRecalculating(false); } });
@@ -97,6 +106,8 @@ export function useNavigation(route: Ruta | null, following: boolean, onRoute: (
             if (retry.current) clearTimeout(retry.current); retry.current = null;
             pendingReason.current = '';
             window.speechSynthesis?.cancel();
+            releaseVoice.current?.(); releaseVoice.current = null;
+            captureProductEvent('civigo_route_finished', { page: '/mapa', transport, duration_seconds: (Date.now() - startedAt) / 1000 });
         };
     }, [following, recalculate, speak, updateProgress]);
     useEffect(() => { if (!following) return; const timer = setInterval(() => { if (state.current.route?.modo === 'driving') void recalculate('Actualizando las condiciones de tráfico…'); }, 120000); return () => clearInterval(timer); }, [following, recalculate]);
@@ -112,6 +123,6 @@ export function useNavigation(route: Ruta | null, following: boolean, onRoute: (
         void acquire(); document.addEventListener('visibilitychange', acquire);
         return () => { active = false; document.removeEventListener('visibilitychange', acquire); void lock?.release(); };
     }, [following]);
-    const toggleMuted = () => { setMuted(v => !v); if (!muted) window.speechSynthesis?.cancel(); };
+    const toggleMuted = () => { setMuted(v => !v); if (!muted) { window.speechSynthesis?.cancel(); releaseVoice.current?.(); releaseVoice.current = null; } };
     return {position, progress, notice, recalculating, muted, toggleMuted, centerVersion, recenter: () => setCenterVersion(v => v + 1), recalculate};
 }
