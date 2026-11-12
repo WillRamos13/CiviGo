@@ -3,6 +3,7 @@ RUN apk add --no-cache openssl
 WORKDIR /app
 COPY backend/package*.json backend/prisma.config.ts ./
 COPY backend/prisma ./prisma
+COPY backend/src/lib/database-url.js ./src/lib/database-url.js
 RUN npm ci --omit=dev
 RUN DATABASE_URL=postgresql://build:build@localhost:5432/build npx prisma generate
 COPY backend/src ./src
