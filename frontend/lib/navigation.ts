@@ -49,7 +49,7 @@ export function metersBetween(a: Posicion, b: Posicion) {
     const rad = Math.PI / 180, dlat = (b.latitud - a.latitud) * rad, dlon = (b.longitud - a.longitud) * rad;
     return 6371000 * 2 * Math.asin(Math.min(1, Math.sqrt(Math.sin(dlat / 2) ** 2 + Math.cos(a.latitud * rad) * Math.cos(b.latitud * rad) * Math.sin(dlon / 2) ** 2)));
 }
-export type NavigationProgress = { distanceRemaining: number; secondsRemaining: number; distanceToTurn: number; instruction: string; maneuver: string; stepId: string; offRouteMeters: number; destinationMeters: number; heading: number; progressMeters: number; updatedAt: number; routeId?: string; position?: LocationFix };
+export type NavigationProgress = { distanceRemaining: number; secondsRemaining: number; distanceToTurn: number; instruction: string; maneuver: string; stepId: string; offRouteMeters: number; destinationMeters: number; heading: number; progressMeters: number; updatedAt: number; routeId?: string; position?: LocationFix; progressTrusted?: boolean; backtracked?: boolean };
 // Project the GPS point onto the polyline; never count a jump in GPS as travel.
 export function navigationProgress(position: LocationFix, route: Ruta, previous?: NavigationProgress | null): NavigationProgress {
     const coords = route.geometria.coordinates, scale = Math.cos(position.latitud * Math.PI / 180);
@@ -66,16 +66,32 @@ export function navigationProgress(position: LocationFix, route: Ruta, previous?
         if (projectedDistance < best) { best = projectedDistance; along = total + t * length; segmentIndex = i - 1; }
         total += length; cumulative.push(total);
     }
+    let progressTrusted = true, backtracked = false;
     if (previous?.routeId === route.id && previous.position) {
         const seconds = position.timestamp && previous.updatedAt ? Math.max(0, (position.timestamp - previous.updatedAt) / 1000) : 1;
         const moved = metersBetween(previous.position, position);
         const speedLimit = route.modo === 'driving' ? 45 : route.modo === 'cycling' ? 15 : 4;
-        const allowance = Math.max(30, moved * 1.7 + 20, Math.min(seconds, 30) * speedLimit);
+        const accuracy = Math.min(35, Math.max(8, (position.accuracy ?? 12) + (previous.position.accuracy ?? 12)));
+        // The observed displacement must never authorize its own GPS jump.
+        const allowance = accuracy + Math.min(seconds, 120) * speedLimit;
         // At crossings or repeated segments the nearest point is ambiguous.
         // Prefer a physically reachable continuation of the previous fix.
-        const candidates = seconds <= 120 ? projections.filter(point => point.distance <= best + 8 && point.along >= previous.progressMeters - 30 && point.along <= previous.progressMeters + allowance) : [];
+        const candidates = seconds <= 120 ? projections.filter(point => point.distance <= best + 8 && point.along >= previous.progressMeters - accuracy && point.along <= previous.progressMeters + allowance) : [];
         candidates.sort((a, b) => Math.abs(a.along - previous.progressMeters) - Math.abs(b.along - previous.progressMeters) || a.distance - b.distance);
-        if (candidates.length) { along = candidates[0].along; segmentIndex = candidates[0].segment; }
+        if (seconds<=120 && moved>allowance) {
+            progressTrusted=false;along=previous.progressMeters;
+        } else if (candidates.length) {
+            along = Math.max(previous.progressMeters, candidates[0].along);
+        } else if (seconds <= 120) {
+            const offRoute = best > Math.max(45, (position.accuracy ?? 0) * 1.5);
+            backtracked = !offRoute && along < previous.progressMeters - accuracy && moved <= allowance;
+            progressTrusted = offRoute;
+            along = previous.progressMeters;
+        }
+        // Remaining distance cannot increase because of a single noisy fix.
+        if (seconds <= 120) along = Math.max(previous.progressMeters, along);
+        segmentIndex = Math.max(0, cumulative.findIndex((value, index) => index > 0 && value >= along) - 1);
+        if (along >= total) segmentIndex = Math.max(0, coords.length - 2);
     }
     const steps = route.pasos ?? [];
     const next = steps.find(s => s.tipo !== 'salida' && (cumulative[Math.min(s.indiceInicio, coords.length - 1)] ?? s.distanciaAcumulada) >= along - 8) ?? steps[steps.length - 1];
@@ -99,7 +115,32 @@ export function navigationProgress(position: LocationFix, route: Ruta, previous?
         destinationMeters: metersBetween(position, route.destino ?? {longitud: endpoint[0], latitud: endpoint[1]}),
         heading: position.heading != null && position.heading >= 0 ? position.heading : (direction + 360) % 360,
         updatedAt: position.timestamp ?? 0,
-        routeId: route.id, position,
+        routeId: route.id, position:progressTrusted||backtracked?position:previous?.position??position, progressTrusted, backtracked,
     };
+}
+export function hasArrived(progress: NavigationProgress, accuracy = Infinity) {
+    return progress.progressTrusted !== false && accuracy <= 40 && progress.offRouteMeters <= 30
+        && progress.destinationMeters <= 30 && progress.distanceRemaining <= 40;
+}
+
+/** Split only the visual polyline; routing, distance and risk retain the original geometry. */
+export function splitRouteGeometry(geometry: Ruta['geometria'], progressMeters = 0) {
+    const coords = geometry.coordinates;
+    const empty: GeoJSON.FeatureCollection = {type: 'FeatureCollection', features: []};
+    if (!Number.isFinite(progressMeters) || progressMeters <= 0 || coords.length < 2)
+        return {completed: empty as GeoJSON.GeoJSON, remaining: geometry as GeoJSON.GeoJSON};
+    let length = 0;
+    for (let index = 1; index < coords.length; index++) {
+        const a = coords[index - 1], b = coords[index];
+        const segment = metersBetween({longitud: a[0], latitud: a[1]}, {longitud: b[0], latitud: b[1]});
+        if (segment > 0 && length + segment > progressMeters) {
+            const fraction = (progressMeters - length) / segment;
+            const point = [a[0] + (b[0] - a[0]) * fraction, a[1] + (b[1] - a[1]) * fraction];
+            return {completed: {type: 'LineString', coordinates: [...coords.slice(0, index), point]} as GeoJSON.GeoJSON,
+                remaining: {type: 'LineString', coordinates: [point, ...coords.slice(index)]} as GeoJSON.GeoJSON};
+        }
+        length += segment;
+    }
+    return {completed: geometry as GeoJSON.GeoJSON, remaining: empty as GeoJSON.GeoJSON};
 }
 export function formatMeters(value: number) { return value < 1000 ? `${Math.max(0, Math.round(value / 10) * 10)} m` : `${(value / 1000).toFixed(1)} km`; }

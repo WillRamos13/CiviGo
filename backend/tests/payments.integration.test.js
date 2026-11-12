@@ -36,7 +36,14 @@ test(
     const request = async (url, options) => {
       requests++;
       if (url.endsWith("/users/me"))
-        return { ok: true, json: async () => ({ tags: options.headers.Authorization.includes('sandbox') ? ['test_user'] : ['normal'] }) };
+        return {
+          ok: true,
+          json: async () => ({
+            tags: options.headers.Authorization.includes("sandbox")
+              ? ["test_user"]
+              : ["normal"],
+          }),
+        };
       if (url.endsWith("/checkout/preferences")) {
         const body = JSON.parse(options.body);
         reference = body.external_reference;
@@ -112,8 +119,27 @@ test(
         /importe/,
       );
       payment.currency_id = "PEN";
+      payment.id = 12344;
+      payment.status = "rejected";
+      await service.reconcile("12344", user.id);
+      assert.equal(
+        (await service.ownedOrder(orderReference, user.id)).estado,
+        "rejected",
+      );
+      payment.id = 12345;
+      payment.status = "approved";
       await service.reconcile("12345", user.id);
       await service.reconcile("12345", user.id);
+      payment.id = 12344;
+      payment.status = "cancelled";
+      await service.reconcile("12344", user.id);
+      assert.equal(
+        (await service.ownedOrder(orderReference, user.id)).estado,
+        "approved",
+        "An old rejected attempt cannot overwrite a successful retry",
+      );
+      payment.id = 12345;
+      payment.status = "approved";
       let ledger = await db.appConfig.findUnique({
         where: { clave: `premium:paid:${user.id}` },
       });
@@ -137,7 +163,11 @@ test(
       );
       const sandbox = createPaymentService({
         db,
-        env: { ...env, PAYMENTS_MODE: "test",MERCADOPAGO_ACCESS_TOKEN:'sandbox-fixture' },
+        env: {
+          ...env,
+          PAYMENTS_MODE: "test",
+          MERCADOPAGO_ACCESS_TOKEN: "sandbox-fixture",
+        },
         request,
         now: () => clock,
       });

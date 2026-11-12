@@ -39,3 +39,4 @@
     width: 140px;
   }
 }
+.mapSurface :global(.web-navigation-avatar[data-navigation3d=true] .navigation-avatar-heading){visibility:hidden}

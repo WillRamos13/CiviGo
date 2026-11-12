@@ -5,6 +5,8 @@ const express = require("express"),
 const { auth, requireEmail } = require("../lib/auth"),
   { asyncRoute, text, HttpError } = require("../lib/http");
 const router = express.Router();
+const { serializable } = require("../lib/upload-quota");
+const { currentParticipant } = require("../lib/auth");
 router.post(
   "/contact",
   auth,
@@ -12,39 +14,40 @@ router.post(
   asyncRoute(async (req, res) => {
     const asunto = text(req.body.asunto, "Asunto", 100, 3),
       mensaje = text(req.body.mensaje, "Mensaje", 3000, 10);
-    const recent = await db.appConfig.count({
-      where: {
-        clave: { startsWith: `contact:${req.user.id}:` },
-        actualizadoEn: { gte: new Date(Date.now() - 3600000) },
-      },
-    });
-    if (recent >= 5)
-      throw new HttpError(
-        429,
-        "Ya enviaste varias consultas. Inténtalo más tarde.",
-      );
     const id = randomUUID();
-    await db.appConfig.create({
-      data: {
-        clave: `contact:${req.user.id}:${id}`,
-        valor: {
-          id,
-          usuarioId: req.user.id,
-          nickname: req.user.nombreUsuario,
-          correo: req.user.correo,
-          asunto,
-          mensaje,
-          estado: "PENDIENTE",
-          creadoEn: new Date().toISOString(),
+    await serializable(db, async (tx) => {
+      await currentParticipant(tx, req.user.id);
+      const recent = await tx.appConfig.count({
+        where: {
+          clave: { startsWith: `contact:${req.user.id}:` },
+          actualizadoEn: { gte: new Date(Date.now() - 3600000) },
         },
-      },
-    });
-    res
-      .status(201)
-      .json({
-        id,
-        mensaje: "Tu consulta quedó registrada para el equipo de CiviGo.",
       });
+      if (recent >= 5)
+        throw new HttpError(
+          429,
+          "Ya enviaste varias consultas. Inténtalo más tarde.",
+        );
+      await tx.appConfig.create({
+        data: {
+          clave: `contact:${req.user.id}:${id}`,
+          valor: {
+            id,
+            usuarioId: req.user.id,
+            nickname: req.user.nombreUsuario,
+            correo: req.user.correo,
+            asunto,
+            mensaje,
+            estado: "PENDIENTE",
+            creadoEn: new Date().toISOString(),
+          },
+        },
+      });
+    });
+    res.status(201).json({
+      id,
+      mensaje: "Tu consulta quedó registrada para el equipo de CiviGo.",
+    });
   }),
 );
 router.use("/admin/contact", auth, (req, res, next) =>

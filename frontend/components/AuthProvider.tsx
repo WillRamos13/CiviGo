@@ -1,5 +1,5 @@
 'use client';
-import { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { api, post, ApiError } from '@/lib/api';
 import { INITIAL_SESSION, SessionController } from '@/lib/session';
 import type { Usuario } from '@/lib/types';
@@ -28,6 +28,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const refresh = useCallback(() => controller.refresh(), [controller]);
     const logout = useCallback(() => controller.logout(), [controller]);
     const prepareLogin = useCallback(() => controller.prepareLogin(), [controller]);
+    const previousAccount=useRef<number|null|undefined>(undefined);
+    useEffect(()=>{
+        if(session.loading)return;
+        const id=session.usuario?.id??null;
+        if(previousAccount.current!==undefined&&previousAccount.current!==id)window.dispatchEvent(new Event('civigo:account-changed'));
+        previousAccount.current=id;
+    },[session.loading,session.usuario?.id]);
     useEffect(() => {
         void refresh();
         const reconnect = () => { void refresh(); };

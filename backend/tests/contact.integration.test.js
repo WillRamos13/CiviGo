@@ -104,8 +104,24 @@ test(
           .estado,
         "ATENDIDO",
       );
-      for (let index = 0; index < 4; index++)
-        assert.equal((await call("/contact", 0, "POST", body)).status, 201);
+      const parallel = await Promise.all(
+        Array.from({ length: 8 }, () => call("/contact", 0, "POST", body)),
+      );
+      assert.equal(
+        parallel.filter((result) => result.status === 201).length,
+        4,
+      );
+      assert.ok(
+        parallel
+          .filter((result) => result.status !== 201)
+          .every((result) => result.status === 429),
+      );
+      assert.equal(
+        await db.appConfig.count({
+          where: { clave: { startsWith: `contact:${users[0].id}:` } },
+        }),
+        5,
+      );
       assert.equal((await call("/contact", 0, "POST", body)).status, 429);
     } finally {
       if (server) await new Promise((resolve) => server.close(resolve));

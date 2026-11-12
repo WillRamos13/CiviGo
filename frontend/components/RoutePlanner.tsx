@@ -14,6 +14,7 @@ import NavigationGuidance, {type GuidanceProps} from './NavigationGuidance';
 import styles from './RoutePlanner.module.css';
 import { routeTimeSource } from '@/lib/navigation-presentation';
 import { formatDuration } from '@/lib/duration';
+import { CITY_LANDMARKS } from '@/lib/city-scene';
 type Punto = Posicion & { nombre: string };
 type Saved = { id: number; nombre: string; modo: string; origen: Posicion; destino: Posicion; datos: Ruta; creadoEn: string };
 type Props = { onRoute: (r: Ruta | null) => void; active: Ruta | null; following: boolean; onFollow: (v: boolean) => void; recalculate?: number; guidance?: GuidanceProps; onLocate?: (position: Posicion) => void; currentPosition?: Posicion | null; compact?: boolean; onShowPlace?: (place: Punto) => void };
@@ -39,6 +40,25 @@ function AccountRoutePlanner({ onRoute, active, following, onFollow, recalculate
     const invalidate = useCallback(() => { planEpoch.current++; selectionEpoch.current++; planRequest.current?.abort(); setRoutes([]); setBusy(false); setMessage(''); setError(''); setLoadedCopy(false); onRoute(null); onFollow(false); },[onRoute,onFollow]);
     const changeOrigin = (value: Punto | null) => { originTouched.current = true; invalidate(); setOrigin(value); setManualOrigin(value ? [String(value.latitud), String(value.longitud)] : ['', '']); };
     const changeDestination = useCallback((value: Punto | null) => { invalidate(); setDestination(value); setManualDestination(value ? [String(value.latitud), String(value.longitud)] : ['', '']); setStep(origin ? 'transport' : 'origin'); },[invalidate, origin]);
+    const landmarkConsumed=useRef(false);
+    useEffect(()=>{
+        const abort=new AbortController();
+        const choose=async(id:unknown)=>{
+            if(typeof id!=='number'||!Number.isSafeInteger(id)||id<1)return;
+            try{const items=await api<(Punto&{id:number;activo?:boolean})[]>('/businesses',{signal:abort.signal});const business=items.find(item=>item.id===id&&item.activo!==false&&isPosition(item));if(!abort.signal.aborted&&business){changeDestination({...business,nombre:business.nombre});const url=new URL(location.href);url.searchParams.delete('negocio');history.replaceState(history.state,'',url.pathname+url.search+url.hash);}}catch{if(!abort.signal.aborted)setError('No se pudo abrir el negocio. Busca nuevamente el lugar.');}
+        };
+        const select=(event:Event)=>void choose((event as CustomEvent<unknown>).detail);
+        const url=new URL(window.location.href),id=url.searchParams.get('negocio');if(id&&/^[1-9]\d{0,9}$/.test(id))void choose(Number(id));
+        window.addEventListener('civigo:choose-business',select);return()=>{abort.abort();window.removeEventListener('civigo:choose-business',select);};
+    },[changeDestination]);
+    useEffect(()=>{
+        if(landmarkConsumed.current)return;
+        const url=new URL(window.location.href),landmark=CITY_LANDMARKS.find(item=>item.id===url.searchParams.get('lugar'));
+        if(!landmark||url.searchParams.get('recorrido')!=='1')return;
+        let current=true;
+        void Promise.resolve().then(()=>{if(!current||landmarkConsumed.current)return;landmarkConsumed.current=true;changeDestination({nombre:landmark.name,latitud:landmark.latitud,longitud:landmark.longitud});url.searchParams.delete('lugar');url.searchParams.delete('recorrido');history.replaceState(history.state,'',url.pathname+url.search+url.hash);});
+        return()=>{current=false;};
+    },[changeDestination]);
     const changeManual = (isOrigin: boolean, axis: number, text: string) => {
         if (isOrigin) originTouched.current = true;
         const values = [...isOrigin ? manualOrigin : manualDestination]; values[axis] = text;

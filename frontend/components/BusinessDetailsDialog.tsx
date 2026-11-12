@@ -1,5 +1,10 @@
 "use client";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
+import Image from 'next/image';
+import Link from 'next/link';
+import {API_URL} from '@/lib/api';
+import {metersBetween,formatMeters} from '@/lib/navigation';
+import type {Posicion} from '@/lib/types';
 import { createPortal } from "react-dom";
 import type { MapBusiness } from "./MapAnnouncements";
 
@@ -16,10 +21,13 @@ function safeWebsite(value?: string) {
 export default function BusinessDetailsDialog({
   business,
   onClose,
+  currentPosition,
 }: {
   business: MapBusiness | null;
   onClose: () => void;
+  currentPosition?:Posicion|null;
 }) {
+  const [failedImage,setFailedImage]=useState('');
   const panel = useRef<HTMLElement>(null),
     close = useRef(onClose);
   useEffect(() => {
@@ -60,6 +68,9 @@ export default function BusinessDetailsDialog({
   }, [business]);
   if (!business) return null;
   const website = safeWebsite(business.sitioWeb);
+  const banner=business.banner?.url;
+  const safeBanner=banner&&/^\/(?:api\/)?announcements\/[1-9]\d*\/image$/.test(banner)?API_URL+banner.replace(/^\/api(?=\/)/,''):null;
+  const navigationLink='/mapa?negocio='+business.id;
   return createPortal(
     <div className="modal-backdrop" style={{zIndex:2100}} onClick={onClose}>
       <section
@@ -81,7 +92,8 @@ export default function BusinessDetailsDialog({
           </button>
         </div>
         <div className="card">
-          <span className="badge">Negocio participante</span>
+          <span className="badge">{business.demo===true?'Negocio de demostración':'Negocio participante'}</span>
+          {safeBanner&&failedImage!==safeBanner&&<figure style={{margin:'15px 0'}}><Image src={safeBanner} alt={business.banner?.alt||`Publicidad de ${business.nombre}`} width={700} height={350} unoptimized style={{width:'100%',height:'auto',maxHeight:240,objectFit:'contain',borderRadius:12}} onError={()=>setFailedImage(safeBanner)}/><figcaption className="muted">Publicidad del establecimiento</figcaption></figure>}
           <p style={{ marginTop: 15 }}>{business.descripcion}</p>
           <p>
             <strong>Dirección:</strong> {business.direccion || "No indicada"}
@@ -92,6 +104,9 @@ export default function BusinessDetailsDialog({
           {business.promocion && (
             <div className="notice">{business.promocion}</div>
           )}
+          {currentPosition&&Number.isFinite(business.latitud)&&Number.isFinite(business.longitud)&&<p>Distancia en línea recta: {formatMeters(metersBetween(currentPosition,business))}</p>}
+          <Link href={navigationLink} className="btn btn-primary btn-small" onClick={()=>{window.dispatchEvent(new CustomEvent('civigo:choose-business',{detail:business.id}));onClose();}}>Elegir como destino</Link>
+          <small className="muted" style={{display:'block',marginTop:12}}>Los datos son proporcionados por el establecimiento. Los símbolos 3D son ilustrativos.</small>
           {business.telefono && (
             <p>
               <strong>Contacto:</strong> {business.telefono}

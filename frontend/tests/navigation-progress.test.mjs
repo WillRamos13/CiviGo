@@ -2,6 +2,12 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {loadTs} from './helpers/ts-module.mjs';
 const {navigationProgress, formatMeters, watchRoutePosition} = loadTs('lib/navigation.ts');
+const {hasArrived,splitRouteGeometry}=loadTs('lib/navigation.ts');
+test('an impossible off-route jump cannot move the accepted marker or trigger progress',()=>{
+    const previous=navigationProgress({latitud:-14.06,longitud:-75.725,timestamp:10000,accuracy:5},{...route,modo:'walking'});
+    const next=navigationProgress({latitud:-14.061,longitud:-75.725,timestamp:11000,accuracy:5},{...route,modo:'walking'},previous);
+    assert.equal(next.progressTrusted,false);assert.equal(next.progressMeters,previous.progressMeters);assert.deepEqual(next.position,previous.position);
+});
 const {isRoute} = loadTs('lib/route-cache.ts');
 const route = {id: 'route', nombre: 'Más rápida', tipo: 'rapida', distancia: 2200, duracion: 600, puntosRiesgo: 2, nivelRiesgo: 1, advertencias: [], geometria: {type: 'LineString', coordinates: [[-75.73, -14.06], [-75.72, -14.06], [-75.72, -14.05]]}, destino: {longitud: -75.72, latitud: -14.05}, pasos: [
     {id: 'start', tipo: 'salida', maniobra: 'salida', instruccion: 'Avanza', distanciaAcumulada: 0, indiceInicio: 0, indiceFin: 1},
@@ -74,4 +80,32 @@ test('temporary GPS errors keep watching and recover; permission denial stops ex
     assert.equal(stopped, 1); assert.equal(denied, 1);
     position({coords: {latitude: -14.06, longitude: -75.72}, timestamp: 2000});
     assert.equal(received, 1);
+});
+
+test('a stationary walking GPS jump cannot move the route forward or back', () => {
+    const first=navigationProgress({latitud:-14.06,longitud:-75.725,accuracy:5,speed:0,timestamp:1000},{...route,modo:'walking'});
+    for(const longitud of [-75.7255,-75.724]) {
+        const next=navigationProgress({latitud:-14.06,longitud,accuracy:5,speed:0,timestamp:2000},{...route,modo:'walking'},first);
+        assert.equal(next.progressMeters,first.progressMeters);
+        assert.equal(next.secondsRemaining,first.secondsRemaining);
+        assert.equal(next.progressTrusted,false);
+    }
+});
+
+test('a close destination on a U-shaped route does not imply arrival at the start',()=>{
+    const u={...route,geometria:{type:'LineString',coordinates:[[-75.73,-14.06],[-75.73,-14.05],[-75.7299,-14.05],[-75.7299,-14.06]]},destino:{longitud:-75.7299,latitud:-14.06}};
+    const start=navigationProgress({longitud:-75.73,latitud:-14.06,accuracy:5},u);
+    assert.ok(start.destinationMeters<15);assert.ok(start.distanceRemaining>2000);
+    assert.equal(hasArrived(start,5),false);
+    assert.equal(hasArrived(navigationProgress({...u.destino,accuracy:5},u),5),true);
+});
+
+test('the visual route split is continuous, preserves corners, and clears old completed geometry',()=>{
+    const original=structuredClone(route.geometria),parts=splitRouteGeometry(route.geometria,300);
+    assert.deepEqual(parts.completed.coordinates.at(-1),parts.remaining.coordinates[0]);
+    assert.deepEqual(parts.remaining.coordinates.at(-1),route.geometria.coordinates.at(-1));
+    assert.deepEqual(route.geometria,original);
+    assert.deepEqual(splitRouteGeometry(route.geometria,0).completed.features,[]);
+    assert.deepEqual(splitRouteGeometry(route.geometria,Infinity).remaining,route.geometria);
+    assert.deepEqual(splitRouteGeometry(route.geometria,100000).remaining.features,[]);
 });

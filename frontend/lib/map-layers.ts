@@ -1,6 +1,7 @@
 import type { Map, GeoJSONSource, HeatmapLayerSpecification } from 'mapbox-gl';
 import type { Incidente, Ruta } from './types';
 import { RISK_COLORS } from './types';
+import { splitRouteGeometry, type NavigationProgress } from './navigation';
 
 export const EMPTY_MAP_DATA: GeoJSON.FeatureCollection = { type: 'FeatureCollection', features: [] };
 // Keep the same cartography in both themes; the theme changes the surrounding UI.
@@ -63,11 +64,41 @@ export type MapLayerState = {
     editor: boolean;
     brand: string;
     routeOutline: string;
+    routeProgress?: Pick<NavigationProgress, 'routeId' | 'progressMeters'> | null;
 };
 
 type LayerMap = Pick<Map, 'getSource' | 'addSource' | 'getLayer' | 'addLayer' | 'getStyle' | 'setLayoutProperty' | 'setPaintProperty'>;
 
 const sourceData = new WeakMap<object, GeoJSON.GeoJSON>();
+function updateSource(map: LayerMap, id: string, data: GeoJSON.GeoJSON) {
+    const current = map.getSource(id) as GeoJSONSource | undefined;
+    if (current) {
+        if (sourceData.get(current) !== data) { current.setData(data); sourceData.set(current, data); }
+    } else map.addSource(id, {type: 'geojson', data});
+}
+
+// Position updates touch route sources only, leaving incident features unchanged.
+export function syncMapRoute(map: LayerMap, state: Pick<MapLayerState, 'route' | 'routeProgress' | 'brand' | 'routeOutline'>) {
+    const progress = state.route && state.routeProgress && state.routeProgress.routeId === state.route.id ? state.routeProgress.progressMeters : 0;
+    const pieces = state.route ? splitRouteGeometry(state.route.geometria, progress) : {remaining: EMPTY_MAP_DATA, completed: EMPTY_MAP_DATA};
+    const feature = (geometry: GeoJSON.GeoJSON): GeoJSON.GeoJSON => geometry.type === 'LineString' ? {type: 'Feature', geometry, properties: {}} : geometry;
+    updateSource(map, 'civigo-route', feature(pieces.remaining));
+    updateSource(map, 'civigo-route-completed', feature(pieces.completed));
+    if (!map.getLayer('civigo-route-completed-line')) map.addLayer({
+        id: 'civigo-route-completed-line', type: 'line', source: 'civigo-route-completed',
+        layout: {'line-join': 'round', 'line-cap': 'round'}, paint: {'line-color': '#84929e', 'line-width': 4, 'line-opacity': .42},
+    });
+    if (!map.getLayer('civigo-route-outline')) map.addLayer({
+        id: 'civigo-route-outline', type: 'line', source: 'civigo-route',
+        layout: {'line-join': 'round', 'line-cap': 'round'}, paint: {'line-color': state.routeOutline, 'line-width': 9},
+    });
+    if (!map.getLayer('civigo-route-line')) map.addLayer({
+        id: 'civigo-route-line', type: 'line', source: 'civigo-route',
+        layout: {'line-join': 'round', 'line-cap': 'round'}, paint: {'line-color': state.brand, 'line-width': 5},
+    });
+    map.setPaintProperty('civigo-route-outline', 'line-color', state.routeOutline);
+    map.setPaintProperty('civigo-route-line', 'line-color', state.brand);
+}
 export function syncMapLayers(map: LayerMap, state: MapLayerState) {
     const source = (id: string, data: GeoJSON.GeoJSON) => {
         const current = map.getSource(id) as GeoJSONSource | undefined;
@@ -76,7 +107,6 @@ export function syncMapLayers(map: LayerMap, state: MapLayerState) {
     };
     source('civigo-incidents', state.editor ? EMPTY_MAP_DATA : incidentAreaPoints(state.incidents));
     source('civigo-roads', state.roads);
-    source('civigo-route', state.route ? { type: 'Feature', geometry: state.route.geometria, properties: {} } : EMPTY_MAP_DATA);
     const firstTextLabel = map.getStyle()?.layers?.find(layer => layer.type === 'symbol' && layer.layout?.['text-field'] !== undefined)?.id;
     if (!map.getLayer('civigo-incident-areas')) map.addLayer({
         id: 'civigo-incident-areas', type: 'heatmap', slot: 'middle', source: 'civigo-incidents', paint: INCIDENT_AREA_PAINT,
@@ -89,14 +119,7 @@ export function syncMapLayers(map: LayerMap, state: MapLayerState) {
             'line-width': ['interpolate', ['linear'], ['zoom'], 10, .8, 13, 1.6, 16, 2.6, 19, 4], 'line-opacity': .7,
         },
     }, firstTextLabel);
-    if (!map.getLayer('civigo-route-outline')) map.addLayer({
-        id: 'civigo-route-outline', type: 'line', source: 'civigo-route', paint: { 'line-color': state.routeOutline, 'line-width': 9 },
-    });
-    if (!map.getLayer('civigo-route-line')) map.addLayer({
-        id: 'civigo-route-line', type: 'line', source: 'civigo-route', paint: { 'line-color': state.brand, 'line-width': 5 },
-    });
     map.setLayoutProperty('civigo-roads-layer', 'visibility', state.risk && !state.editor ? 'visible' : 'none');
     map.setLayoutProperty('civigo-incident-areas', 'visibility', state.events && state.zones && !state.editor ? 'visible' : 'none');
-    map.setPaintProperty('civigo-route-outline', 'line-color', state.routeOutline);
-    map.setPaintProperty('civigo-route-line', 'line-color', state.brand);
+    syncMapRoute(map, state);
 }

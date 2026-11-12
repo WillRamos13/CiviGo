@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { ArrowDown, ArrowRight, ArrowUpRight, Bike, Car, ChevronRight, Compass, Footprints, Gift, MapPin, Play, Route, Users } from 'lucide-react';
 import HomeVideo from '@/components/HomeVideo';
+import CinematicCity from './CinematicCity';
 import styles from './CinematicHome.module.css';
 
 const steps = [
@@ -52,29 +53,9 @@ export default function CinematicHome() {
     event.preventDefault(); setStep(next); tabs.current[next]?.focus();
   };
   return <div className={styles.landing}>
-    <section id="inicio" className={styles.hero} aria-labelledby="home-title">
-      <div className={styles.localNav}><span><span className={styles.statusDot} /> HECHO PARA ICA, PERÚ</span><a href="#experiencia">Descubre CiviGo <ArrowDown size={13} aria-hidden /></a></div>
-      <div className={styles.heroLayout}>
-        <div className={styles.heroCopy}>
-          <span className={styles.eyebrow}>LA CIUDAD ES NUESTRA. EL CAMINO, TUYO.</span>
-          <h1 id="home-title">Ica,<br /><em>más cerca.</em><span className={styles.titleMark} aria-hidden>↗</span></h1>
-          <p>Saber qué pasa también es parte del camino. Explora tu ciudad, encuentra cómo llegar y comparte lo que ocurre cerca de ti.</p>
-          <div className={styles.actions}><Link href="/mapa" className={styles.primary} data-home-action="hero_map">Explorar Ica <ArrowUpRight size={19} aria-hidden /></Link><Link href="/reportar" className={styles.textLink}>Hacer un reporte <ArrowRight size={16} aria-hidden /></Link></div>
-          <div className={styles.heroFootnote}><span className={styles.people} aria-hidden><Users size={17} /></span><span>De quienes vivimos aquí.<br /><strong>Para quienes nos movemos aquí.</strong></span></div>
-        </div>
-        <div className={styles.heroVisual}>
-          <div className={styles.photoFrame}>
-            <Image src="/home/ica-huacachina.webp" alt="El oasis de Huacachina entre las dunas de Ica, visto desde arriba" fill priority sizes="(max-width: 700px) 100vw, 50vw" className={styles.heroPhoto} />
-            <div className={styles.photoShade} />
-            <div className={styles.photoTop}><span><MapPin size={13} aria-hidden /> HUACACHINA, ICA</span><Compass size={21} aria-hidden /></div>
-            <div className={styles.photoCaption}><span>NUESTRA CIUDAD, OTRA PERSPECTIVA</span><p>El siguiente destino<br />empieza <em>aquí.</em></p></div>
-            <a href="#experiencia" className={styles.photoArrow} aria-label="Descubrir cómo funciona CiviGo"><ArrowDown size={22} aria-hidden /></a>
-          </div>
-          <Link href="/mapa" className={styles.destinationTag}><span><MapPin size={19} aria-hidden /></span><div><small>HAY MUCHO POR RECORRER</small><strong>¿A dónde quieres ir hoy?</strong></div><ArrowUpRight size={20} aria-hidden /></Link>
-          <span className={styles.coordinate}>14° 03′ S &nbsp; 75° 43′ O <i /> ICA, PERÚ</span>
-        </div>
-      </div>
-      <div className={styles.heroBottom}><span>Conoce. Recorre. Comparte.</span><a href="#experiencia">TU CIUDAD, MEJOR CONECTADA <ArrowDown size={14} aria-hidden /></a></div>
+    <section id="inicio" className={styles.masthead} aria-labelledby="home-title">
+      <div className={styles.mastheadCopy}><div><h1 id="home-title">Civi<span>Go</span></h1><p className={styles.slogan}>Tu ciudad más segura</p></div><div className={styles.actions}><Link href="/mapa" className={styles.primary} data-home-action="hero_map">Explorar mapa <ArrowUpRight size={19} aria-hidden /></Link><a href="#experiencia" className={styles.textLink}>Ver cómo funciona <ArrowDown size={16} aria-hidden /></a></div></div>
+      <CinematicCity />
     </section>
     <section id="experiencia" className={styles.experience} aria-labelledby="experience-title">
       <div className={styles.sectionHeading}><div><span className={styles.eyebrow}>MENOS SUPOSICIONES. MÁS CONTEXTO.</span><h2 id="experience-title">La información también<br />te ayuda a <em>llegar.</em></h2></div><p>Del primer vistazo al siguiente paso.<br />Así se vive CiviGo.</p></div>
@@ -107,6 +88,6 @@ export default function CinematicHome() {
       <details><summary>¿La ruta con menor riesgo garantiza seguridad?<ChevronRight size={17} aria-hidden /></summary><p>No. CiviGo compara la información registrada y disponible. Los reportes pueden estar pendientes de revisión y la ausencia de reportes no garantiza seguridad.</p></details>
     </div></section>
     <section className={styles.closing} aria-labelledby="closing-title"><div className={styles.closingMark} aria-hidden><MapPin size={46} strokeWidth={1.2} /></div><span className={styles.eyebrow}>NOS ENCONTRAMOS EN EL CAMINO.</span><h2 id="closing-title">Hay una ciudad ahí fuera.<br /><em>Vamos a conocerla mejor.</em></h2><div className={styles.actions}><Link href="/mapa" className={styles.primary} data-home-action="closing_map">Vamos al mapa <ArrowUpRight size={18} aria-hidden /></Link><Link href="/registro" className={styles.secondary}>Ser parte de CiviGo <ArrowRight size={17} aria-hidden /></Link></div></section>
-    <footer className={styles.footer}><Link href="#inicio" className={styles.wordmark} aria-label="CiviGo · Volver al inicio"><MapPin size={23} aria-hidden /><strong>Civi<span>Go</span></strong></Link><span>De Ica. Para conectar Ica.</span><Link href="/contactanos">Hablemos <ArrowUpRight size={14} aria-hidden /></Link><details className={styles.credits}><summary>Créditos visuales</summary><p>Huacachina: <a href="https://commons.wikimedia.org/wiki/File:Overview_of_Huacachina.jpg" target="_blank" rel="noopener noreferrer">Havardtl</a>, <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener noreferrer">CC BY 4.0</a>. Plaza de Armas: <a href="https://commons.wikimedia.org/wiki/File:Plaza_de_armas_de_Ica.jpg" target="_blank" rel="noopener noreferrer">Txolo</a>, <a href="https://creativecommons.org/licenses/by-sa/4.0/" target="_blank" rel="noopener noreferrer">CC BY-SA 4.0</a>. Fotografías recortadas y convertidas a WebP. Calles: <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">© OpenStreetMap contributors</a>, ODbL.</p></details></footer>
+    <footer className={styles.footer}><Link href="#inicio" className={styles.wordmark} aria-label="CiviGo · Volver al inicio"><MapPin size={23} aria-hidden /><strong>Civi<span>Go</span></strong></Link><span>De Ica. Para conectar Ica.</span><Link href="/privacidad">Privacidad</Link><Link href="/contactanos">Hablemos <ArrowUpRight size={14} aria-hidden /></Link><details className={styles.credits}><summary>Créditos visuales</summary><p>Huacachina: <a href="https://commons.wikimedia.org/wiki/File:Overview_of_Huacachina.jpg" target="_blank" rel="noopener noreferrer">Havardtl</a>, <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener noreferrer">CC BY 4.0</a>. Plaza de Armas: <a href="https://commons.wikimedia.org/wiki/File:Plaza_de_armas_de_Ica.jpg" target="_blank" rel="noopener noreferrer">Txolo</a>, <a href="https://creativecommons.org/licenses/by-sa/4.0/" target="_blank" rel="noopener noreferrer">CC BY-SA 4.0</a>. Fotografías recortadas y convertidas a WebP. Calles y huellas: <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">© OpenStreetMap contributors</a>, ODbL. Alturas y fachadas pendientes de documentación.</p></details></footer>
   </div>;
 }

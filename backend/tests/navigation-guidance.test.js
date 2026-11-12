@@ -14,6 +14,38 @@ const {
 } = require("../src/lib/navigation-traffic");
 const { roads, input, incident } = require("./helpers/navigation-fixtures");
 const now = new Date("2026-10-08T11:00:00Z");
+test("TomTom accepts a matching loop and keeps repeated street occurrences in travel order", () => {
+  const { distanceMeters } = require("../src/lib/risk");
+  const coordinates = [
+    [-75.73, -14.06],
+    [-75.72, -14.06],
+    [-75.72, -14.05],
+    [-75.73, -14.05],
+    [-75.73, -14.06],
+    [-75.72, -14.06],
+  ];
+  const distancia = coordinates
+    .slice(1)
+    .reduce((sum, p, index) => sum + distanceMeters(coordinates[index], p), 0);
+  const local = { geometria: { type: "LineString", coordinates }, distancia };
+  assert.equal(
+    pathMatches(local, {
+      path: local.geometria,
+      summary: { lengthInMeters: distancia },
+    }),
+    true,
+  );
+  assert.equal(
+    pathMatches(local, {
+      path: {
+        type: "LineString",
+        coordinates: [coordinates[0], coordinates.at(-1)],
+      },
+      summary: { lengthInMeters: distancia },
+    }),
+    false,
+  );
+});
 function response(route, seconds) {
   return {
     actualizadoEn: now.toISOString(),
@@ -68,7 +100,11 @@ test("seguridad descarta un rodeo de varias horas sin pedir al usuario ajustar l
   const fast = result.rutas.find((route) => route.criterios.includes("rapida"));
   const safe = result.rutas.find((route) => route.criterios.includes("segura"));
   assert.ok(safe.duracion <= fast.duracion * 1.6 + 300);
-  assert.ok(result.rutas.every(route=>route.distancia<=fast.distancia*1.75+400));
+  assert.ok(
+    result.rutas.every(
+      (route) => route.distancia <= fast.distancia * 1.75 + 400,
+    ),
+  );
   assert.ok(safe.exposicionTotal <= fast.exposicionTotal);
   assert.equal(result.limitesDesvio, undefined);
 });

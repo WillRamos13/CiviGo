@@ -18,9 +18,13 @@ const env = {
   SUPABASE_SECRET_KEY: "sb_secret_contract_test_only",
   SUPABASE_STORAGE_BUCKET: "civigo-attachments",
 };
-const photo = Buffer.from([255, 216, 255, 224, 0, 0, 0, 0]);
+const photo = Buffer.from([255, 216, 255, 224, 0, 2, 255, 217]);
 
-function provider({ publicBucket = false, failure = false, failRemoval = false } = {}) {
+function provider({
+  publicBucket = false,
+  failure = false,
+  failRemoval = false,
+} = {}) {
   const calls = [];
   const fetchImpl = async (url, options) => {
     calls.push({ url, options });
@@ -33,7 +37,10 @@ function provider({ publicBucket = false, failure = false, failRemoval = false }
       return failure
         ? new Response("sensitive provider message", { status: 500 })
         : Response.json({ Key: "stored" });
-    if (options.method === "DELETE") return failRemoval ? new Response('unavailable', { status: 503 }) : Response.json([]);
+    if (options.method === "DELETE")
+      return failRemoval
+        ? new Response("unavailable", { status: 503 })
+        : Response.json([]);
     const range = options.headers.Range;
     return new Response(range ? photo.subarray(0, 3) : photo, {
       status: range ? 206 : 200,
@@ -54,24 +61,53 @@ async function fixture(t, options = {}) {
   const remote = provider(options);
   const records = new Map();
   const db = {
-    $queryRaw: async () => [{ count: [...records.values()].filter(row => row.tipo === 'IDENTIDAD').length }],
-    $transaction: async work => work(db),
+    $queryRaw: async () => [
+      {
+        count: [...records.values()].filter((row) => row.tipo === "IDENTIDAD")
+          .length,
+      },
+    ],
+    $transaction: async (work) => work(db),
     usageCounter: { upsert: async () => ({ cantidad: 1 }) },
     recovery: { findFirst: async () => null },
-    appConfig: { findUnique: async () => ({ valor: { maxVideoBytes: options.maxVideoBytes || MAX_FILE_SIZE } }) },
+    appConfig: {
+      findUnique: async () => ({
+        valor: { maxVideoBytes: options.maxVideoBytes || MAX_FILE_SIZE },
+      }),
+    },
     attachment: {
-      aggregate: async () => ({ _sum: { size: [...records.values()].reduce((sum, row) => sum + row.size, 0) } }),
-      count: async ({ where }) => [...records.values()].filter(row => row.usuarioId === where.usuarioId && !row.reporteId && (where.tipo === 'IDENTIDAD' ? row.tipo === 'IDENTIDAD' : row.tipo !== 'IDENTIDAD')).length,
+      aggregate: async () => ({
+        _sum: {
+          size: [...records.values()].reduce((sum, row) => sum + row.size, 0),
+        },
+      }),
+      count: async ({ where }) =>
+        [...records.values()].filter(
+          (row) =>
+            row.usuarioId === where.usuarioId &&
+            !row.reporteId &&
+            (where.tipo === "IDENTIDAD"
+              ? row.tipo === "IDENTIDAD"
+              : row.tipo !== "IDENTIDAD"),
+        ).length,
       create: async ({ data }) => {
         records.set(data.id, data);
         return data;
       },
       update: async ({ where, data }) => {
-        if (options.failDatabase) throw new Error('database unavailable');
-        const row = records.get(where.id); Object.assign(row, data); return row;
+        if (options.failDatabase) throw new Error("database unavailable");
+        const row = records.get(where.id);
+        Object.assign(row, data);
+        return row;
       },
-      updateMany: async ({ where, data }) => { const row = records.get(where.id); if (row) Object.assign(row, data); return { count: row ? 1 : 0 }; },
-      deleteMany: async ({ where }) => ({ count: records.delete(where.id) ? 1 : 0 }),
+      updateMany: async ({ where, data }) => {
+        const row = records.get(where.id);
+        if (row) Object.assign(row, data);
+        return { count: row ? 1 : 0 };
+      },
+      deleteMany: async ({ where }) => ({
+        count: records.delete(where.id) ? 1 : 0,
+      }),
       findUnique: async ({ where }) => records.get(where.id) || null,
     },
   };
@@ -226,12 +262,12 @@ test("Supabase uploads persist opaque paths and public attachments retain backen
   assert.equal(publicFile.status, 200);
   assert.equal(publicFile.headers.get("cache-control"), "private, no-store");
   assert.equal(publicFile.headers.get("apikey"), null);
-  for (const state of ['EN_REVISION', 'FALSO', 'RETIRADO']) {
+  for (const state of ["EN_REVISION", "FALSO", "RETIRADO"]) {
     record.reporte.estado = state;
     assert.equal((await f.download(json.id)).status, 403);
     assert.equal((await f.download(json.id, f.owner)).status, 200);
   }
-  record.reporte.estado = 'VALIDADO';
+  record.reporte.estado = "VALIDADO";
   record.reporte.usuario.correoVerificado = false;
   assert.equal((await f.download(json.id)).status, 403);
   assert.equal((await f.download(json.id, f.owner)).status, 200);
@@ -247,26 +283,66 @@ test("Supabase uploads persist opaque paths and public attachments retain backen
   assert.deepEqual(posted.options.body, photo);
 });
 
-test('ADMIN puede cargar publicidad sin verificación ciudadana; otras cuentas no pueden omitirla ni publicar pruebas', async (t) => {
+test("ADMIN puede cargar publicidad sin verificación ciudadana; otras cuentas no pueden omitirla ni publicar pruebas", async (t) => {
   const f = await fixture(t);
-  const admin = { ...f.owner, rol: 'ADMIN', correoVerificado: false };
-  const result = await f.upload({ type:'ANUNCIO', user:admin });
+  const admin = { ...f.owner, rol: "ADMIN", correoVerificado: false };
+  const result = await f.upload({ type: "ANUNCIO", user: admin });
   assert.equal(result.response.status, 201);
-  assert.equal(result.json.tipo, 'ANUNCIO'); assert.equal(result.json.privado, false);
+  assert.equal(result.json.tipo, "ANUNCIO");
+  assert.equal(result.json.privado, false);
   const row = f.records.get(result.json.id);
-  assert.equal((await f.download(row.id)).status, 403, 'la ruta genérica no publica archivos publicitarios');
-  row.anuncio = { id:1 };
-  assert.equal((await f.download(row.id, {...admin,id:9})).status, 200, 'otro ADMIN puede revisar una imagen ligada a un anuncio');
-  for (const user of [{...f.owner,correoVerificado:false}, {...f.owner,rol:'AGENTE'}, {...admin,bloqueado:true}]) {
-    const rejected = await f.upload({type:'ANUNCIO',user});
+  assert.equal(
+    (await f.download(row.id)).status,
+    403,
+    "la ruta genérica no publica archivos publicitarios",
+  );
+  row.anuncio = { id: 1 };
+  assert.equal(
+    (await f.download(row.id, { ...admin, id: 9 })).status,
+    200,
+    "otro ADMIN puede revisar una imagen ligada a un anuncio",
+  );
+  for (const user of [
+    { ...f.owner, correoVerificado: false },
+    { ...f.owner, rol: "AGENTE" },
+    { ...admin, bloqueado: true },
+  ]) {
+    const rejected = await f.upload({ type: "ANUNCIO", user });
     assert.equal(rejected.response.status, 403);
   }
-  assert.equal((await f.upload({type:'PUBLICO',user:admin})).response.status, 403, 'la excepción no permite enviar reportes sin verificar correo');
-  assert.equal((await f.upload({type:'ANUNCIO',user:admin,mime:'application/pdf',data:Buffer.from('%PDF-private')})).response.status, 400);
-  assert.equal((await f.upload({type:'ANUNCIO',user:admin,privateFile:true})).response.status, 400);
-  const tooLarge = Buffer.alloc(5*1024*1024+1); photo.copy(tooLarge);
-  assert.equal((await f.upload({type:'ANUNCIO',user:admin,data:tooLarge})).response.status, 413);
-  assert.deepEqual(await fs.readdir(f.directory), [], 'no quedan archivos temporales de cargas rechazadas');
+  assert.equal(
+    (await f.upload({ type: "PUBLICO", user: admin })).response.status,
+    403,
+    "la excepción no permite enviar reportes sin verificar correo",
+  );
+  assert.equal(
+    (
+      await f.upload({
+        type: "ANUNCIO",
+        user: admin,
+        mime: "application/pdf",
+        data: Buffer.from("%PDF-private"),
+      })
+    ).response.status,
+    400,
+  );
+  assert.equal(
+    (await f.upload({ type: "ANUNCIO", user: admin, privateFile: true }))
+      .response.status,
+    400,
+  );
+  const tooLarge = Buffer.alloc(5 * 1024 * 1024 + 1);
+  photo.copy(tooLarge);
+  assert.equal(
+    (await f.upload({ type: "ANUNCIO", user: admin, data: tooLarge })).response
+      .status,
+    413,
+  );
+  assert.deepEqual(
+    await fs.readdir(f.directory),
+    [],
+    "no quedan archivos temporales de cargas rechazadas",
+  );
 });
 
 test("Private evidence and identity preserve owner, district and administrator permissions", async (t) => {
@@ -415,13 +491,16 @@ test("A failed attachment registration rolls back only its exact object and temp
   assert.deepEqual(await fs.readdir(f.directory), []);
 });
 
-test('A failed cleanup retains the exact reserved object for a later retry', async t => {
+test("A failed cleanup retains the exact reserved object for a later retry", async (t) => {
   const f = await fixture(t, { failDatabase: true, failRemoval: true });
   assert.equal((await f.upload()).response.status, 500);
   assert.equal(f.records.size, 1);
   const row = [...f.records.values()][0];
-  assert.equal(row.estado, 'BORRANDO');
-  assert.match(row.path, /^supabase:\/\/civigo-attachments\/uploads\/7\/[a-f0-9-]{36}$/);
+  assert.equal(row.estado, "BORRANDO");
+  assert.match(
+    row.path,
+    /^supabase:\/\/civigo-attachments\/uploads\/7\/[a-f0-9-]{36}$/,
+  );
   assert.equal((await f.download(row.id, f.owner)).status, 404);
 });
 

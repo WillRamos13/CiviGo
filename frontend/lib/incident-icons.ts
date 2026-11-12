@@ -21,6 +21,7 @@ type IncidentIconAsset = { image: StaticImageData; scale?: number };
 
 const icons = new Map<string, IncidentIconAsset>([
     ...['hurto','extorsion','amenazas','humo','pelea','animal-peligroso'].map(name=>[name,{image:symbol(name)}] as [string,IncidentIconAsset]),
+    ...['danos-por-sismo','cable-caido','fuga-de-agua'].map(name=>[name,{image:symbol(name)}] as [string,IncidentIconAsset]),
     ['bache', { image: bache }],
     ['basura-acumulada', { image: basura }],
     // The supplied barrier has wide transparent margins. Frame it with CSS;

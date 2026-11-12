@@ -63,7 +63,7 @@ test('unknown observed types are merged into Otros incidentes without duplicates
 test('missing catalog still supplies observed options and empty data supplies no groups', () => {
     assert.deepEqual(buildIncidentFilterGroups(null, []), []);
     assert.deepEqual(buildIncidentFilterGroups(null, [incident(1), incident(2, {tipo: 'Hurto'})]), [
-        {key: 'otros-incidentes', name: 'Otros incidentes', types: [{key: 'robo', name: 'Robo'}, {key: 'hurto', name: 'Hurto'}]},
+        {key: 'seguridad', name: 'Seguridad ciudadana', types: [{key: 'robo', name: 'Robo'}, {key: 'hurto', name: 'Hurto'}]},
     ]);
 });
 
