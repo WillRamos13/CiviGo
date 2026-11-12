@@ -5,7 +5,6 @@ const express = require("express"),
 const { auth, requireEmail } = require("../lib/auth"),
   { asyncRoute, text, HttpError } = require("../lib/http");
 const router = express.Router();
-const { serializable } = require("../lib/upload-quota");
 const { currentParticipant } = require("../lib/auth");
 router.post(
   "/contact",
@@ -15,35 +14,42 @@ router.post(
     const asunto = text(req.body.asunto, "Asunto", 100, 3),
       mensaje = text(req.body.mensaje, "Mensaje", 3000, 10);
     const id = randomUUID();
-    await serializable(db, async (tx) => {
-      await currentParticipant(tx, req.user.id);
-      const recent = await tx.appConfig.count({
-        where: {
-          clave: { startsWith: `contact:${req.user.id}:` },
-          actualizadoEn: { gte: new Date(Date.now() - 3600000) },
-        },
-      });
-      if (recent >= 5)
-        throw new HttpError(
-          429,
-          "Ya enviaste varias consultas. Inténtalo más tarde.",
-        );
-      await tx.appConfig.create({
-        data: {
-          clave: `contact:${req.user.id}:${id}`,
-          valor: {
-            id,
-            usuarioId: req.user.id,
-            nickname: req.user.nombreUsuario,
-            correo: req.user.correo,
-            asunto,
-            mensaje,
-            estado: "PENDIENTE",
-            creadoEn: new Date().toISOString(),
+    await db.$transaction(
+      async (tx) => {
+        // Serialize this account's quota before reading it. ReadCommitted takes a
+        // fresh snapshot after the lock; Serializable snapshots can exhaust retries
+        // under a burst even when the quota has already been reached.
+        await tx.$queryRaw`SELECT id FROM "User" WHERE id = ${req.user.id} FOR UPDATE`;
+        await currentParticipant(tx, req.user.id);
+        const recent = await tx.appConfig.count({
+          where: {
+            clave: { startsWith: `contact:${req.user.id}:` },
+            actualizadoEn: { gte: new Date(Date.now() - 3600000) },
           },
-        },
-      });
-    });
+        });
+        if (recent >= 5)
+          throw new HttpError(
+            429,
+            "Ya enviaste varias consultas. Inténtalo más tarde.",
+          );
+        await tx.appConfig.create({
+          data: {
+            clave: `contact:${req.user.id}:${id}`,
+            valor: {
+              id,
+              usuarioId: req.user.id,
+              nickname: req.user.nombreUsuario,
+              correo: req.user.correo,
+              asunto,
+              mensaje,
+              estado: "PENDIENTE",
+              creadoEn: new Date().toISOString(),
+            },
+          },
+        });
+      },
+      { isolationLevel: "ReadCommitted", maxWait: 10000, timeout: 30000 },
+    );
     res.status(201).json({
       id,
       mensaje: "Tu consulta quedó registrada para el equipo de CiviGo.",

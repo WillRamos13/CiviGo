@@ -115,6 +115,12 @@ test(
         parallel
           .filter((result) => result.status !== 201)
           .every((result) => result.status === 429),
+        JSON.stringify(
+          parallel.map((result) => ({
+            status: result.status,
+            error: result.data.error,
+          })),
+        ),
       );
       assert.equal(
         await db.appConfig.count({
