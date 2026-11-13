@@ -1,4 +1,5 @@
 import type {Catalogo, Incidente} from './types';
+import {incidentPresentation} from './incident-catalog';
 
 export interface IncidentFilterGroup {
     key: string;
@@ -40,6 +41,11 @@ export function buildIncidentFilterGroups(
     for (const incident of incidents) {
         const key = incidentTypeKey(incident);
         if (knownTypes.has(key)) continue;
+        const presentation=incidentPresentation(incident.tipoSlug,incident.tipoNombre,incident.tipo);
+        if(presentation){
+            let group=groups.get(presentation.category);if(!group){group={key:presentation.category,name:presentation.categoryName,types:[]};groups.set(group.key,group);}
+            group.types.push({key,name:incident.tipoNombre?.trim()||incident.tipo.trim()||key});knownTypes.add(key);continue;
+        }
         if (!others) {
             others = {key: 'otros-incidentes', name: 'Otros incidentes', types: []};
             groups.set(others.key, others);

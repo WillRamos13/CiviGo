@@ -1,7 +1,8 @@
 const { HttpError, text } = require("./http");
 
 function phone(value) {
-  const normalized = String(value || "").replace(/[\s()-]/g, "");
+  if (typeof value !== "string") throw new HttpError(400, "Teléfono inválido.");
+  const normalized = value.replace(/[\s()-]/g, "");
   const number = /^9\d{8}$/.test(normalized) ? "+51" + normalized : normalized;
   if (!/^\+[1-9]\d{7,14}$/.test(number))
     throw new HttpError(
@@ -12,9 +13,8 @@ function phone(value) {
 }
 
 function email(value) {
-  const normalized = String(value || "")
-    .trim()
-    .toLowerCase();
+  if (typeof value !== "string") throw new HttpError(400, "Correo inválido.");
+  const normalized = value.trim().toLowerCase();
   if (
     normalized.length > 254 ||
     !/^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/.test(normalized)

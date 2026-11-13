@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { loadTs } from './helpers/ts-module.mjs';
-const { incidentAreaPoints, syncMapLayers, bindIncidentMarkerZoom, INCIDENT_MARKER_MIN_ZOOM, INCIDENT_AREA_PAINT } = loadTs('lib/map-layers.ts');
+const { incidentAreaPoints, syncMapLayers, syncMapRoute, bindIncidentMarkerZoom, INCIDENT_MARKER_MIN_ZOOM, INCIDENT_AREA_PAINT } = loadTs('lib/map-layers.ts');
 
 function fakeMap() {
     const sources = new Map(), layers = new Map();
@@ -41,8 +41,8 @@ test('base style replacement restores latest route, incident points, colors and 
     const map = fakeMap();
     syncMapLayers(map, state);
     syncMapLayers(map, state);
-    assert.equal(map.sources.size, 3);
-    assert.equal(map.layers.size, 4);
+    assert.equal(map.sources.size, 4);
+    assert.equal(map.layers.size, 5);
     assert.equal(map.layers.get('civigo-incident-areas').before, 'street-label');
     map.clearStyle();
     const newerRoute = { geometria: { ...route.geometria, coordinates: [[-75.72, -14.06], [-75.71, -14.065]] } };
@@ -57,6 +57,23 @@ test('base style replacement restores latest route, incident points, colors and 
     syncMapLayers(map, { ...state, route: null, incidents: [] });
     assert.deepEqual(map.sources.get('civigo-route').data.features, []);
     assert.deepEqual(map.sources.get('civigo-incidents').data.features, []);
+});
+
+test('accepted progress turns completed geometry gray without updating incidents or mutating the route', () => {
+    const map=fakeMap(), selected={...route,id:'first'};
+    syncMapLayers(map,{...state,route:selected});
+    const original=structuredClone(selected.geometria), incidentData=map.sources.get('civigo-incidents').data;
+    syncMapRoute(map,{...state,route:selected,routeProgress:{routeId:'first',progressMeters:300}});
+    assert.equal(map.sources.get('civigo-incidents').data,incidentData);
+    assert.ok(map.sources.get('civigo-route-completed').data.geometry.coordinates.length>=2);
+    assert.notDeepEqual(map.sources.get('civigo-route').data.geometry.coordinates,original.coordinates);
+    assert.deepEqual(selected.geometria,original);
+    syncMapRoute(map,{...state,route:{...selected,id:'recalculated'},routeProgress:{routeId:'first',progressMeters:300}});
+    assert.deepEqual(map.sources.get('civigo-route-completed').data.features,[]);
+    assert.deepEqual(map.sources.get('civigo-route').data.geometry,original);
+    syncMapRoute(map,{...state,route:null});
+    assert.deepEqual(map.sources.get('civigo-route').data.features,[]);
+    assert.deepEqual(map.sources.get('civigo-route-completed').data.features,[]);
 });
 
 test('hiding incidents also hides their areas; editor never displays incident density or street risk', () => {

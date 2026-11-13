@@ -72,7 +72,7 @@ export default function PerformanceTelemetry() {
       stopped = false;
     let capturedVitals = false;
     const send = async (includeVitals = false) => {
-      if (stopped || busy || !navigator.onLine) return;
+      if (path.startsWith('/integraciones/') || stopped || busy || !navigator.onLine) return;
       busy = true;
       if (includeVitals && !capturedVitals && measurement.current.active && Object.keys(measurement.current.vitals).length) {
         capturedVitals = true;

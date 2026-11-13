@@ -42,13 +42,26 @@ function pathMatches(local, provider) {
     );
   let previous = -15;
   for (let i = 0; i < points.length; i++) {
-    const projection = projectToLine(points[i], coordinates);
-    if (!projection || projection.distance > 15) return false;
-    const offset =
-      offsets[projection.index - 1] +
-      distanceMeters(coordinates[projection.index - 1], projection.coordinates);
-    if (offset < previous - 15) return false;
-    previous = Math.max(previous, offset);
+    // A coordinate may legitimately occur more than once on a loop. Match
+    // occurrences in travel order instead of projecting onto the first lap.
+    const travel = i ? distanceMeters(points[i - 1], points[i]) : 0;
+    const expected = Math.max(0, previous) + travel;
+    let selected = null;
+    for (let segment = 1; segment < coordinates.length; segment++) {
+      const projection = projectToLine(points[i], [
+        coordinates[segment - 1],
+        coordinates[segment],
+      ]);
+      if (!projection || projection.distance > 15) continue;
+      const offset =
+        offsets[segment - 1] +
+        distanceMeters(coordinates[segment - 1], projection.coordinates);
+      if (offset < previous - 15 || offset > expected + 35) continue;
+      const score = Math.abs(offset - expected) + projection.distance;
+      if (!selected || score < selected.score) selected = { offset, score };
+    }
+    if (!selected) return false;
+    previous = Math.max(previous, selected.offset);
     // Check the middle of long chords too, so a provider cannot jump across a
     // forbidden street/intersection while both ends happen to be on our route.
     if (i && distanceMeters(points[i - 1], points[i]) > 30) {
@@ -61,6 +74,7 @@ function pathMatches(local, provider) {
   }
   const length = Number(provider.summary?.lengthInMeters);
   return (
+    previous >= offsets.at(-1) - 15 &&
     length > 0 &&
     Math.abs(length - local.distancia) <=
       Math.max(20, local.distancia * 0.03) &&

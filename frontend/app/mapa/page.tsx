@@ -26,7 +26,10 @@ import { useNearbyIncidents } from '@/lib/use-nearby-incidents';
 import { ICA_MAP_BOUNDS, expandMapBounds, loadMapIncidents, mapQueryBounds, mergeMapIncidents, type MapBounds } from '@/lib/map-incidents';
 import BusinessDetailsDialog from '@/components/BusinessDetailsDialog';
 import NearbyBusinessCard from '@/components/NearbyBusinessCard';
+import { CITY_LANDMARKS } from '@/lib/city-scene';
 interface Business {
+    demo?:boolean;
+    activo?:boolean;
     id: number;
     nombre: string;
     descripcion?: string;
@@ -73,6 +76,13 @@ function AccountMap() {
     const [catalog, setCatalog] = useState<Catalogo | null>(null);
     const [filterLabel, setFilterLabel] = useState('');
     const [focusPoint, setFocusPoint] = useState<{ posicion: Posicion; version: number; label?: string } | null>(null);
+    useEffect(()=>{
+        const url=new URL(window.location.href),landmark=CITY_LANDMARKS.find(item=>item.id===url.searchParams.get('lugar'));
+        if(!landmark||url.searchParams.get('recorrido')==='1')return;
+        let current=true;
+        void Promise.resolve().then(()=>{if(!current)return;const place={nombre:landmark.name,latitud:landmark.latitud,longitud:landmark.longitud};setPlaceCard(place);setFocusPoint({posicion:place,label:place.nombre,version:1});url.searchParams.delete('lugar');history.replaceState(history.state,'',url.pathname+url.search+url.hash);});
+        return()=>{current=false;};
+    },[]);
     const focusIncident = (incident: Incidente) => setFocusPoint(current => ({ posicion: incident, version: (current?.version ?? 0) + 1 }));
     const selectIncident = (incident: Incidente) => { setSelected(incident); focusIncident(incident); };
     const changeFollowing = useCallback((value: boolean) => { setFollowing(value); setAd(null); setPanelExpanded(!value); }, []);
@@ -86,6 +96,8 @@ function AccountMap() {
     const nearby = useNearbyIncidents(position, category);
     const previous = useRef<Set<number>>(new Set()), activeRoute = useRef<Ruta | null>(null), seenBusiness = useRef<Set<number>>(new Set()), traveled = useRef(150), lastTrack = useRef<Posicion | null>(null), businesses = useRef<Business[]>([]), adTimer = useRef<ReturnType<typeof setTimeout> | null>(null), trip = useRef('');
     const adConfig = useRef({anuncioMetros:50,intervaloAnuncioMetros:150,duracionAnuncioSegundos:6});
+    const [businessModels,setBusinessModels]=useState<Business[]>([]);
+    const openBusinessModel=useCallback((id:number)=>{const business=businesses.current.find(item=>item.id===id);if(business)setBusinessDetail(business);},[]);
     const hasLoaded = useRef(false), lastGravity = useRef<Map<number,number|null>>(new Map()), lastSnapshot = useRef('');
     const tracking = useRef(following);
     useEffect(() => { tracking.current = following; }, [following]);
@@ -128,7 +140,7 @@ function AccountMap() {
         let current = true;
         businesses.current = []; seenBusiness.current = new Set(); traveled.current = adConfig.current.intervaloAnuncioMetros; lastTrack.current = null; trip.current = crypto.randomUUID();
         const controller = new AbortController();
-        api<Business[]>('/businesses', {signal: controller.signal}).then(data => { if (current) businesses.current = data; }).catch(() => {});
+        api<Business[]>('/businesses', {signal: controller.signal}).then(data => { if (current) {businesses.current = data;setBusinessModels(data);} }).catch(() => {});
         return () => { current = false; controller.abort(); businesses.current = []; if (adTimer.current) clearTimeout(adTimer.current); };
     }, [following]);
     useEffect(() => { if (!following || !position || (position.accuracy ?? 0) > 60) return; if (lastTrack.current) { const step = distance(position, lastTrack.current); if (step > 2 && step < 500) traveled.current += step; } lastTrack.current = position; }, [following, position]);
@@ -163,7 +175,7 @@ function AccountMap() {
                 <div ref={mapFrameRef} className={`map-frame ${fullscreen.active?styles.fullscreenFrame:''}`} data-map-fullscreen={fullscreen.active} aria-busy={loading}>
                     <button type="button" className={`icon-btn ${styles.fullscreenButton}`} aria-label={fullscreen.active?'Salir de pantalla completa':'Ampliar mapa a pantalla completa'} aria-pressed={fullscreen.active} onClick={()=>void fullscreen.toggle()}>{fullscreen.active?<Minimize size={20}/>:<Maximize size={20}/>}</button>
                     {fullscreen.notice&&<span role="status" className="sr-only">{fullscreen.notice}</span>}
-                    <MapView onPlaceSelect={setPlaceCard} avatar={avatar.avatar} controlsVersion={controlsVersion} overviewVersion={overviewVersion} northVersion={northVersion} onBounds={changeBounds} incidentes={filtered} ruta={route} onSelect={selectIncident} focusPoint={focusPoint} posicion={position} onLocate={location.acceptPosition} onRequestLocation={location.requestLocation} compactLegend navigating={following} heading={navigation.progress?.heading} centerVersion={navigation.centerVersion} onTrafficChange={() => { if (tracking.current) setRecalculate(v => v + 1); }} yearFilter={{options: years, selected: selectedYears, onChange: value => {setSelectedYears(value); setSelected(null);}}} typeFilter={{ value: category, groups: filterGroups, onChange: changeTypeFilter }}/>
+                    <MapView businesses={businessModels} onBusinessSelect={openBusinessModel} routeProgress={navigation.progress} onPlaceSelect={setPlaceCard} avatar={avatar.avatar} controlsVersion={controlsVersion} overviewVersion={overviewVersion} northVersion={northVersion} onBounds={changeBounds} incidentes={filtered} ruta={route} onSelect={selectIncident} focusPoint={focusPoint} posicion={position} onLocate={location.acceptPosition} onRequestLocation={location.requestLocation} compactLegend navigating={following} heading={navigation.progress?.heading} centerVersion={navigation.centerVersion} onTrafficChange={() => { if (tracking.current) setRecalculate(v => v + 1); }} yearFilter={{options: years, selected: selectedYears, onChange: value => {setSelectedYears(value); setSelected(null);}}} typeFilter={{ value: category, groups: filterGroups, onChange: changeTypeFilter }}/>
                     <section className={`map-side-panel map-route-panel ${styles.plannerPanel}`} aria-label="Panel de recorridos" data-expanded={panelExpanded}>
                         {following && <button type="button" className={`panel-toggle ${styles.plannerToggle}`} aria-expanded={panelExpanded} aria-controls={routePanelId} onClick={() => setPanelExpanded(value => !value)}>
                             <strong>{following ? 'EN CAMINO' : '¿A DÓNDE VAMOS?'}</strong>
@@ -207,6 +219,6 @@ function AccountMap() {
         </div>
         {error && <div className="notice notice-error" role="alert">{error}{incidents.length > 0 && ' Se conservan los últimos datos obtenidos; pueden estar desactualizados.'}</div>}
         {ad && following && !(usuario?.premium && usuario.ocultarAnuncios) && <NearbyBusinessCard key={ad.id} business={ad} onInteract={()=>{if(adTimer.current)clearTimeout(adTimer.current);}} onClose={()=>setAd(null)} onDetails={()=>{setBusinessDetail(ad);setAd(null);}}/>}
-        <BusinessDetailsDialog business={businessDetail} onClose={() => setBusinessDetail(null)} />
+        <BusinessDetailsDialog currentPosition={position} business={businessDetail} onClose={() => setBusinessDetail(null)} />
     </div>;
 }

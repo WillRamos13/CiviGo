@@ -1,5 +1,5 @@
 .landing {
-  --home-bg:#081720; --home-line:#a8d0e322; --home-muted:#a2b6be; --home-accent:#cfe79c; --hero-line:#a8d0e322; --shadow-rgb:0 14 30;
+  --home-bg:#061426; --home-line:#8bb9ed22; --home-muted:#a3bad4; --home-accent:#62b4ff; --hero-line:#8bb9ed22; --shadow-rgb:0 14 30;
   container-type:inline-size; width:100%; min-width:0; isolation:isolate; overflow:clip; background:var(--home-bg); color:#f0f3ed; font-family:Arial,Helvetica,sans-serif; -webkit-font-smoothing:antialiased;
 }
 .landing *{box-sizing:border-box}
@@ -9,6 +9,13 @@
 .landing button{font:inherit;cursor:pointer}
 .landing :is(a,button,summary,[tabindex]):focus-visible{outline:3px solid #a8e1ff;outline-offset:5px}
 .landing em{font-style:normal;font-weight:inherit}
+.masthead{padding:44px 4.5% 35px;background:linear-gradient(155deg,#071a31,#04101f)}
+.mastheadCopy{display:flex;justify-content:space-between;gap:24px;align-items:center;margin-bottom:27px}
+.mastheadCopy h1{font-size:clamp(50px,7cqi,94px);font-weight:650;letter-spacing:-.065em;line-height:1}
+.mastheadCopy h1 span{color:#329cff}
+.mastheadCopy .slogan{color:#bed7f2;font-size:clamp(17px,2cqi,27px);letter-spacing:-.03em;margin-top:10px}
+.mastheadCopy .actions{margin-top:0;gap:20px}
+@container(max-width:700px){.masthead{padding:28px 18px}.mastheadCopy{align-items:flex-start;flex-direction:column;gap:18px;margin-bottom:20px}.mastheadCopy h1{font-size:62px}.mastheadCopy .slogan{font-size:20px}.mastheadCopy .actions{gap:14px}.mastheadCopy .primary{font-size:11px;min-height:43px;padding:11px 14px;gap:12px}.mastheadCopy .textLink{font-size:10px}}
 .hero{padding:0 5.3%;position:relative}
 .localNav{display:flex;justify-content:space-between;align-items:center;gap:15px;min-height:72px;border-bottom:1px solid var(--home-line)}
 .localNav>span{display:inline-flex;align-items:center;gap:9px;font:9px/1.5 'Courier New',monospace;letter-spacing:1.2px;color:#bed0cd}

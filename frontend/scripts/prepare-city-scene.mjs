@@ -1,0 +1,30 @@
+import {readFile,writeFile,mkdir} from 'node:fs/promises';
+import path from 'node:path';
+const root=process.cwd().endsWith('frontend')?process.cwd():path.resolve('frontend');
+const raw=JSON.parse(await readFile(process.argv[2]??path.join(root,'.local/master-audit-20261112/ica-buildings-overpass.json'),'utf8'));
+const streets=JSON.parse(await readFile(path.resolve(root,'../backend/data/ica-roads.json'),'utf8'));
+const bounds=[-75.770,-14.094,-75.719,-14.057],origin=[(bounds[0]+bounds[2])/2,(bounds[1]+bounds[3])/2],metersPerUnit=100;
+const project=(lon,lat)=>[+((lon-origin[0])*111320*Math.cos(origin[1]*Math.PI/180)/metersPerUnit).toFixed(4),+(-(lat-origin[1])*111320/metersPerUnit).toFixed(4)];
+const inside=p=>p&&p.lon>=bounds[0]&&p.lon<=bounds[2]&&p.lat>=bounds[1]&&p.lat<=bounds[3];
+const nodes=new Map(streets.elements.filter(e=>e.type==='node').map(e=>[e.id,e]));
+const roads=streets.elements.filter(e=>e.type==='way'&&e.tags?.highway&&!/^(steps|footway|path|service)$/.test(e.tags.highway)).flatMap(e=>{
+  const points=e.nodes.map(id=>nodes.get(id));if(points.some(p=>!p)||!points.every(inside))return [];
+  return [points.filter((p,i)=>i===0||i===points.length-1||Math.hypot((p.lon-points[i-1].lon)*100000,(p.lat-points[i-1].lat)*100000)>2).map(p=>project(p.lon,p.lat))];
+});
+const footprints=raw.elements.filter(e=>e.type==='way'&&e.geometry?.length>=4&&e.geometry.every(inside)).flatMap(e=>{
+  const points=e.geometry,first=points[0],last=points.at(-1);if(first.lat!==last.lat||first.lon!==last.lon)return [];
+  const tags=e.tags??{},level=Number(tags['building:levels']),h=Number(String(tags.height??'').replace(/\s*m$/,''));
+  if(!tags.building&&tags.natural!=='water'&&tags.leisure!=='park'&&e.id!==441523328)return [];
+  const knownHeight=Number.isFinite(h)&&h>0&&h<150,knownLevels=Number.isFinite(level)&&level>0&&level<35;
+  const height=knownHeight?h:knownLevels?level*3:tags.natural==='water'?1:tags.leisure==='park'?1:6;
+  const ring=points.map(p=>project(p.lon,p.lat));
+  return [{osmId:`way/${e.id}`,ring,height,heightSource:knownHeight?'height':knownLevels?'levels-estimate':'reference',kind:tags.natural==='water'?'water':tags.leisure==='park'?'park':'building'}];
+});
+const result={version:1,source:'https://www.openstreetmap.org/copyright',license:'ODbL-1.0',attribution:'© OpenStreetMap contributors',retrievedAt:raw.osm3s?.timestamp_osm_base??new Date().toISOString(),origin,metersPerUnit,bounds,roads,footprints};
+await mkdir(path.join(root,'public/home'),{recursive:true});
+await writeFile(path.join(root,'public/home/ica-city.json'),JSON.stringify(result));
+const [w,h]=[1100,820],toSvg=p=>[(p[0]+28)*w/56,(p[1]+21)*h/42];
+const svgRoads=roads.map(points=>`<path d="${points.map((p,i)=>(i?'L':'M')+toSvg(p).map(v=>v.toFixed(1)).join(',')).join('')}"/>`).join('');
+const svgPolygons=footprints.map(f=>`<polygon fill="${f.kind==='water'?'#126593':f.kind==='park'?'#174d52':'#123a60'}" points="${f.ring.map(p=>toSvg(p).map(v=>v.toFixed(1)).join(',')).join(' ')}"/>`).join('');
+await writeFile(path.join(root,'public/home/ica-city-plan.svg'),`<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}"><title>Plano geográfico de la maqueta de Ica</title><metadata>${result.attribution}, ODbL-1.0. Geometrías OSM; volúmenes y alturas no certificadas. ${result.retrievedAt}</metadata><rect width="100%" height="100%" fill="#06182d"/>${svgPolygons}<g stroke="#2c6ca0" stroke-width="1.2" fill="none">${svgRoads}</g></svg>`);
+console.log(JSON.stringify({roads:roads.length,footprints:footprints.length,knownHeights:footprints.filter(p=>p.heightSource==='height').length,landmarks:footprints.filter(p=>['way/148131510','way/630762068','way/441523328','way/770030732','way/364396783'].includes(p.osmId)).map(p=>p.osmId)}));

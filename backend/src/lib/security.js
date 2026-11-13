@@ -2,6 +2,7 @@ const net = require("node:net");
 const crypto = require("node:crypto");
 const { HttpError, asyncRoute } = require("./http");
 const { loadUser } = require("./auth");
+const { email } = require("./account-input");
 
 function trustProxy(value) {
   if (!value || value === "false") return false;
@@ -90,7 +91,8 @@ function rateLimits(options = {}) {
   const count = counter(options);
   // Express routes are case-insensitive and allow a final slash by default.
   // Every spelling of the same endpoint must consume the same quota.
-  const pathForLimit = (req) => req.path.toLowerCase().replace(/\/$/, "") || "/";
+  const pathForLimit = (req) =>
+    req.path.toLowerCase().replace(/\/$/, "") || "/";
   const ip = (req, res, next) => {
     try {
       count("ip:" + req.ip, options.ipLimit ?? 2400, res);
@@ -112,17 +114,24 @@ function rateLimits(options = {}) {
       .replace(/\/\d+(?=\/|$)/g, "/:id")
       .replace(/\/[a-f0-9-]{36}(?=\/|$)/gi, "/:id");
     if (/^\/api\/users\/password\/(forgot|reset|change)\/?$/.test(path)) {
-      count('password-ip:' + req.ip, options.passwordLimit ?? 20, res);
-      if (typeof req.body?.correo === 'string') {
-        const hash = crypto.createHash('sha256').update(req.body.correo.trim().toLowerCase()).digest('hex');
-        count('password-account:' + hash, options.passwordAccountLimit ?? 5, res);
+      count("password-ip:" + req.ip, options.passwordLimit ?? 20, res);
+      if (req.body?.correo !== undefined) {
+        const hash = crypto
+          .createHash("sha256")
+          .update(email(req.body.correo))
+          .digest("hex");
+        count(
+          "password-account:" + hash,
+          options.passwordAccountLimit ?? 5,
+          res,
+        );
       }
     }
     if (/^\/api\/users\/login\/?$/.test(path)) {
-      if (typeof req.body?.correo === "string") {
+      if (req.body?.correo !== undefined) {
         const emailHash = crypto
           .createHash("sha256")
-          .update(req.body.correo.trim().toLowerCase())
+          .update(email(req.body.correo))
           .digest("hex");
         count("login-account:" + emailHash, options.loginLimit ?? 20, res);
       }
@@ -134,9 +143,10 @@ function rateLimits(options = {}) {
     // Solo identidades verificadas por la sesión separan a clientes detrás
     // de Next; cookies aleatorias y headers XFF no conceden otra cuota.
     const key = user ? "user:" + user.id : "anonymous:" + req.ip;
-    const sensitive = /^\/api\/users\/email\/(google\/(request|verify)|code\/(request|confirm))\/?$/.test(
-      path,
-    );
+    const sensitive =
+      /^\/api\/users\/email\/(google\/(request|verify)|code\/(request|confirm))\/?$/.test(
+        path,
+      );
     count(
       key + ":" + req.method + ":" + route,
       sensitive

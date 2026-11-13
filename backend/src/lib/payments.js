@@ -115,7 +115,8 @@ function createPaymentService({
   transaction,
   now = Date.now,
 } = {}) {
-  let sellerUntil = 0, sellerMode = null;
+  let sellerUntil = 0,
+    sellerMode = null;
   const transact =
     transaction ||
     ((work) => db.$transaction(work, { isolationLevel: "Serializable" }));
@@ -168,9 +169,14 @@ function createPaymentService({
       api = publicOrigin(env.PUBLIC_API_URL);
     if (now() >= sellerUntil || sellerMode !== config.mode) {
       const seller = await provider("/users/me");
-      const isTest = Array.isArray(seller.tags) && seller.tags.includes("test_user");
+      const isTest =
+        Array.isArray(seller.tags) && seller.tags.includes("test_user");
       if (config.mode === "production" && isTest)
-        throw new HttpError(503, "Los cobros reales requieren las credenciales de producción de una cuenta real de Mercado Pago.", "PAYMENT_PRODUCTION_SELLER_REQUIRED");
+        throw new HttpError(
+          503,
+          "Los cobros reales requieren las credenciales de producción de una cuenta real de Mercado Pago.",
+          "PAYMENT_PRODUCTION_SELLER_REQUIRED",
+        );
       if (config.mode === "test" && !isTest)
         throw new HttpError(
           503,
@@ -184,10 +190,25 @@ function createPaymentService({
     let existing = await db.appConfig.findUnique({
       where: { clave: ledgerKey },
     });
-    if (existing?.valor?.checkout && (existing.valor.centimos!==config.price || existing.valor.modo!==config.mode))
-      throw new HttpError(409,"El precio o el entorno de pago cambió. Vuelve a iniciar la compra.","PAYMENT_PRICE_CHANGED");
-    if (existing?.valor?.checkout && Date.parse(existing.valor.creadoEn)+30*60000<=now())
-      throw new HttpError(409,"El enlace de pago venció. Inicia una nueva compra desde CiviGo.","PAYMENT_CHECKOUT_EXPIRED");
+    if (
+      existing?.valor?.checkout &&
+      (existing.valor.centimos !== config.price ||
+        existing.valor.modo !== config.mode)
+    )
+      throw new HttpError(
+        409,
+        "El precio o el entorno de pago cambió. Vuelve a iniciar la compra.",
+        "PAYMENT_PRICE_CHANGED",
+      );
+    if (
+      existing?.valor?.checkout &&
+      Date.parse(existing.valor.creadoEn) + 30 * 60000 <= now()
+    )
+      throw new HttpError(
+        409,
+        "El enlace de pago venció. Inicia una nueva compra desde CiviGo.",
+        "PAYMENT_CHECKOUT_EXPIRED",
+      );
     if (existing?.valor?.checkout)
       return {
         referencia: existing.valor.referencia,
@@ -359,11 +380,6 @@ function createPaymentService({
           400,
           "El importe, la moneda o el entorno del pago no coinciden con la compra.",
         );
-      if (order.pagoId && order.pagoId !== String(payment.id))
-        throw new HttpError(
-          409,
-          "Esta compra ya tiene otro pago asociado; requiere revisión.",
-        );
       const status = String(payment.status);
       if (
         ![
@@ -377,6 +393,19 @@ function createPaymentService({
         ].includes(status)
       )
         return;
+      const previousPayments = Array.isArray(order.pagosAnteriores)
+        ? order.pagosAnteriores
+        : [];
+      // A checkout may issue a new payment ID after a rejected/cancelled attempt.
+      // Ignore late notifications for replaced attempts; never replace a live grant.
+      if (order.pagoId && order.pagoId !== String(payment.id)) {
+        if (previousPayments.includes(String(payment.id))) return;
+        if (!["rejected", "cancelled"].includes(order.estado))
+          throw new HttpError(
+            409,
+            "Esta compra ya tiene otro pago asociado; requiere revisión.",
+          );
+      }
       const entitlementKey = `premium:paid:${order.usuarioId}`;
       await tx.appConfig.upsert({
         where: { clave: entitlementKey },
@@ -424,6 +453,10 @@ function createPaymentService({
             ...order,
             estado: finalStatus,
             pagoId: String(payment.id),
+            pagosAnteriores:
+              order.pagoId && order.pagoId !== String(payment.id)
+                ? [...previousPayments, order.pagoId].slice(-20)
+                : previousPayments,
             actualizadoEn: new Date(now()).toISOString(),
           },
         },

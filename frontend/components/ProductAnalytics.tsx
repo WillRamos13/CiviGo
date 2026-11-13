@@ -8,7 +8,7 @@ export default function ProductAnalytics() {
   const path = usePathname();
   const last = useRef('');
   useEffect(() => {
-    if (!productAnalyticsAllowed()) return;
+    if (path.startsWith('/integraciones/') || !productAnalyticsAllowed()) return;
     if (path !== last.current) {
       last.current = path;
       captureProductEvent('$pageview', { page: analyticsPage(path) });

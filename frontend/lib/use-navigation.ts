@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { post, errorMessage } from './api';
 import { isRoute } from './route-cache';
-import { navigationProgress, watchRoutePosition, type NavigationProgress } from './navigation';
+import { hasArrived, navigationProgress, watchRoutePosition, type NavigationProgress } from './navigation';
 import type { LocationFix, Ruta, RouteCriterion } from './types';
 import { beginRouteVoice } from './route-audio';
 import { captureProductEvent } from './product-analytics';
@@ -21,7 +21,7 @@ export function useNavigation(route: Ruta | null, following: boolean, onRoute: (
     const releaseVoice = useRef<(() => void) | null>(null);
     const updateProgress = useCallback((fix: LocationFix, selected: Ruta) => {
         const next = navigationProgress(fix, selected, previousProgress.current);
-        if ((fix.accuracy ?? 0) <= 60) previousProgress.current = next;
+        if ((fix.accuracy ?? Infinity) <= 60 && next.progressTrusted !== false) previousProgress.current = next;
         setProgress(next);
         return next;
     }, []);
@@ -33,7 +33,10 @@ export function useNavigation(route: Ruta | null, following: boolean, onRoute: (
         const release = beginRouteVoice();
         window.speechSynthesis.cancel(); releaseVoice.current?.(); releaseVoice.current = release;
         utterance.onend = utterance.onerror = () => { release(); if (releaseVoice.current === release) releaseVoice.current = null; };
-        try { window.speechSynthesis.speak(utterance); } catch { release(); }
+        void release.ready.then(allowed=>{
+            if(!allowed||releaseVoice.current!==release||state.current.muted){release();if(releaseVoice.current===release)releaseVoice.current=null;return;}
+            try { window.speechSynthesis.speak(utterance); } catch { release(); }
+        });
     }, []);
     const recalculate = useCallback(async function replan(reason: string) {
         const current = state.current, fix = lastFix.current;
@@ -50,13 +53,16 @@ export function useNavigation(route: Ruta | null, following: boolean, onRoute: (
         setRecalculating(true); setNotice(reason); speak('Actualizando el recorrido desde tu ubicación.', `recalculo-${lastRecalculation.current}`);
         try {
             const data = await post<{rutas: Ruta[]; seleccionadaId?: string}>('/navigation/plan', {origen: fix, destino: original.destino ?? {longitud: end[0], latitud: end[1]}, modo: original.modo ?? 'walking', criterio}, {signal: AbortSignal.any([controller.signal, AbortSignal.timeout(30000)])});
-            if (controller.signal.aborted || !state.current.following) return;
+            if (controller.signal.aborted || !state.current.following || state.current.route !== original) return;
             const selected = data.rutas?.find(r => r.id === data.seleccionadaId) ?? data.rutas?.find(r => r.tipo === criterio || r.criterios?.includes(criterio));
             if (!isRoute(selected)) throw new Error('No se encontró una alternativa para el criterio elegido.');
             const updated = {...selected, tipo: criterio, modo: original.modo ?? selected.modo ?? 'walking', destino: original.destino ?? selected.destino};
             state.current.route = updated;
             state.current.onRoute(updated); deviation.current = 0; speechKeys.current.clear();
-            previousProgress.current = null; updateProgress(fix, updated); setNotice('Recorrido actualizado. Se conserva tu criterio de ruta.');
+            previousProgress.current = null;
+            const latest = lastFix.current;
+            if (latest && (latest.accuracy ?? Infinity) <= 60) updateProgress(latest, updated);
+            setNotice('Recorrido actualizado. Se conserva tu criterio de ruta.');
         } catch (error) {
             if (!controller.signal.aborted) {
                 setNotice(`Se conserva el recorrido anterior. ${errorMessage(error)} Reintentaremos automáticamente.`);
@@ -77,13 +83,23 @@ export function useNavigation(route: Ruta | null, following: boolean, onRoute: (
         void Promise.resolve().then(() => { if (active) { setNotice('Esperando tu ubicación…'); setProgress(null); setPosition(null); setRecalculating(false); } });
         const stop = watchRoutePosition(navigator.geolocation, fix => {
             if (!active || !state.current.route) return;
-            lastFix.current = fix; setPosition(fix);
+            if ((fix.accuracy ?? Infinity) > 60) { arrivalSince.current = 0; setNotice('GPS poco preciso. Esperando una ubicación mejor.'); return; }
             const next = updateProgress(fix, state.current.route);
-            if ((fix.accuracy ?? 0) > 60) { setNotice('GPS poco preciso. Esperando una ubicación mejor.'); return; }
-            setNotice(current => current === 'Esperando tu ubicación…' || current.startsWith('GPS poco preciso') || current.startsWith('GPS temporalmente') || current.startsWith('Esperando una ubicación más precisa') ? '' : current);
+            if (next.progressTrusted === false && !next.backtracked) {
+                arrivalSince.current = 0;
+                setNotice('Esperando una lectura GPS coherente con el recorrido.');
+                return;
+            }
+            lastFix.current = fix; setPosition(fix);
+            if (next.backtracked) {
+                arrivalSince.current = 0;
+                if (++deviation.current >= 2) void recalculate('Cambiaste el sentido del recorrido. Recalculando…');
+                return;
+            }
+            setNotice(current => current === 'Esperando tu ubicación…' || current.startsWith('GPS poco preciso') || current.startsWith('GPS temporalmente') || current.startsWith('Esperando una ubicación más precisa') || current.startsWith('Esperando una lectura GPS') ? '' : current);
             if (pendingReason.current) void recalculate(pendingReason.current);
             const now = fix.timestamp ?? Date.now();
-            if (next.destinationMeters <= 30 && (fix.accuracy ?? 0) <= 40) {
+            if (hasArrived(next, fix.accuracy)) {
                 if (!arrivalSince.current) arrivalSince.current = now;
                 if (now - arrivalSince.current >= 5000) {
                     speak('Llegaste a tu destino.', 'llegada'); setNotice('Llegaste a tu destino. Recorrido finalizado.'); state.current.onFollow(false); return;

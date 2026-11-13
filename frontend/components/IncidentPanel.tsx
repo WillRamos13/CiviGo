@@ -13,6 +13,7 @@ import { isHistoricalAntecedent, incidentSource, incidentEvaluationLabel } from 
 import { referencePhotoCredit } from '@/lib/reference-photo';
 import { confirmationExplanation } from '@/lib/citizen-rules';
 import { useCitizenRules } from '@/lib/use-citizen-rules';
+import {incidentPresentation} from '@/lib/incident-catalog';
 export default function IncidentPanel({ incidente, onClose, onRefresh, variant = 'dialog', onShowOnMap }: {
     incidente: Incidente;
     onClose: () => void;
@@ -101,6 +102,7 @@ export default function IncidentPanel({ incidente, onClose, onRefresh, variant =
     const antecedent = isHistoricalAntecedent(detail), source = incidentSource(detail);
     const media = (detail.adjuntos ?? []).filter(a => !a.privado && a.url && (a.mimeType.startsWith('image/') || a.mimeType.startsWith('video/')));
     const cover = media[0];
+    const presentation=incidentPresentation(detail.tipoSlug,detail.tipoNombre,detail.tipo);
     const coverReference = detail.fuente === 'CARGA_INICIAL' ? referencePhotoCredit(cover?.nombre) : null;
     const timestamp = detail.fechaEvento || detail.fechaCreacion || detail.creadoEn || detail.fecha;
     const stateLabel: Record<string, string> = { ACTIVO: 'Activo', VALIDADO: 'Validado', PENDIENTE: 'En verificación', RESUELTO: 'Resuelto', RETIRADO: 'Retirado', FALSO: 'Declarado falso' };
@@ -117,7 +119,7 @@ export default function IncidentPanel({ incidente, onClose, onRefresh, variant =
                 {coverReference && <details className={styles.referenceCaption}><summary>Créditos de la imagen</summary><p>Fotografía de referencia: {coverReference.caption}. <a href={coverReference.source} target="_blank" rel="noopener noreferrer">{coverReference.author} · {coverReference.license}</a></p></details>}
                 <dl className={styles.information}>
                     <div><dt><MapPin size={20}/>Ubicación</dt><dd>{detail.distrito || 'Provincia de Ica'}<small>{detail.latitud.toFixed(5)}, {detail.longitud.toFixed(5)}</small>{onShowOnMap && <button type="button" className={styles.mapLink} onClick={onShowOnMap}>Ver en el mapa <ExternalLink size={13}/></button>}</dd></div>
-                    <div><dt><FileText size={20}/>Tipo de incidente</dt><dd>{detail.tipoNombre || detail.tipo}</dd></div>
+                    <div><dt><FileText size={20}/>Tipo de incidente</dt><dd>{detail.tipoNombre || detail.tipo}{presentation&&<><small>{presentation.categoryName} · {presentation.subcategory}</small><small>{presentation.description}</small></>}</dd></div>
                     <div><dt><Activity size={20}/>Estado</dt><dd><span className={styles.state} data-state={detail.estado}>{stateLabel[detail.estado] || detail.estado}</span>{detail.publicado === false && <small>No visible en el mapa</small>}</dd></div>
                     <div><dt><FileText size={20}/>Descripción</dt><dd className={styles.description}>{detail.descripcion || 'Sin descripción adicional.'}</dd></div>
                 </dl>

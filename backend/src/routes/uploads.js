@@ -8,9 +8,13 @@ const { auth, optionalAuth, requireEmail, canReview } = require("../lib/auth");
 const { asyncRoute, HttpError } = require("../lib/http");
 const { attachment } = require("../lib/projections");
 const { createStorage, UPLOAD_DIR, MAX_FILE_SIZE } = require("../lib/storage");
-const { config } = require('../lib/catalog');
-const { reserveUpload, claimOrphan, removeClaimed } = require('../lib/upload-quota');
-const { IMAGE_MIMES, MAX_ANNOUNCEMENT_IMAGE } = require('../lib/announcements');
+const { config } = require("../lib/catalog");
+const {
+  reserveUpload,
+  claimOrphan,
+  removeClaimed,
+} = require("../lib/upload-quota");
+const { IMAGE_MIMES, MAX_ANNOUNCEMENT_IMAGE } = require("../lib/announcements");
 const allowed = new Set([
   "image/jpeg",
   "image/png",
@@ -89,17 +93,35 @@ function createUploadRouter({
       let reservedId;
       let reservedPath;
       try {
-        const tipo = ["EVIDENCIA", "IDENTIDAD", "ANUNCIO"].includes(req.body.tipo)
+        const tipo = ["EVIDENCIA", "IDENTIDAD", "ANUNCIO"].includes(
+          req.body.tipo,
+        )
           ? req.body.tipo
           : "PUBLICO";
-        if (tipo === 'ANUNCIO') {
-          if (req.user.rol !== 'ADMIN' || req.user.bloqueado) throw new HttpError(403, 'Solo administradores pueden cargar imágenes publicitarias.');
-          if (!IMAGE_MIMES.has(file.mimetype) || req.body.privado === 'true') throw new HttpError(400, 'La publicidad admite imágenes JPEG, PNG, WebP o GIF.');
-          if (file.size > MAX_ANNOUNCEMENT_IMAGE) throw new HttpError(413, 'La imagen publicitaria debe pesar como máximo 5 MB.', 'FILE_TOO_LARGE');
+        if (tipo === "ANUNCIO") {
+          if (req.user.rol !== "ADMIN" || req.user.bloqueado)
+            throw new HttpError(
+              403,
+              "Solo administradores pueden cargar imágenes publicitarias.",
+            );
+          if (!IMAGE_MIMES.has(file.mimetype) || req.body.privado === "true")
+            throw new HttpError(
+              400,
+              "La publicidad admite imágenes JPEG, PNG, WebP o GIF.",
+            );
+          if (file.size > MAX_ANNOUNCEMENT_IMAGE)
+            throw new HttpError(
+              413,
+              "La imagen publicitaria debe pesar como máximo 5 MB.",
+              "FILE_TOO_LARGE",
+            );
         }
         // La identidad privada permite pedir recuperación. La autorización
         // posterior a multipart debe quedar dentro de la limpieza del archivo.
-        if (tipo !== 'ANUNCIO' && (tipo !== "IDENTIDAD" || !req.user || req.user.bloqueado))
+        if (
+          tipo !== "ANUNCIO" &&
+          (tipo !== "IDENTIDAD" || !req.user || req.user.bloqueado)
+        )
           await new Promise((resolve, reject) =>
             verifyEmail(req, res, (error) =>
               error ? reject(error) : resolve(),
@@ -122,20 +144,49 @@ function createUploadRouter({
         if (file.mimetype.startsWith("video/")) {
           const rules = await getConfig();
           if (file.size > Math.min(MAX_FILE_SIZE, rules.maxVideoBytes))
-            throw new HttpError(413, `El video supera el límite de ${Math.round(rules.maxVideoBytes / 1048576)} MB.`, 'FILE_TOO_LARGE');
+            throw new HttpError(
+              413,
+              `El video supera el límite de ${Math.round(rules.maxVideoBytes / 1048576)} MB.`,
+              "FILE_TOO_LARGE",
+            );
           require("../lib/media").videoDuration(
             await fs.promises.readFile(file.path),
             file.mimetype,
           );
         }
-        const privado = req.body.privado === "true" || !['PUBLICO', 'ANUNCIO'].includes(tipo);
+        const privado =
+          req.body.privado === "true" || !["PUBLICO", "ANUNCIO"].includes(tipo);
         if (file.mimetype === "application/pdf" && !privado)
           throw new HttpError(400, "Los documentos PDF deben ser privados.");
+        if (
+          !privado &&
+          ["image/jpeg", "image/png", "image/webp"].includes(file.mimetype)
+        ) {
+          const original = await fs.promises.readFile(file.path);
+          const cleaned = require("../lib/public-image").sanitizePublicImage(
+            original,
+            file.mimetype,
+          );
+          if (!original.equals(cleaned))
+            await fs.promises.writeFile(file.path, cleaned);
+          file.size = cleaned.length;
+        }
         const fileId = path.basename(file.path);
-        reservedPath = storage.targetPath({ id: fileId, userId: req.user.id, filePath: file.path });
-        await reserveUpload(db, { id: fileId, usuarioId: req.user.id,
-          nombre: path.basename(file.originalname).slice(0, 150), mimeType: file.mimetype,
-          size: file.size, path: reservedPath, privado, tipo });
+        reservedPath = storage.targetPath({
+          id: fileId,
+          userId: req.user.id,
+          filePath: file.path,
+        });
+        await reserveUpload(db, {
+          id: fileId,
+          usuarioId: req.user.id,
+          nombre: path.basename(file.originalname).slice(0, 150),
+          mimeType: file.mimetype,
+          size: file.size,
+          path: reservedPath,
+          privado,
+          tipo,
+        });
         reservedId = fileId;
         storedPath = await storage.save({
           id: fileId,
@@ -144,10 +195,10 @@ function createUploadRouter({
           mimeType: file.mimetype,
         });
         const row = await db.attachment.update({
-          where: { id: fileId, estado: 'RESERVADO' },
+          where: { id: fileId, estado: "RESERVADO" },
           data: {
             path: storedPath,
-            estado: 'LISTO',
+            estado: "LISTO",
           },
         });
         registered = true;
@@ -157,11 +208,23 @@ function createUploadRouter({
           try {
             // The exact object path is reserved before storage I/O. Even if
             // the process dies or upload response is lost, cleanup can find it.
-            if (!['STORAGE_CONFIG', 'STORAGE_PRIVATE_BUCKET_REQUIRED'].includes(error.code)) await storage.remove(reservedPath);
-            await db.attachment.deleteMany({ where: { id: reservedId, estado: 'RESERVADO' } });
+            if (
+              !["STORAGE_CONFIG", "STORAGE_PRIVATE_BUCKET_REQUIRED"].includes(
+                error.code,
+              )
+            )
+              await storage.remove(reservedPath);
+            await db.attachment.deleteMany({
+              where: { id: reservedId, estado: "RESERVADO" },
+            });
           } catch {
-            await db.attachment.updateMany({ where: { id: reservedId, estado: 'RESERVADO' }, data: { estado: 'BORRANDO' } }).catch(() => {});
-            console.warn('[Archivos] Limpieza pendiente; se reintentará.');
+            await db.attachment
+              .updateMany({
+                where: { id: reservedId, estado: "RESERVADO" },
+                data: { estado: "BORRANDO" },
+              })
+              .catch(() => {});
+            console.warn("[Archivos] Limpieza pendiente; se reintentará.");
           }
         }
         throw error;
@@ -172,12 +235,20 @@ function createUploadRouter({
       }
     }),
   );
-  router.delete('/:id', authenticate, asyncRoute(async (req, res) => {
-    const row = await claimOrphan(db, req.params.id, null, req.user.id);
-    if (!row) throw new HttpError(409, 'Este archivo no existe o ya está asociado a una solicitud o reporte.');
-    await removeClaimed(db, storage, row);
-    res.json({ eliminado: true });
-  }));
+  router.delete(
+    "/:id",
+    authenticate,
+    asyncRoute(async (req, res) => {
+      const row = await claimOrphan(db, req.params.id, null, req.user.id);
+      if (!row)
+        throw new HttpError(
+          409,
+          "Este archivo no existe o ya está asociado a una solicitud o reporte.",
+        );
+      await removeClaimed(db, storage, row);
+      res.json({ eliminado: true });
+    }),
+  );
   router.get(
     "/:id",
     authenticateOptional,
@@ -194,27 +265,26 @@ function createUploadRouter({
           },
         },
       });
-      if (!row || row.estado !== 'LISTO') throw new HttpError(404, "Archivo no encontrado.");
+      if (!row || row.estado !== "LISTO")
+        throw new HttpError(404, "Archivo no encontrado.");
       const owner = req.user?.id === row.usuarioId;
       const staff =
         req.user &&
         (row.tipo === "IDENTIDAD"
           ? req.user.rol === "ADMIN" && !req.user.bloqueado
-          : (row.anuncio && req.user.rol === 'ADMIN' && !req.user.bloqueado) || (row.reporte?.incidente &&
-            canReview(req.user, row.reporte.incidente, "evidencia")));
+          : (row.anuncio && req.user.rol === "ADMIN" && !req.user.bloqueado) ||
+            (row.reporte?.incidente &&
+              canReview(req.user, row.reporte.incidente, "evidencia")));
       const privateFile = row.privado || row.tipo !== "PUBLICO";
       const publicAccess =
         !privateFile &&
         row.reporte?.incidente?.publicado &&
-        !['EN_REVISION', 'FALSO', 'RETIRADO'].includes(row.reporte.estado) &&
+        !["EN_REVISION", "FALSO", "RETIRADO"].includes(row.reporte.estado) &&
         row.reporte.usuario.correoVerificado;
       if (!owner && !staff && !publicAccess)
         throw new HttpError(403, "No puedes acceder a este archivo.");
       res.setHeader("Content-Type", row.mimeType);
-      res.setHeader(
-        "Cache-Control",
-        "private, no-store",
-      );
+      res.setHeader("Cache-Control", "private, no-store");
       res.setHeader("X-Content-Type-Options", "nosniff");
       res.setHeader(
         "Content-Disposition",
