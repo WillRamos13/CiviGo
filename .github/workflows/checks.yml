@@ -113,6 +113,15 @@ jobs:
           log-accepted-android-sdk-licenses: false
       - name: Instalar SDK Android requerido por el proyecto
         run: sdkmanager 'platforms;android-35' 'build-tools;34.0.0' 'build-tools;35.0.0'
+      - name: Preparar SDK oficial de Spotify para la compilación de prueba
+        working-directory: mobile
+        run: |
+          spotify_sdk='android/app/libs/spotify-app-remote-release-0.8.0.aar'
+          mkdir -p android/app/libs
+          curl --fail --location --retry 3 --proto '=https' --proto-redir '=https' \
+            'https://github.com/spotify/android-sdk/releases/download/v0.8.0-appremote_v2.1.0-auth/spotify-app-remote-release-0.8.0.aar' \
+            --output "$spotify_sdk"
+          printf '%s  %s\n' 'b5a6dd880eaf01f63a871cba9ef7af77c341f8a94ffc8fdf2e9021f9a9d4c198' "$spotify_sdk" | sha256sum --check
       - name: Sincronizar y compilar Android con análisis nativo
         working-directory: mobile
         run: |
