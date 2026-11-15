@@ -107,6 +107,10 @@ jobs:
         with:
           distribution: temurin
           java-version: '21'
+      - name: Preparar herramientas del SDK Android para la validación
+        uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # v4
+        with:
+          log-accepted-android-sdk-licenses: false
       - name: Instalar SDK Android requerido por el proyecto
         run: sdkmanager 'platforms;android-35' 'build-tools;34.0.0' 'build-tools;35.0.0'
       - name: Sincronizar y compilar Android con análisis nativo
