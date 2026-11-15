@@ -2,7 +2,8 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "git": {
     "deploymentEnabled": {
-      "codex/modernizacion-web-seguridad-20261112": false
+      "codex/modernizacion-web-seguridad-20261112": false,
+      "codex/plaza-armas-3d-20261114": false
     }
   }
 }

@@ -312,8 +312,37 @@ async function setSheetExpanded(page, expanded) {
   }
 }
 
+async function openDestinationStep(page) {
+  const launcher = page.getByRole('button', { name: '¿A dónde quieres ir hoy?', exact: true });
+  if (await launcher.count()) await launcher.click();
+  const wizard = page.getByRole('region', { name: 'Planificar recorrido', exact: true });
+  await wizard.waitFor();
+  for (let index = 0; index < 2 && await wizard.getAttribute('data-assistant-step') !== 'destination'; index++)
+    await wizard.getByRole('button', { name: 'Volver al paso anterior', exact: true }).click();
+  assert.equal(await wizard.getAttribute('data-assistant-step'), 'destination');
+  assert.equal(await wizard.getByRole('group', { name: 'Modo de recorrido', exact: true }).count(), 0, 'El primer paso sólo pide un destino');
+  const bounds = await page.locator('.map-bottom-sheet').boundingBox();
+  assert.ok(bounds.x <= 1 && bounds.x + bounds.width >= page.viewportSize().width - 1, 'La planificación abierta ocupa el ancho disponible');
+}
+
+async function chooseWalking(page) {
+  const wizard = page.getByRole('region', { name: 'Planificar recorrido', exact: true });
+  await page.locator('[data-assistant-step="transport"]').waitFor();
+  assert.equal(await page.locator('.route-result').count(), 0, 'No se calculan rutas antes de elegir el transporte');
+  await wizard.getByRole('button', { name: 'A pie', exact: true }).click();
+  await page.locator('[data-assistant-step="routes"]').waitFor();
+  await page.locator('.route-result').nth(2).waitFor();
+}
+
+async function planShortcut(page) {
+  await openDestinationStep(page);
+  await page.getByRole('button', { name: 'Plaza de Armas de Ica', exact: true }).click();
+  await chooseWalking(page);
+}
+
 async function searchDestination(page, query = 'Plaza de Armas') {
-  await page.getByRole('button', { name: 'Buscar destino en Ica', exact: true }).click();
+  await openDestinationStep(page);
+  await page.getByRole('button', { name: 'Explorar lugares en Ica', exact: true }).click();
   const search = page.getByRole('searchbox', { name: 'Buscar lugares en Ica', exact: true });
   await search.fill(query);
   await page.getByRole('region', { name: 'Resultados de lugares', exact: true }).getByRole('button', { name: /Plaza de Armas de Ica/ }).first().waitFor();
@@ -324,6 +353,7 @@ async function searchDestination(page, query = 'Plaza de Armas') {
   if (page.viewportSize().width === 390) await screenshot(page, 'place-detail-390');
   await place.getByRole('button', { name: 'Ver rutas', exact: true }).click();
   await place.waitFor({ state: 'detached' });
+  await chooseWalking(page);
 }
 
 async function expectFullscreenNavigation(page, viewport) {
@@ -345,6 +375,21 @@ try {
       try {
         const theme = dark ? 'dark' : 'light';
         await page.waitForFunction(theme => document.documentElement.dataset.theme === theme, theme);
+        // The app starts with the last twelve months, not the whole historical
+        // snapshot. Verify that default before explicitly opting into old years.
+        await page.locator('.map-layer-panel > summary').click();
+        assert.equal(await page.getByLabel('Últimos 12 meses', { exact: true }).isChecked(), true);
+        assert.equal(await page.getByLabel('Todos los años', { exact: true }).isChecked(), false);
+        await page.waitForFunction(() => window.auditMap.sources['civigo-incidents'].data.features.length === 549);
+        assert.deepEqual(await page.evaluate(() => window.auditMap.sources['civigo-incidents'].data.features
+          .filter(feature => [501, 502].includes(Number(feature.id)))
+          .map(feature => feature.id)), [], 'Los reportes de 2023 y 2024 no aparecen en el último año');
+        await page.getByLabel('Todos los años', { exact: true }).check();
+        await page.waitForFunction(() => window.auditMap.sources['civigo-incidents'].data.features.length === 551);
+        assert.deepEqual(await page.evaluate(() => window.auditMap.sources['civigo-incidents'].data.features
+          .filter(feature => [501, 502].includes(Number(feature.id))).map(feature => feature.id).sort()), [501, 502], 'El histórico sólo aparece después de marcar todos los años');
+        await page.locator('.map-layer-panel > summary').click();
+        await setSheetExpanded(page, true);
         await page.evaluate(() => window.auditMap.setZoom(13.99));
         assert.equal(await visibleMarkers(page).count(), 0, 'Iconos de incidentes ocultos por debajo de zoom 14');
         assert.equal(await page.evaluate(() => window.auditMap.sources['civigo-incidents'].data.features.length), 551, 'El snapshot mantiene también los incidentes fuera del viewport y sus dos páginas');
@@ -366,8 +411,10 @@ try {
           assert.ok(control.width >= 40 && control.height >= 40, `Área táctil suficiente: ${control.label}`);
         }
         assert.ok(layout.sheet.height * layout.sheet.width < layout.main.height * layout.main.width * .72, 'El panel deja visible una parte sustancial del mapa, también en el lateral de tablet');
-        assert.ok(layout.sheet.left <= 1 && layout.sheet.right >= viewport.width - 1, 'Planificador de borde a borde');
-        assert.ok(layout.sheet.bottom >= layout.main.bottom - 1, 'Sin hueco debajo del planificador');
+        assert.ok(layout.sheet.width <= 180 && layout.sheet.height <= 200, 'El asistente cerrado reserva el mapa');
+        assert.ok(layout.sheet.left >= 0 && layout.sheet.right <= viewport.width + 1 && layout.sheet.top >= layout.main.top - 1 && layout.sheet.bottom <= layout.main.bottom + 1, 'El muñequito queda dentro del mapa');
+        assert.equal(await page.getByRole('button', { name: '¿A dónde quieres ir hoy?', exact: true }).count(), 1);
+        assert.equal(await page.locator('.route-assistant-wizard').count(), 0, 'El planificador sólo se abre por una acción del usuario');
         assert.ok(layout.legend.width <= 130 && layout.legend.height <= 46, 'Leyenda fija pequeña');
         await page.locator('.mobile-announcements-cabecera img').waitFor();
         const ad=await page.locator('.mobile-announcements-cabecera').evaluate(element=>{const r=element.getBoundingClientRect(),img=element.querySelector('img');return{left:r.left,right:r.right,height:r.height,fit:getComputedStyle(img).objectFit};});
@@ -422,7 +469,7 @@ try {
         await screenshot(page, `navigation-${viewport.width}-${theme}`);
         await setSheetExpanded(page, true);
         for (const name of ['Centrar', 'Silenciar voz', 'Recalcular', 'Finalizar']) await expectReachable(guidance.getByRole('button', { name, exact: true }), `${name} expandido en ${viewport.width}/${theme}`);
-        await page.getByRole('button', { name: 'Cambiar capas', exact: true }).waitFor();
+        await page.getByRole('button', { name: 'Capas', exact: true }).waitFor();
         await page.getByRole('radio', { name: 'Auto', exact: true }).waitFor();
         await screenshot(page, `navigation-expanded-${viewport.width}-${theme}`);
         results.push({ viewport, theme, layout, riskRange, routeCardsAndGuidanceChecked: true });
@@ -437,13 +484,13 @@ try {
   try {
     await page.evaluate(() => window.auditMap.setZoom(14));
     await page.locator('.map-layer-panel > summary').click();
-    await page.getByLabel('Todos los años',{exact:true}).uncheck();
-    await page.waitForFunction(()=>document.querySelector('.map-bottom-sheet .badge')?.textContent==='0 en mapa');
+    await page.getByLabel('Últimos 12 meses',{exact:true}).uncheck();
+    await page.waitForFunction(()=>window.auditMap.sources['civigo-incidents'].data.features.length===0);
     await page.getByLabel('2024',{exact:true}).check();
-    await page.waitForFunction(()=>document.querySelector('.map-bottom-sheet .badge')?.textContent==='1 en mapa');
+    await page.waitForFunction(()=>window.auditMap.sources['civigo-incidents'].data.features.length===1);
     assert.equal(await visibleMarkers(page).count(),1);
     await page.getByLabel('2023',{exact:true}).check();
-    await page.waitForFunction(()=>document.querySelector('.map-bottom-sheet .badge')?.textContent==='2 en mapa');
+    await page.waitForFunction(()=>window.auditMap.sources['civigo-incidents'].data.features.length===2);
     await screenshot(page,'filtros-anos-390');
     await page.getByLabel('Todos los años',{exact:true}).check();
     const filter = page.getByLabel('Filtrar por tipo', { exact: true });
@@ -519,7 +566,7 @@ try {
     await expectReachable(externalDetail.getByRole('button', { name: 'Cerrar aviso de tráfico', exact: true }), 'Cerrar aviso de tráfico con hoja expandida');
     const popupBounds = await externalDetail.boundingBox();
     const expandedSheetBounds = await page.locator('.map-bottom-sheet').boundingBox();
-    assert.ok(popupBounds.y + popupBounds.height <= expandedSheetBounds.y + 1, 'La tarjeta de tráfico queda encima de la hoja expandida');
+    assert.ok(popupBounds.y + popupBounds.height <= expandedSheetBounds.y + 1 || expandedSheetBounds.y + expandedSheetBounds.height <= popupBounds.y + 1 || popupBounds.x + popupBounds.width <= expandedSheetBounds.x + 1 || expandedSheetBounds.x + expandedSheetBounds.width <= popupBounds.x + 1, 'La tarjeta de tráfico no cubre el asistente compacto');
     await screenshot(page, 'traffic-popup-expanded-390-dark');
     await externalDetail.getByRole('button', { name: 'Cerrar aviso de tráfico', exact: true }).click();
     await setSheetExpanded(page, true);
@@ -548,17 +595,18 @@ try {
     await setSheetExpanded(page, true);
     assert.equal(await guidance.locator('.gn-maneuver').getAttribute('data-direction'), 'left', 'La flecha coincide con el siguiente giro');
     await guidance.getByRole('button', { name: 'Finalizar', exact: true }).waitFor();
+    assert.equal(await page.getByRole('radio').count(), 5, 'Sólo se ofrecen los cinco iconos principales');
     await page.getByRole('radio', { name: 'Auto', exact: true }).click();
-    await page.locator('.user-gps-marker[data-navigation-avatar="car"]').waitFor();
-    await page.waitForFunction(() => Object.keys(localStorage).some(key => key.endsWith('civigo:navigation-avatar:v1:user:901') && localStorage.getItem(key) === 'car'));
-    await page.getByRole('radio', { name: 'SUV', exact: true }).click();
+    await page.locator('.user-gps-marker[data-navigation-avatar="sedan:blue"]').waitFor();
+    await page.waitForFunction(() => Object.keys(localStorage).some(key => key.endsWith('civigo:navigation-avatar:v1:user:901') && localStorage.getItem(key) === 'sedan:blue'));
+    await page.getByRole('combobox', { name: 'Modelo de auto', exact: true }).selectOption('suv');
     await page.getByRole('button', { name: 'Rojo', exact: true }).click();
     await page.locator('.user-gps-marker[data-navigation-avatar="suv:red"]').waitFor();
     await page.waitForFunction(() => Object.keys(localStorage).some(key => key.endsWith('civigo:navigation-avatar:v1:user:901') && localStorage.getItem(key) === 'suv:red'));
     await page.evaluate(() => { window.auditMap.bearing = 30; window.auditMap.fire('rotate'); });
     const gpsRotation = await page.locator('.navigation-avatar-heading').evaluate(element => element.style.transform);
     assert.equal(gpsRotation, 'rotate(145deg)', 'El avatar usa rumbo GPS175° relativo a cámara30°');
-    await page.getByRole('button', { name: 'Cambiar capas', exact: true }).click();
+    await page.getByRole('button', { name: 'Capas', exact: true }).click();
     const layerDrawer = page.getByRole('dialog', { name: 'Capas del mapa', exact: true });
     await layerDrawer.waitFor();
     await page.evaluate(() => { window.auditThemeMap=window.auditMap; window.auditThemeSource=window.auditMap.sources['route-source']; window.auditThemeRisk=JSON.stringify(window.auditMap.layers['civigo-roads-layer'].paint); });
@@ -626,7 +674,7 @@ try {
     await page.addStyleTag({ content: css });
     await page.addScriptTag({ content: js });
     await page.waitForFunction(() => !!window.auditMap?.getSource('civigo-incidents')?.data?.features?.length);
-    await page.getByRole('button', { name: 'Plaza de Armas de Ica', exact: true }).click();
+    await planShortcut(page);
     await page.getByRole('button', { name: 'Iniciar recorrido', exact: true }).click();
     await expectFullscreenNavigation(page, { width: 390, height: 844 });
     await page.locator('.user-gps-marker[data-navigation-avatar="suv:red"]').waitFor();
@@ -639,17 +687,19 @@ try {
     assert.equal(await page.evaluate(() => window.auditCalls.filter(call => call.path === '/navigation/history').length), 0, 'Recrear la aplicación recupera el recorrido sin duplicar el historial');
     await screenshot(page, 'navigation-restored-trip-390-dark');
     await page.getByRole('button', { name: 'Salir de navegación', exact: true }).click();
+    await page.locator('.app-navigation-fullscreen').waitFor({ state: 'detached' });
     assert.equal(await page.locator('.app-navigation-fullscreen').count(), 0, 'Salir compacto restaura la interfaz general');
     await page.locator('.mobile-header').waitFor({ state: 'visible' });
     assert.equal(await page.evaluate(() => window.auditMap.sources['route-source'].data.features?.length), 0);
-    await page.getByRole('button', { name: 'Plaza de Armas de Ica', exact: true }).click();
+    await planShortcut(page);
     await page.getByRole('button', { name: 'Iniciar recorrido', exact: true }).click();
     await expectFullscreenNavigation(page, { width: 390, height: 844 });
     await page.evaluate(() => { window.auditFirstUser={...window.auditUser}; window.auditSetUser(null); });
     await page.locator('.app-navigation-fullscreen').waitFor({ state: 'detached' });
     await page.waitForFunction(() => !Object.keys(localStorage).some(key => key.endsWith('civigo:active-trip:v1:user:901')));
     await page.evaluate(() => window.auditSetUser({...window.auditFirstUser,id:902,nickname:'Otra cuenta',correo:'otra@example.invalid'}));
-    await page.getByRole('button', { name: 'Buscar destino en Ica', exact: true }).click();
+    await openDestinationStep(page);
+    await page.getByRole('button', { name: 'Explorar lugares en Ica', exact: true }).click();
     const privateSearch = page.getByRole('dialog', { name: 'Buscar destino', exact: true });
     assert.equal(await privateSearch.locator('.place-personal-list').count(), 0, 'Los lugares recientes del usuario anterior no aparecen en otra cuenta');
     assert.equal(await page.locator('.app-navigation-fullscreen').count(), 0, 'La otra cuenta no recibe el recorrido anterior');
