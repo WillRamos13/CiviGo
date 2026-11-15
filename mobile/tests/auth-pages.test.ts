@@ -13,7 +13,9 @@ const executablePath = [
 
 test('authentication pages synchronize the provider after Back without navigating a disposed page', {
   skip: !executablePath && 'A local Chromium browser is required for these isolated UI regressions.',
-  timeout: 15000,
+  // Includes bundling, a cold Chromium launch and three sequential UI cases.
+  // Each case keeps its own bounded deadline and the four-second UI waits below.
+  timeout: 60000,
 }, async context => {
   // Bundle the real pages and provider in memory. Every browser request is
   // intercepted below; this harness has no provider or production access.
@@ -49,7 +51,7 @@ test('authentication pages synchronize the provider after Back without navigatin
   const browser = await chromium.launch({ executablePath, headless: true });
   try {
     for (const mode of ['login', 'register', 'blocked']) {
-      await context.test(mode, async () => {
+      await context.test(mode, { timeout: 15000 }, async () => {
         const page = await browser.newPage();
         page.setDefaultTimeout(4000);
         let finishAuthentication!: () => void;
