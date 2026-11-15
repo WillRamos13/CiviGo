@@ -687,6 +687,7 @@ try {
     assert.equal(await page.evaluate(() => window.auditCalls.filter(call => call.path === '/navigation/history').length), 0, 'Recrear la aplicación recupera el recorrido sin duplicar el historial');
     await screenshot(page, 'navigation-restored-trip-390-dark');
     await page.getByRole('button', { name: 'Salir de navegación', exact: true }).click();
+    await page.locator('.app-navigation-fullscreen').waitFor({ state: 'detached' });
     assert.equal(await page.locator('.app-navigation-fullscreen').count(), 0, 'Salir compacto restaura la interfaz general');
     await page.locator('.mobile-header').waitFor({ state: 'visible' });
     assert.equal(await page.evaluate(() => window.auditMap.sources['route-source'].data.features?.length), 0);
