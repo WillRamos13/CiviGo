@@ -25,7 +25,7 @@ import styles from "./CinematicCity.module.css";
 export default function CinematicCity() {
   const host = useRef<HTMLDivElement>(null),
     controller = useRef<IcaCityController | null>(null);
-  const [selected, setSelected] = useState<LandmarkId | null>(null),
+  const [selected, setSelected] = useState<LandmarkId | null>("plaza"),
     [paused, setPaused] = useState(false);
   const selectedRef = useRef(selected),
     pausedRef = useRef(paused);
@@ -89,6 +89,7 @@ export default function CinematicCity() {
           data,
           (id) => setSelected(id),
           lose,
+          selectedRef.current,
         );
         controller.current.select(selectedRef.current);
         controller.current.setPaused(pausedRef.current);
@@ -153,14 +154,15 @@ export default function CinematicCity() {
       <div
         className={styles.scene}
         data-city-ready={ready}
+        data-city-landmark={selected ?? "overview"}
         onKeyDown={(event) => {
           if (event.key === "Escape") setSelected(null);
         }}
       >
         <Image
           className={styles.fallback}
-          src="/home/ica-city-plan.svg"
-          alt="Plano de calles y huellas de edificios del centro de Ica y Huacachina"
+          src={selected === "plaza" ? "/home/plaza-model-poster.webp" : "/home/ica-city-plan.svg"}
+          alt={selected === "plaza" ? "Maqueta de la Plaza de Armas: obelisco, piletas, jardines y arquitectura interpretada de la imagen de referencia" : "Plano de calles y huellas de edificios del centro de Ica y Huacachina"}
           fill
           sizes="100vw"
           priority
@@ -172,7 +174,7 @@ export default function CinematicCity() {
           aria-label="Maqueta 3D de Ica. Selecciona un lugar con los botones de abajo."
         />
         <div className={styles.sceneTop}>
-          <span>ICA, DESDE OTRA PERSPECTIVA</span>
+          <span>{selected === "plaza" ? "PLAZA DE ARMAS · ICA" : "ICA, DESDE OTRA PERSPECTIVA"}</span>
           {ready && (
             <button
               type="button"
@@ -228,10 +230,10 @@ export default function CinematicCity() {
         )}
         <div className={styles.caption}>
           <span>
-            {ready ? "Maqueta interactiva" : "Vista ligera"} · Huellas de OSM
+            {selected === "plaza" ? (ready ? "Gira y descubre la plaza" : "Plaza de Armas · Vista ligera") : (ready ? "Maqueta interactiva · Huellas de OSM" : "Vista ligera · Huellas de OSM")}
           </span>
           <span>
-            Volúmenes de referencia. Fachadas y alturas por completar.
+            {selected === "plaza" ? "Interpretación 3D de la imagen de referencia." : "Volúmenes de referencia. Fachadas y alturas por completar."}
           </span>
           {failed && (
             <button
