@@ -10,13 +10,15 @@ const { frameModel, modelFramingPoints } = loadTs('lib/three-framing.ts');
 test('plaza is real bounded geometry with distinct architectural and garden features', () => {
   const model = createPlazaModel(), bounds = new THREE.Box3().setFromObject(model);
   const size = bounds.getSize(new THREE.Vector3()), center = bounds.getCenter(new THREE.Vector3());
-  assert.ok(size.x > 250 && size.x < 280);
-  assert.ok(size.z > 220 && size.z < 240);
-  assert.ok(size.y > 35 && size.y < 65);
+  assert.ok(size.x > 135 && size.x < 150);
+  assert.ok(size.z > 135 && size.z < 150);
+  assert.ok(size.y > 11 && size.y < 20);
   assert.ok(Math.abs(center.x) < 2 && Math.abs(center.z) < 2, 'orbit has a stable centred pivot');
-  assert.ok(model.children.some(node => node.name.includes('Catedral')));
-  assert.ok(model.children.some(node => node.name.includes('municipalidad')));
-  assert.ok(model.children.some(node => node.name.includes('piletas')));
+  for (const name of ['Obelisco de dos agujas', 'Piletas', 'Ficus y mobiliario', 'Pérgola', 'Portales y fachadas']) {
+    assert.ok(model.getObjectByName(name)?.children.length, name);
+  }
+  assert.equal(model.userData.basinCount, 7);
+  assert.ok(Number.isFinite(model.userData.frontYaw));
   let triangles = 0, meshes = 0;
   model.traverse(node => {
     if (!node.isMesh) return;
@@ -58,7 +60,8 @@ test('framing an unrendered geographically anchored model uses its actual world 
   const points = modelFramingPoints(model, anchor);
   const bounds = new THREE.Box3().setFromPoints(points), center = bounds.getCenter(new THREE.Vector3());
   assert.ok(Math.abs(center.x) < 0.01 && Math.abs(center.z) < 0.01);
-  assert.ok(Math.abs(bounds.getSize(new THREE.Vector3()).x - 2.62) < 0.001);
+  const modelSize = new THREE.Box3().setFromObject(createPlazaModel()).getSize(new THREE.Vector3());
+  assert.ok(Math.abs(bounds.getSize(new THREE.Vector3()).x - modelSize.x * 0.01) < 0.001);
   assert.ok(points.every(p => Number.isFinite(p.y)));
 });
 
@@ -70,8 +73,11 @@ test('downloadable GLB is self-contained, readable and matches the integrated mo
   assert.ok(binary.byteLength < 2500000, 'download remains below 2.5 MB');
   const loaded = await new GLTFLoader().parseAsync(binary.buffer.slice(binary.byteOffset, binary.byteOffset + binary.byteLength), '');
   const size = new THREE.Box3().setFromObject(loaded.scene).getSize(new THREE.Vector3());
-  assert.ok(Math.abs(size.x - 262) < 0.01);
-  assert.ok(Math.abs(size.z - 228) < 0.01);
+  const expected = new THREE.Box3().setFromObject(createPlazaModel()).getSize(new THREE.Vector3());
+  assert.ok(size.distanceTo(expected) < 0.01);
+  const model = loaded.scene.children.find(node => node.userData.basinCount === 7);
+  assert.ok(model);
+  assert.ok(model.children.some(node => node.name.startsWith('Obelisco')));
   let meshes = 0;
   loaded.scene.traverse(node => { if (node.isMesh) meshes++; });
   assert.ok(meshes > 20 && meshes < 100);

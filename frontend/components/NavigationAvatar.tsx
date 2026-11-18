@@ -1,29 +1,49 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
+import Image from "next/image";
 import {
-  NAVIGATION_AVATARS,
+  NAVIGATION_ARCADE_AVATARS,
   NAVIGATION_VEHICLE_COLORS,
+  hasVehiclePreview,
+  isArcadeAvatar,
   navigationAvatarShapes,
   navigationAvatarBase,
   navigationAvatarColor,
   isVehicleModel,
   type NavigationAvatar,
 } from "@/lib/navigation-avatar";
-const primary = NAVIGATION_AVATARS.filter((item) =>
-  ["arrow", "car", "motorcycle", "bicycle", "walking"].includes(item.id),
-);
+const primary = [
+  { id: "arrow", label: "Flecha" },
+  { id: "car", label: "Auto" },
+  { id: "motorcycle", label: "Moto" },
+  { id: "bicycle", label: "Bicicleta" },
+  { id: "walking", label: "A pie" },
+  { id: "arcade", label: "Arcade" },
+] as const;
 export const NavigationAvatarIcon: React.FC<{ avatar: NavigationAvatar }> = ({
   avatar,
-}) => (
-  <svg
-    viewBox="0 0 40 40"
-    className="navigation-avatar-glyph"
-    aria-hidden="true"
-  >
+}) => {
+  const [preview, setPreview] = useState<{ avatar: NavigationAvatar; url: string }>();
+  useEffect(() => {
+    if (!hasVehiclePreview(avatar)) return;
+    let active = true;
+    void import("@/lib/navigation-vehicle-preview").then(({ vehiclePreview }) => {
+      if (!active) return;
+      const url = vehiclePreview(avatar, "picker");
+      if (url) setPreview({ avatar, url });
+    }).catch(() => {});
+    return () => { active = false; };
+  }, [avatar]);
+
+  if (preview?.avatar === avatar) {
+    return <Image src={preview.url} width={48} height={48} alt="" unoptimized
+      className="navigation-avatar-glyph navigation-vehicle-preview" />;
+  }
+  return <svg viewBox="0 0 40 40" className="navigation-avatar-glyph" aria-hidden="true">
     {navigationAvatarShapes(avatar).map((shape, index) =>
       React.createElement(shape.tag, { ...shape.attrs, key: index }),
     )}
-  </svg>
-);
+  </svg>;
+};
 export const AvatarPicker: React.FC<{
   value: NavigationAvatar;
   onChange: (avatar: NavigationAvatar) => void;
@@ -31,13 +51,16 @@ export const AvatarPicker: React.FC<{
 }> = ({ value, onChange, disabled = false }) => {
   const base = navigationAvatarBase(value),
     car = base === "car" || isVehicleModel(base),
-    chosen = car ? "car" : base;
-  const choose = (id: (typeof primary)[number]["id"]) =>
-    onChange(
-      id === "car"
-        ? `${isVehicleModel(base) ? base : "sedan"}:${navigationAvatarColor(value)}`
-        : id,
-    );
+    chosen = car ? "car" : isArcadeAvatar(base) ? "arcade" : base;
+  const choose = (id: (typeof primary)[number]["id"]) => {
+    if (id === "car") {
+      onChange(`${isVehicleModel(base) ? base : "sedan"}:${navigationAvatarColor(value)}`);
+    } else if (id === "arcade") {
+      onChange(isArcadeAvatar(base) ? base : NAVIGATION_ARCADE_AVATARS[0].id);
+    } else {
+      onChange(id);
+    }
+  };
   return (
     <fieldset className="navigation-avatar-picker" disabled={disabled}>
       <legend>Tu icono en el mapa</legend>
@@ -73,7 +96,9 @@ export const AvatarPicker: React.FC<{
             data-navigation-avatar={item.id}
           >
             <NavigationAvatarIcon
-              avatar={item.id === "car" && car ? value : item.id}
+              avatar={item.id === "arcade"
+                ? isArcadeAvatar(base) ? base : NAVIGATION_ARCADE_AVATARS[0].id
+                : item.id === "car" && car ? value : item.id}
             />
             <span>{item.label}</span>
           </button>
@@ -126,6 +151,17 @@ export const AvatarPicker: React.FC<{
             ))}
           </div>
         </>
+      )}
+      {chosen === "arcade" && (
+        <div className="navigation-arcade-avatars" role="group" aria-label="Modelos arcade">
+          {NAVIGATION_ARCADE_AVATARS.map((item) => (
+            <button type="button" key={item.id} aria-pressed={base === item.id}
+              data-navigation-avatar={item.id} onClick={() => onChange(item.id)}>
+              <NavigationAvatarIcon avatar={item.id} />
+              <span>{item.label}</span>
+            </button>
+          ))}
+        </div>
       )}
       <small className="navigation-avatar-help">
         El icono no cambia tu transporte.

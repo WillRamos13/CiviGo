@@ -97,8 +97,13 @@ async function run() {
     await waitUntil(win,`document.querySelector('button[aria-label="Rojo"]')!==null`);
     await js(`document.querySelector('button[aria-label="Rojo"]').click()`);
     await waitUntil(win,`document.querySelector('.web-navigation-avatar')?.dataset.navigationAvatar==='suv:red'`);
-    assert.equal(await js(`document.querySelectorAll('.navigation-avatar-picker [role="radio"]').length`),5);
+    assert.equal(await js(`document.querySelectorAll('.navigation-avatar-picker [role="radio"]').length`),6);
     assert.equal(await js(`document.querySelectorAll('.navigation-vehicle-colors button').length`),5);
+    await js(`document.querySelector('[data-navigation-avatar="arcade"]').click()`);
+    await waitUntil(win,`document.querySelectorAll('.navigation-arcade-avatars button').length===3`);
+    await js(`document.querySelector('.navigation-arcade-avatars [data-navigation-avatar="arcade-gecko"]').click()`);
+    await waitUntil(win,`document.querySelector('.web-navigation-avatar')?.dataset.navigationAvatar==='arcade-gecko'`);
+    assert.equal(await js(`document.querySelector('.navigation-arcade-avatars [data-navigation-avatar="arcade-gecko"]')?.getAttribute('aria-pressed')`),'true');
     await js(`document.querySelector('button[aria-label="Ampliar mapa a pantalla completa"]').click()`);
     await waitUntil(win,`document.querySelector('.map-frame').dataset.mapFullscreen==='true'`);
     await js(`Array.from(document.querySelectorAll('.navigation-guidance button')).find(b=>b.textContent==='Asistente').click()`);
