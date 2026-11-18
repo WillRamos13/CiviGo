@@ -13,3 +13,6 @@
 **/coverage/
 **/*.tsbuildinfo
 *.log
+
+# La aplicación móvil se desarrolla localmente.
+/mobile/
