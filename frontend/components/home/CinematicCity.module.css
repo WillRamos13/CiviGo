@@ -7,4 +7,5 @@
 .scene:not([data-city-landmark=overview]) .caption>span:first-child{color:#1a3c53;font-weight:600}
 .scene:not([data-city-landmark=overview]) .canvas{inset:48px 10px 112px}
 .scene{scroll-margin-top:6rem}
+.attribution a{color:inherit}
 @media(max-width:700px){.scene:not([data-city-landmark=overview]) .canvas{inset:48px 0 120px}}

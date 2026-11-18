@@ -73,7 +73,7 @@ export const CITY_LANDMARKS: readonly CityLandmark[] = [
     longitud: -75.729666,
     description:
       "La Catedral de San Jerónimo forma parte del conjunto histórico junto a la Plaza de Armas. Esta ficha no confirma su acceso al público.",
-    address: "Avenida Bolívar, junto a la Plaza de Armas",
+    address: "Calle Bolívar con calle Libertad, Ica",
     sourceUrl:
       "https://www.gob.pe/institucion/cultura/noticias/964782-especialistas-del-ministerio-de-cultura-evaluan-in-situ-la-catedral-de-ica",
     modelReferenceUrl: "https://www.getty.edu/projects/seismic-retrofitting/case-study-ica-cathedral/",

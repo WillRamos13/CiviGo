@@ -5,6 +5,7 @@ import * as THREE from 'three';
 import { loadTs } from './helpers/ts-module.mjs';
 
 const { createHuacachinaModel } = loadTs('components/home/create-huacachina-model.ts');
+const { OASIS_BUILDINGS, OASIS_ELEVATION } = loadTs('components/home/huacachina-geography.ts');
 const { cityPosition, CITY_LANDMARKS } = loadTs('lib/city-scene.ts');
 const data = JSON.parse(readFileSync('public/home/ica-city.json', 'utf8'));
 const landmark = CITY_LANDMARKS.find(item => item.id === 'huacachina');
@@ -40,4 +41,24 @@ test('the terrain has continuous relief within the detailed scene budget', () =>
   });
   assert.ok(triangles > 20000 && triangles < 75000);
   assert.ok(meshes < 28);
+});
+
+test('the detail scene uses mapped ground plans and sampled relief', () => {
+  assert.equal(model.userData.buildingFootprintCount, OASIS_BUILDINGS.length);
+  const library = OASIS_BUILDINGS.find(([way]) => way === 389395378);
+  assert.ok(library);
+  const [mapX, mapZ] = library[2][0];
+  const buildings = model.getObjectByName('Edificios del oasis');
+  const includesCorner = buildings.children.some(mesh => {
+    const points = mesh.geometry.getAttribute('position');
+    for (let i = 0; i < points.count; i++) {
+      if (Math.hypot(points.getX(i) - mapX, points.getZ(i) - mapZ) < 0.025) return true;
+    }
+    return false;
+  });
+  assert.ok(includesCorner);
+  const samples = OASIS_ELEVATION.flat();
+  const sand = model.getObjectByName('Dunas de Huacachina');
+  sand.geometry.computeBoundingBox();
+  assert.ok(Math.abs(sand.geometry.boundingBox.max.y - Math.max(...samples)) < 1.25);
 });

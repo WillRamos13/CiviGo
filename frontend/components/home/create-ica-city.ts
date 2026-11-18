@@ -26,6 +26,14 @@ type LandmarkModel = {
   };
 };
 
+const VIEW_ELEVATION: Record<LandmarkId, number> = {
+  plaza: 37,
+  huacachina: 36,
+  catedral: 23,
+  luren: 23,
+  museo: 19,
+};
+
 export type IcaCityController = {
   select(id: LandmarkId | null): void;
   rotate(delta: number): void;
@@ -48,12 +56,9 @@ export function createIcaCity(
     failIfMajorPerformanceCaveat: true,
   });
   renderer.setClearColor("#031021", 0);
-  renderer.setPixelRatio(
-    Math.min(devicePixelRatio, host.clientWidth < 700 ? 1.1 : 1.5),
-  );
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.shadowMap.enabled = true;
-  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  renderer.shadowMap.type = THREE.PCFShadowMap;
   renderer.shadowMap.autoUpdate = false;
   const scene = new THREE.Scene(),
     camera = new THREE.PerspectiveCamera(38, 1, 0.05, 350),
@@ -64,12 +69,15 @@ export function createIcaCity(
   camera.lookAt(look);
   const ambient = new THREE.AmbientLight("#7695c4", 2.5);
   scene.add(ambient);
+  const reflectedLight = new THREE.HemisphereLight("#eaf5ff", "#ad8a68", 0);
+  scene.add(reflectedLight);
   const sunlight = new THREE.DirectionalLight("#d8efff", 4.4);
   sunlight.position.set(-25, 55, 15);
   sunlight.shadow.mapSize.setScalar(host.clientWidth < 700 ? 1024 : 2048);
   Object.assign(sunlight.shadow.camera, { left: -9, right: 9, top: 9, bottom: -9, near: 0.5, far: 70 });
-  sunlight.shadow.bias = -0.0002;
-  sunlight.shadow.normalBias = 0.025;
+  sunlight.shadow.bias = -0.0001;
+  sunlight.shadow.normalBias = 0.013;
+  sunlight.shadow.radius = 2;
   scene.add(sunlight.target);
   scene.add(sunlight);
   const rim = new THREE.DirectionalLight("#087cff", 3);
@@ -214,13 +222,18 @@ export function createIcaCity(
     if (!model?.children.length) return item;
     model.scale.setScalar(1 / data.metersPerUnit);
     item.visual.add(model);
+    const framing = modelFramingPoints(model, item.anchor);
+    if (!framing.length) {
+      model.removeFromParent();
+      disposeThreeObject(model);
+      return item;
+    }
     model.traverse((child) => {
       if (child instanceof THREE.Mesh) {
         child.userData.landmarkId = id;
         selectable.push(child);
       }
     });
-    const framing = modelFramingPoints(model, item.anchor);
     const size = new THREE.Box3().setFromPoints(framing).getSize(new THREE.Vector3());
     item.detail = {
       framing,
@@ -262,9 +275,10 @@ export function createIcaCity(
     last = 0,
     elapsed = 0,
     orbit = 0.2,
+    elevationOffset = 0,
     zoom = 1,
     dirty = true;
-  let drag: { x: number; y: number; lastX: number } | null = null;
+  let drag: { x: number; y: number; lastX: number; lastY: number } | null = null;
   const pointer = new THREE.Vector2(),
     raycaster = new THREE.Raycaster(),
     vertical = new THREE.Vector3(0, 1, 0);
@@ -292,6 +306,7 @@ export function createIcaCity(
       const selected = state.active ? prepareDetail(state.active) : undefined;
       const detail = selected?.detail;
       const detailFocused = Boolean(detail && state.eased > 0.45);
+      const angle = detail ? detail.frontYaw + 0.45 : 0;
       environment.visible = !detailFocused;
       for (const [id, item] of models) {
         item.root.visible = !detailFocused || state.active === id;
@@ -299,13 +314,18 @@ export function createIcaCity(
         item.overview.visible = !item.visual.visible;
       }
       sunlight.castShadow = detailFocused;
-      ambient.color.set(detailFocused ? "#ffffff" : "#7695c4");
-      ambient.intensity = detailFocused ? 1.8 : 2.5;
-      sunlight.color.set(detailFocused ? "#fff0d5" : "#d8efff");
-      sunlight.intensity = detailFocused ? 3.2 : 4.4;
-      rim.intensity = detailFocused ? 0.35 : 3;
+      ambient.intensity = detailFocused ? 0 : 2.5;
+      reflectedLight.intensity = detailFocused ? 1.35 : 0;
+      sunlight.color.set(detailFocused ? "#fff3df" : "#d8efff");
+      sunlight.intensity = detailFocused ? 2.45 : 4.4;
+      rim.intensity = detailFocused ? 0 : 3;
       if (detailFocused && selected) {
-        sunlight.position.set(selected.anchor.x - 9, 24, selected.anchor.z + 12);
+        const sunlightAzimuth = angle - 0.7;
+        sunlight.position.set(
+          selected.anchor.x + Math.sin(sunlightAzimuth) * 16,
+          20,
+          selected.anchor.z + Math.cos(sunlightAzimuth) * 16,
+        );
         sunlight.target.position.set(selected.anchor.x, 5, selected.anchor.z);
         renderer.shadowMap.needsUpdate = true;
       } else {
@@ -326,9 +346,13 @@ export function createIcaCity(
       );
       const fade = selected ? 1 - state.eased * 0.48 : 1;
       buildingMaterial.color.setRGB(0.04 * fade, 0.18 * fade, 0.34 * fade);
-      if (selected && detail) {
-        const angle = detail.frontYaw + 0.45;
-        const direction = new THREE.Vector3(Math.sin(angle), 0.66, Math.cos(angle)).normalize();
+      if (selected && detail && state.active) {
+        const elevation = THREE.MathUtils.degToRad(
+          THREE.MathUtils.clamp(VIEW_ELEVATION[state.active] + elevationOffset, 13, 65),
+        );
+        const direction = new THREE.Vector3(
+          Math.sin(angle) * Math.cos(elevation), Math.sin(elevation), Math.cos(angle) * Math.cos(elevation),
+        );
         const points = detail.framing.map((point) => point.clone()
           .multiplyScalar(detail.scale).applyAxisAngle(vertical, orbit));
         const framed = frameModel(points, direction, camera.fov, camera.aspect);
@@ -369,6 +393,8 @@ export function createIcaCity(
   };
   const resize = () => {
     if (disposed || !host.clientWidth || !host.clientHeight) return;
+    const pixelRatio = Math.min(devicePixelRatio, host.clientWidth < 700 ? 1.25 : 1.5);
+    if (renderer.getPixelRatio() !== pixelRatio) renderer.setPixelRatio(pixelRatio);
     renderer.setSize(host.clientWidth, host.clientHeight);
     camera.aspect = host.clientWidth / host.clientHeight;
     const direction=new THREE.Vector3(33,43,45).normalize(),right=new THREE.Vector3(0,1,0).cross(direction).normalize(),up=direction.clone().cross(right).normalize();
@@ -379,18 +405,26 @@ export function createIcaCity(
     invalidate();
   };
   const down = (event: PointerEvent) => {
-    drag = { x: event.clientX, y: event.clientY, lastX: event.clientX };
+    if (event.button !== 0) return;
+    drag = { x: event.clientX, y: event.clientY, lastX: event.clientX, lastY: event.clientY };
   };
   const move = (event: PointerEvent) => {
-    if (
-      drag &&
-      selection.active &&
-      Math.abs(event.clientX - drag.x) > Math.abs(event.clientY - drag.y) * 1.5
-    ) {
-      orbit += (event.clientX - drag.lastX) * 0.008;
-      drag.lastX = event.clientX;
-      invalidate();
+    if (!drag || !selection.active) return;
+    const deltaX = event.clientX - drag.x;
+    const deltaY = event.clientY - drag.y;
+    if (event.pointerType === "touch" && Math.abs(deltaX) <= Math.abs(deltaY) * 1.5) return;
+    orbit += (event.clientX - drag.lastX) * 0.008;
+    if (event.pointerType !== "touch") {
+      const elevation = VIEW_ELEVATION[selection.active];
+      elevationOffset = THREE.MathUtils.clamp(
+        elevationOffset - (event.clientY - drag.lastY) * 0.18,
+        13 - elevation,
+        65 - elevation,
+      );
     }
+    drag.lastX = event.clientX;
+    drag.lastY = event.clientY;
+    invalidate();
   };
   const up = (event: PointerEvent) => {
     if (!drag) return;
@@ -437,6 +471,7 @@ export function createIcaCity(
   return {
     select(id) {
       orbit = 0.2;
+      elevationOffset = 0;
       zoom = 1;
       selection.select(id);
       invalidate();
@@ -446,7 +481,7 @@ export function createIcaCity(
       invalidate();
     },
     zoom(delta) {
-      zoom = THREE.MathUtils.clamp(zoom + delta, 0.65, 1.5);
+      zoom = THREE.MathUtils.clamp(zoom + delta, 0.45, 1.5);
       invalidate();
     },
     setPaused(value) {

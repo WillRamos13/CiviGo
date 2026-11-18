@@ -315,14 +315,19 @@ export default function CinematicCity() {
           </article>
         )}
       </div>
-      <a
-        className={styles.attribution}
-        href="https://www.openstreetmap.org/copyright"
-        target="_blank"
-        rel="noopener noreferrer"
-      >
-        © OpenStreetMap contributors · ODbL
-      </a>
+      <span className={styles.attribution}>
+        <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">
+          © OpenStreetMap contributors · ODbL
+        </a>
+        {selected === "huacachina" && (
+          <>
+            {" · "}
+            <a href="https://registry.opendata.aws/terrain-tiles/" target="_blank" rel="noopener noreferrer">
+              Elevación de Mapzen y USGS
+            </a>
+          </>
+        )}
+      </span>
     </div>
   );
 }
