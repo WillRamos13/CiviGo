@@ -161,8 +161,8 @@ export default function CinematicCity() {
       >
         <Image
           className={styles.fallback}
-          src={selected === "plaza" ? "/home/plaza-model-poster.webp" : "/home/ica-city-plan.svg"}
-          alt={selected === "plaza" ? "Maqueta de la Plaza de Armas: obelisco, piletas, jardines y arquitectura interpretada de la imagen de referencia" : "Plano de calles y huellas de edificios del centro de Ica y Huacachina"}
+          src={landmark?.photo ?? "/home/ica-city-plan.svg"}
+          alt={landmark?.photoAlt ?? "Plano de calles y huellas de edificios del centro de Ica y Huacachina"}
           fill
           sizes="100vw"
           priority
@@ -174,7 +174,7 @@ export default function CinematicCity() {
           aria-label="Maqueta 3D de Ica. Selecciona un lugar con los botones de abajo."
         />
         <div className={styles.sceneTop}>
-          <span>{selected === "plaza" ? "PLAZA DE ARMAS · ICA" : "ICA, DESDE OTRA PERSPECTIVA"}</span>
+          <span>{landmark?.name ?? "Ica, desde otra perspectiva"}</span>
           {ready && (
             <button
               type="button"
@@ -230,11 +230,9 @@ export default function CinematicCity() {
         )}
         <div className={styles.caption}>
           <span>
-            {selected === "plaza" ? (ready ? "Gira y descubre la plaza" : "Plaza de Armas · Vista ligera") : (ready ? "Maqueta interactiva · Huellas de OSM" : "Vista ligera · Huellas de OSM")}
+            {ready ? "Maqueta 3D interactiva" : landmark?.photo ? "Fotografía del lugar" : "Plano de Ica"}
           </span>
-          <span>
-            {selected === "plaza" ? "Interpretación 3D de la imagen de referencia." : "Volúmenes de referencia. Fachadas y alturas por completar."}
-          </span>
+          {ready && <span>{landmark ? "Alturas y detalles aproximados." : "Calles y huellas de OpenStreetMap."}</span>}
           {failed && (
             <button
               type="button"
@@ -259,7 +257,13 @@ export default function CinematicCity() {
             key={item.id}
             aria-pressed={selected === item.id}
             aria-controls="ica-landmark-detail"
-            onClick={() => setSelected(selected === item.id ? null : item.id)}
+            onClick={() => {
+              if (selected === item.id) setSelected(null);
+              else {
+                setSelected(item.id);
+                host.current?.parentElement?.scrollIntoView({ block: "nearest" });
+              }
+            }}
           >
             <MapPin size={14} aria-hidden />
             {item.name}
@@ -292,6 +296,9 @@ export default function CinematicCity() {
                 rel="noopener noreferrer"
               >
                 Información del lugar <ArrowUpRight size={13} />
+              </a>
+              <a href={landmark.modelReferenceUrl} target="_blank" rel="noopener noreferrer">
+                Referencia del modelo <ArrowUpRight size={13} />
               </a>
             </div>
             <div className={styles.actions}>

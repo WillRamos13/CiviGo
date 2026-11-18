@@ -10,6 +10,12 @@ const Preferences = {
 };
 
 export type NavigationVehicleModel = "compact" | "sedan" | "suv" | "sport";
+export const NAVIGATION_ARCADE_AVATARS = [
+  { id: "arcade-astro", label: "Astro" },
+  { id: "arcade-gecko", label: "Gecko" },
+  { id: "arcade-ufo", label: "Ovni" },
+] as const;
+export type NavigationArcadeAvatar = (typeof NAVIGATION_ARCADE_AVATARS)[number]["id"];
 export type NavigationVehicleColor =
   "blue" | "teal" | "red" | "yellow" | "silver";
 export type NavigationAvatarBase =
@@ -18,6 +24,7 @@ export type NavigationAvatarBase =
   | "motorcycle"
   | "bicycle"
   | "walking"
+  | NavigationArcadeAvatar
   | NavigationVehicleModel;
 export type NavigationAvatar =
   NavigationAvatarBase | `${NavigationVehicleModel}:${NavigationVehicleColor}`;
@@ -35,6 +42,7 @@ export const NAVIGATION_AVATARS: readonly {
   { id: "sedan", label: "Sedán" },
   { id: "suv", label: "SUV" },
   { id: "sport", label: "Deportivo" },
+  ...NAVIGATION_ARCADE_AVATARS,
 ];
 export const NAVIGATION_VEHICLE_COLORS: readonly {
   id: NavigationVehicleColor;
@@ -59,6 +67,16 @@ export function navigationAvatarColor(
 }
 export function isVehicleModel(value: string): value is NavigationVehicleModel {
   return ["compact", "sedan", "suv", "sport"].includes(value);
+}
+export function isArcadeAvatar(value: string): value is NavigationArcadeAvatar {
+  return NAVIGATION_ARCADE_AVATARS.some(({ id }) => value === id);
+}
+
+export function hasVehiclePreview(avatar: NavigationAvatar): boolean {
+  if (!isNavigationAvatar(avatar)) return false;
+  const base = navigationAvatarBase(avatar);
+  return isVehicleModel(base) || isArcadeAvatar(base) ||
+    base === "car" || base === "motorcycle" || base === "bicycle";
 }
 export function navigationAvatarLabel(value: NavigationAvatar): string {
   const base = navigationAvatarBase(value),
@@ -174,8 +192,13 @@ export type AvatarShape = {
 const blue = "#087cff",
   white = "#ffffff",
   dark = "#092941";
+const arcadeColors: Record<NavigationArcadeAvatar, string> = {
+  "arcade-astro": "#36c9f2",
+  "arcade-gecko": "#61d699",
+  "arcade-ufo": "#a584f9",
+};
 const shapes: Record<
-  Exclude<NavigationAvatarBase, NavigationVehicleModel>,
+  Exclude<NavigationAvatarBase, NavigationVehicleModel | NavigationArcadeAvatar>,
   readonly AvatarShape[]
 > = {
   arrow: [
@@ -384,6 +407,13 @@ export function navigationAvatarShapes(
 ): readonly AvatarShape[] {
   const safe = isNavigationAvatar(avatar) ? avatar : DEFAULT_NAVIGATION_AVATAR;
   const base = navigationAvatarBase(safe);
+  if (isArcadeAvatar(base)) {
+    return [
+      { tag: "path", attrs: { d: "M20 4 33 13 31 32 20 36 9 32 7 13Z", fill: arcadeColors[base], stroke: white, strokeWidth: "2", strokeLinejoin: "round" } },
+      { tag: "rect", attrs: { x: "12", y: "13", width: "16", height: "10", rx: "5", fill: dark } },
+      { tag: "path", attrs: { d: "M16 18h1m6 0h1M16 28h8", stroke: white, strokeWidth: "2", strokeLinecap: "round" } },
+    ];
+  }
   if (!isVehicleModel(base)) return shapes[base];
   const fill =
     NAVIGATION_VEHICLE_COLORS.find(
@@ -531,6 +561,20 @@ export function updateNavigationAvatarMarker(
         svg.appendChild(part);
       }
       inner.appendChild(svg);
+      if (hasVehiclePreview(id as NavigationAvatar)) {
+        void import("./navigation-vehicle-preview").then(({ vehiclePreview }) => {
+          if (!inner.isConnected || element.dataset.navigationAvatar !== id) return;
+          const source = vehiclePreview(id as NavigationAvatar, "map");
+          if (!source) return;
+          const image = element.ownerDocument.createElement("img");
+          image.alt = "";
+          image.className = "navigation-avatar-glyph navigation-vehicle-preview";
+          image.onload = () => {
+            if (inner.isConnected && element.dataset.navigationAvatar === id) inner.replaceChildren(image);
+          };
+          image.src = source;
+        }).catch(() => {});
+      }
     }
     element.appendChild(inner);
     element.setAttribute("role", "img");

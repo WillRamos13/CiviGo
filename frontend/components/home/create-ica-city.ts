@@ -8,9 +8,23 @@ import {
   type LandmarkId,
   type CityPoint,
 } from "@/lib/city-scene";
-import { createNavigationModel, disposeThreeObject } from "@/lib/three-models";
+import { disposeThreeObject } from "@/lib/three-models";
+import { createHuacachinaModel } from "./create-huacachina-model";
+import { createIcaArchitecture } from "./create-ica-architecture";
 import { createPlazaModel } from "./create-plaza-model";
 import { frameModel, modelFramingPoints } from "@/lib/three-framing";
+
+type LandmarkModel = {
+  root: THREE.Group;
+  visual: THREE.Group;
+  anchor: THREE.Vector3;
+  overview: THREE.Group;
+  detail?: {
+    scale: number;
+    framing: THREE.Vector3[];
+    frontYaw: number;
+  };
+};
 
 export type IcaCityController = {
   select(id: LandmarkId | null): void;
@@ -144,19 +158,7 @@ export function createIcaCity(
     if (merged) environment.add(new THREE.Mesh(merged, buildingMaterial));
     ordinary.forEach((g) => g.dispose());
   }
-  const models = new Map<
-    LandmarkId,
-    {
-      root: THREE.Group;
-      visual: THREE.Group;
-      scale: number;
-      anchor: THREE.Vector3;
-      radius: number;
-      overview?: THREE.Object3D;
-      centerY: number;
-      framing: THREE.Vector3[];
-    }
-  >();
+  const models = new Map<LandmarkId, LandmarkModel>();
   const selectable: THREE.Object3D[] = [];
   for (const landmark of CITY_LANDMARKS) {
     const footprint = data.footprints.find((f) => f.osmId === landmark.osmId);
@@ -169,9 +171,10 @@ export function createIcaCity(
       ),
       anchor = new THREE.Vector3(center[0], 0, center[1]);
     const root = new THREE.Group(),
-      visual = new THREE.Group();
+      visual = new THREE.Group(),
+      outline = new THREE.Group();
     root.position.copy(anchor);
-    root.add(visual);
+    root.add(outline, visual);
     scene.add(root);
     const local = footprint.ring.map(
       ([x, z]) => [x - anchor.x, z - anchor.z] as CityPoint,
@@ -187,24 +190,8 @@ export function createIcaCity(
             : landmarkMaterial,
       );
     mesh.userData.landmarkId = landmark.id;
-    const plaza = landmark.id === "plaza" ? createPlazaModel() : null;
-    if (plaza) {
-      // Keep the geographic footprint in the city overview; only the selected
-      // reference model includes the surrounding streets and façades.
-      root.add(mesh);
-      plaza.scale.setScalar(1 / data.metersPerUnit);
-      visual.add(plaza);
-      plaza.traverse((child) => {
-        if (child instanceof THREE.Mesh) selectable.push(child);
-      });
-    } else visual.add(mesh);
     selectable.push(mesh);
-    const edges = new THREE.LineSegments(
-      new THREE.EdgesGeometry(geometry),
-      outlineMaterial,
-    );
-    if (!plaza) visual.add(edges);
-    else edges.geometry.dispose();
+    outline.add(mesh, new THREE.LineSegments(new THREE.EdgesGeometry(geometry), outlineMaterial));
     const base = new THREE.LineLoop(
       new THREE.BufferGeometry().setFromPoints(
         footprint.ring.map(([x, z]) => new THREE.Vector3(x, 0.03, z)),
@@ -216,25 +203,40 @@ export function createIcaCity(
       }),
     );
     environment.add(base);
-    geometry.computeBoundingSphere();
-    root.updateWorldMatrix(true, true);
-    const bounds = new THREE.Box3().setFromObject(visual);
-    const radius = Math.max(0.1, bounds.getBoundingSphere(new THREE.Sphere()).radius);
-    const framing = plaza ? modelFramingPoints(plaza, anchor) : [];
-    models.set(landmark.id, {
-      root,
-      visual,
-      anchor,
-      radius,
-      scale: Math.max(2, Math.min(16, 8 / (radius * 2))),
-      centerY: bounds.getCenter(new THREE.Vector3()).y,
-      framing,
-      overview: plaza ? mesh : undefined,
-    });
+    models.set(landmark.id, { root, visual, anchor, overview: outline });
   }
+  const prepareDetail = (id: LandmarkId) => {
+    const item = models.get(id);
+    if (!item || item.detail) return item;
+    const model = id === "plaza" ? createPlazaModel()
+      : id === "huacachina" ? createHuacachinaModel(data, item.anchor)
+      : createIcaArchitecture(id);
+    if (!model?.children.length) return item;
+    model.scale.setScalar(1 / data.metersPerUnit);
+    item.visual.add(model);
+    model.traverse((child) => {
+      if (child instanceof THREE.Mesh) {
+        child.userData.landmarkId = id;
+        selectable.push(child);
+      }
+    });
+    const framing = modelFramingPoints(model, item.anchor);
+    const size = new THREE.Box3().setFromPoints(framing).getSize(new THREE.Vector3());
+    item.detail = {
+      framing,
+      scale: THREE.MathUtils.clamp(9 / Math.max(size.x, size.y, size.z), 1, 16),
+      frontYaw: Number.isFinite(model.userData.frontYaw) ? model.userData.frontYaw : 0.65,
+    };
+    return item;
+  };
   const pathData = data.roads
     .filter((points) => points.length > 3 && points.length < 30)
     .slice(0, 3);
+  const trafficGeometry = new THREE.BoxGeometry(0.035, 0.025, 0.08);
+  const trafficMaterials = [
+    new THREE.MeshBasicMaterial({ color: "#55abf5" }),
+    new THREE.MeshBasicMaterial({ color: "#52dbd3" }),
+  ];
   const cars = pathData.map((points, index) => {
     const path = new THREE.CurvePath<THREE.Vector3>();
     for (let i = 1; i < points.length; i++)
@@ -244,10 +246,7 @@ export function createIcaCity(
           new THREE.Vector3(points[i][0], 0.045, points[i][1]),
         ),
       );
-    const car = createNavigationModel(
-      index === 1 ? "sedan:teal" : "compact:blue",
-    );
-    car.scale.setScalar(0.018);
+    const car = new THREE.Mesh(trafficGeometry, trafficMaterials[index % 2]);
     environment.add(car);
     return { car, path };
   });
@@ -267,7 +266,8 @@ export function createIcaCity(
     dirty = true;
   let drag: { x: number; y: number; lastX: number } | null = null;
   const pointer = new THREE.Vector2(),
-    raycaster = new THREE.Raycaster();
+    raycaster = new THREE.Raycaster(),
+    vertical = new THREE.Vector3(0, 1, 0);
   const draw = () => {
     if (!disposed && !lost) renderer.render(scene, camera);
   };
@@ -289,23 +289,22 @@ export function createIcaCity(
       const state = selection.tick(dt);
       host.dataset.selectionPhase = state.phase;
       host.dataset.selectedLandmark = state.active ?? "";
-      const selected = state.active ? models.get(state.active) : undefined;
-      const plazaFocused = state.active === "plaza" && state.eased > 0.45;
-      environment.visible = !plazaFocused;
+      const selected = state.active ? prepareDetail(state.active) : undefined;
+      const detail = selected?.detail;
+      const detailFocused = Boolean(detail && state.eased > 0.45);
+      environment.visible = !detailFocused;
       for (const [id, item] of models) {
-        item.root.visible = !plazaFocused || id === "plaza";
-        if (item.overview) {
-          item.overview.visible = state.active !== id;
-          item.visual.visible = state.active === id;
-        }
+        item.root.visible = !detailFocused || state.active === id;
+        item.visual.visible = state.active === id && !!item.detail;
+        item.overview.visible = !item.visual.visible;
       }
-      sunlight.castShadow = plazaFocused;
-      ambient.color.set(plazaFocused ? "#ffffff" : "#7695c4");
-      ambient.intensity = plazaFocused ? 1.8 : 2.5;
-      sunlight.color.set(plazaFocused ? "#fff0d5" : "#d8efff");
-      sunlight.intensity = plazaFocused ? 3.2 : 4.4;
-      rim.intensity = plazaFocused ? 0.35 : 3;
-      if (plazaFocused && selected) {
+      sunlight.castShadow = detailFocused;
+      ambient.color.set(detailFocused ? "#ffffff" : "#7695c4");
+      ambient.intensity = detailFocused ? 1.8 : 2.5;
+      sunlight.color.set(detailFocused ? "#fff0d5" : "#d8efff");
+      sunlight.intensity = detailFocused ? 3.2 : 4.4;
+      rim.intensity = detailFocused ? 0.35 : 3;
+      if (detailFocused && selected) {
         sunlight.position.set(selected.anchor.x - 9, 24, selected.anchor.z + 12);
         sunlight.target.position.set(selected.anchor.x, 5, selected.anchor.z);
         renderer.shadowMap.needsUpdate = true;
@@ -318,7 +317,7 @@ export function createIcaCity(
         const expansion = THREE.MathUtils.smoothstep(focus, 0.15, 1),
           turn = THREE.MathUtils.smoothstep(focus, 0.45, 1);
         item.visual.position.set(0, focus * 4.5, 0);
-        item.visual.scale.setScalar(1 + (item.scale - 1) * expansion);
+        item.visual.scale.setScalar(1 + ((item.detail?.scale ?? 1) - 1) * expansion);
         item.visual.rotation.y = turn * orbit;
       }
       host.dataset.liftedModels = String(
@@ -327,39 +326,14 @@ export function createIcaCity(
       );
       const fade = selected ? 1 - state.eased * 0.48 : 1;
       buildingMaterial.color.setRGB(0.04 * fade, 0.18 * fade, 0.34 * fade);
-      if (selected) {
-        const target = selected.anchor
-          .clone()
-          .add(
-            new THREE.Vector3(
-              0,
-              4.5 + selected.centerY * selected.scale,
-              0,
-            ),
-          );
-        let distance =
-          zoom *
-          Math.max(
-            14,
-            (state.active === "plaza" ? selected.radius * selected.scale * 1.35 : 9) /
-              (Math.tan(THREE.MathUtils.degToRad(19)) *
-                Math.min(1, camera.aspect)),
-          );
-        const angle = 0.65 + orbit * 0.12;
-        const direction = new THREE.Vector3(Math.sin(angle), 0.65, Math.cos(angle));
-        if (state.active === "plaza") {
-          direction.normalize();
-          const framed = frameModel(selected.framing.map(point => point.clone()
-            .multiplyScalar(selected.scale).applyAxisAngle(new THREE.Vector3(0, 1, 0), orbit)),
-          direction, camera.fov, camera.aspect);
-          target.copy(selected.anchor).add(new THREE.Vector3(0, 4.5, 0)).add(framed.center);
-          distance = framed.distance * zoom;
-        }
-        const eye = target
-          .clone()
-          .add(
-            direction.multiplyScalar(distance),
-          );
+      if (selected && detail) {
+        const angle = detail.frontYaw + 0.45;
+        const direction = new THREE.Vector3(Math.sin(angle), 0.66, Math.cos(angle)).normalize();
+        const points = detail.framing.map((point) => point.clone()
+          .multiplyScalar(detail.scale).applyAxisAngle(vertical, orbit));
+        const framed = frameModel(points, direction, camera.fov, camera.aspect);
+        const target = selected.anchor.clone().addScaledVector(vertical, 4.5).add(framed.center);
+        const eye = target.clone().addScaledVector(direction, framed.distance * zoom);
         camera.position.lerpVectors(overview, eye, state.eased);
         look.lerpVectors(new THREE.Vector3(), target, state.eased);
       } else {
@@ -395,7 +369,7 @@ export function createIcaCity(
   };
   const resize = () => {
     if (disposed || !host.clientWidth || !host.clientHeight) return;
-    renderer.setSize(host.clientWidth, host.clientHeight, false);
+    renderer.setSize(host.clientWidth, host.clientHeight);
     camera.aspect = host.clientWidth / host.clientHeight;
     const direction=new THREE.Vector3(33,43,45).normalize(),right=new THREE.Vector3(0,1,0).cross(direction).normalize(),up=direction.clone().cross(right).normalize();
     const tangent=Math.tan(THREE.MathUtils.degToRad(camera.fov/2));let distance=50;

@@ -29,6 +29,7 @@ export type CityLandmark = {
   description: string;
   address: string;
   sourceUrl: string;
+  modelReferenceUrl: string;
   photo?: string;
   photoAlt?: string;
 };
@@ -45,6 +46,7 @@ export const CITY_LANDMARKS: readonly CityLandmark[] = [
     address: "Laguna de Huacachina, distrito de Ica",
     sourceUrl:
       "https://consultasenlinea.mincetur.gob.pe/fichaInventario/index.aspx?cod_ficha=237",
+    modelReferenceUrl: "https://commons.wikimedia.org/wiki/File:Vista_panor%C3%A1mica_de_la_laguna_Huacachina.jpg",
     photo: "/home/ica-huacachina.webp",
     photoAlt: "Vista real de Huacachina desde una duna",
   },
@@ -59,6 +61,7 @@ export const CITY_LANDMARKS: readonly CityLandmark[] = [
     address: "Plaza de Armas, centro de Ica",
     sourceUrl:
       "https://consultasenlinea.mincetur.gob.pe/fichaInventario/index.aspx?cod_Ficha=11631",
+    modelReferenceUrl: "https://commons.wikimedia.org/wiki/Category:Plaza_de_Armas,_Ica",
     photo: "/home/ica-plaza.webp",
     photoAlt: "Fotografía de la Plaza de Armas de Ica",
   },
@@ -73,6 +76,7 @@ export const CITY_LANDMARKS: readonly CityLandmark[] = [
     address: "Avenida Bolívar, junto a la Plaza de Armas",
     sourceUrl:
       "https://www.gob.pe/institucion/cultura/noticias/964782-especialistas-del-ministerio-de-cultura-evaluan-in-situ-la-catedral-de-ica",
+    modelReferenceUrl: "https://www.getty.edu/projects/seismic-retrofitting/case-study-ica-cathedral/",
   },
   {
     id: "luren",
@@ -85,6 +89,7 @@ export const CITY_LANDMARKS: readonly CityLandmark[] = [
     address: "Santuario del Señor de Luren, centro de Ica",
     sourceUrl:
       "https://www.gob.pe/institucion/cultura/noticias/29505-reconstruccion-de-santuario-del-senor-de-luren-en-ica-se-realizo-con-asesoramiento-tecnico-permanente-del-ministerio-de-cultura",
+    modelReferenceUrl: "https://commons.wikimedia.org/wiki/File:Santuario_de_Luren,_2019.jpg",
   },
   {
     id: "museo",
@@ -96,6 +101,7 @@ export const CITY_LANDMARKS: readonly CityLandmark[] = [
       "El Museo Regional de Ica «Adolfo Bermúdez Jenkins» conserva colecciones arqueológicas e históricas de la región.",
     address: "Avenida Ayabaca 895, Ica",
     sourceUrl: "https://museos.cultura.pe/node/383",
+    modelReferenceUrl: "https://elperuano.pe/noticia/220335-museo-regional-de-ica-inaugura-hoy-sus-renovadas-instalaciones",
   },
 ];
 

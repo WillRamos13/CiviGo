@@ -1,10 +1,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {loadTs} from './helpers/ts-module.mjs';
-const {NavigationAvatarPreferenceController,isNavigationAvatar,navigationAvatarRotation,navigationAvatarShapes,NAVIGATION_AVATARS}=loadTs('lib/navigation-avatar.ts');
-test('web offers all native vehicle models and colors as local vector shapes',()=>{
+const {NavigationAvatarPreferenceController,isNavigationAvatar,hasVehiclePreview,navigationAvatarRotation,navigationAvatarShapes,NAVIGATION_AVATARS,NAVIGATION_ARCADE_AVATARS}=loadTs('lib/navigation-avatar.ts');
+test('web avatars have a local fallback and validate saved preferences',()=>{
  for(const id of NAVIGATION_AVATARS.map(row=>row.id))assert.ok(navigationAvatarShapes(id).length>0);
  assert.ok(isNavigationAvatar('sport:red'));assert.ok(!isNavigationAvatar('sport:javascript:alert(1)'));assert.ok(!isNavigationAvatar('https://external.invalid/image'));
+ for(const {id} of NAVIGATION_ARCADE_AVATARS){
+   assert.ok(isNavigationAvatar(id));
+   assert.ok(hasVehiclePreview(id));
+   assert.equal(isNavigationAvatar(`${id}:red`),false);
+ }
  assert.equal(navigationAvatarRotation(90,30),60);assert.equal(navigationAvatarRotation(350,10),-20);
 });
 test('late account reads cannot overwrite the selection or another account preference',async()=>{

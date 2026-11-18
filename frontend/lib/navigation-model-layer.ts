@@ -144,6 +144,9 @@ export function mountNavigationModel(
     if (!document.hidden) map.triggerRepaint();
   };
   map.on("style.load", attach);
+  // Toggling basemap configuration can make the style temporarily unready
+  // without emitting another style.load event.
+  map.on("idle", attach);
   map.on("webglcontextlost", lose);
   map.on("webglcontextrestored", restore);
   document.addEventListener("visibilitychange", repaint);
@@ -159,6 +162,7 @@ export function mountNavigationModel(
       if (disposed) return;
       disposed = true;
       map.off("style.load", attach);
+      map.off("idle", attach);
       map.off("webglcontextlost", lose);
       map.off("webglcontextrestored", restore);
       document.removeEventListener("visibilitychange", repaint);
