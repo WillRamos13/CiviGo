@@ -1,28 +1,30 @@
 import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import type { LandmarkId } from "../../lib/city-scene";
+import { createIcaMuseum, ICA_MUSEUM_REFERENCES } from "./create-ica-museum";
 
 export const ICA_ARCHITECTURE_REFERENCES = {
   catedral: [
     { label: "Estudio de la Catedral · Getty Conservation Institute", url: "https://www.getty.edu/projects/seismic-retrofitting/case-study-ica-cathedral/" },
+    { label: "Levantamiento estructural · Getty Conservation Institute", url: "https://www.getty.edu/conservation/publications_resources/pdf_publications/pdf/assess_proto_v1_ch4_sect4_7.pdf" },
+    { label: "Fachada y lateral norte en 2023 · El Comercio", url: "https://elcomercio.pe/peru/terremoto-en-ica-las-tareas-pendientes-de-reconstruccion-en-la-region-a-16-anos-del-siniestro-simulacro-15-de-agosto-pisco-ica-chincha-terremoto-sismo-noticia/" },
     { label: "Fachada en 2023 · Chrispavm, CC BY-SA 4.0", url: "https://commons.wikimedia.org/wiki/File:Catedral_de_Ica,_frente.jpg" },
     { label: "Vista lateral en 2023 · Chrispavm, CC BY-SA 4.0", url: "https://commons.wikimedia.org/wiki/File:Catedral_de_Ica,_lateral.jpg" },
   ],
   luren: [
+    { label: "Fachada y portada restauradas · Agencia Andina", url: "https://andina.pe/agencia/galeria-despues-12-anos-imagen-del-senor-luren-vuelve-a-su-reconstruido-santuario-6544.aspx" },
+    { label: "Vista aérea y altura del campanario · Perú Construye", url: "https://peruconstruye.net/2019/07/16/reconstruccion-del-santuario-del-senor-de-luren-de-ica-tecnologia-de-avanzada/" },
     { label: "Fachada en 2019 · Eduardo Vera-Palomino, dominio público", url: "https://commons.wikimedia.org/wiki/File:Santuario_de_Luren,_2019.jpg" },
     { label: "Vista lateral · Chrispavm, CC BY-SA 4.0", url: "https://commons.wikimedia.org/wiki/File:Santuario_del_se%C3%B1or_de_Luren,_lado_este.jpg" },
   ],
-  museo: [
-    { label: "Museo Regional de Ica · Ministerio de Cultura", url: "https://museos.cultura.pe/node/383" },
-    { label: "Fachada en 2023 · Diario Oficial El Peruano", url: "https://elperuano.pe/noticia/220335-museo-regional-de-ica-inaugura-hoy-sus-renovadas-instalaciones" },
-    { label: "Vista del ingreso y jardines · TVPerú", url: "https://www.tvperu.gob.pe/noticias/miscelanea/ica-museo-adolfo-bermudez-jenkins-realizara-actividades-por-73deg-aniversario" },
-  ],
+  museo: ICA_MUSEUM_REFERENCES,
 } as const;
 
-type Material = "wall" | "trim" | "stone" | "roof" | "wood" | "shadow" | "glass" | "metal" | "brick" | "green";
+type Material = "wall" | "trim" | "stone" | "roof" | "wood" | "shadow" | "glass" | "metal" | "brick" | "amber";
 type Palette = Partial<Record<Material, number>>;
 type Point = readonly [number, number];
 type Position = readonly [number, number, number];
+type Opening = readonly [x: number, base: number, width: number, height: number];
 
 // The buildings are assembled in metres, with the entrance toward local +Z and Y pointing up.
 class Architecture {
@@ -59,29 +61,62 @@ class Architecture {
     this.add(material, beam, [(a[0] + b[0]) / 2 + x, (a[1] + b[1]) / 2 + y, z]);
   }
 
-  extrude(material: Material, shape: THREE.Shape, depth: number, position: Position, yaw = 0) {
-    this.add(material, new THREE.ExtrudeGeometry(shape, { depth, bevelEnabled: false, curveSegments: 7 }), position, yaw);
+  extrude(material: Material, shape: THREE.Shape, depth: number, position: Position, yaw = 0, curveSegments = 7) {
+    this.add(material, new THREE.ExtrudeGeometry(shape, { depth, bevelEnabled: false, curveSegments }), position, yaw);
   }
 
   gable(material: Material, w: number, rise: number, depth: number, position: Position, yaw = 0) {
-    const profile = new THREE.Shape();
-    profile.moveTo(-w / 2, 0);
-    profile.lineTo(w / 2, 0);
-    profile.lineTo(0, rise);
-    profile.closePath();
-    this.extrude(material, profile, depth, position, yaw);
+    this.polygon(material, [[-w / 2, 0], [w / 2, 0], [0, rise]], depth, position, yaw);
+  }
+
+  polygon(material: Material, corners: readonly Point[], depth: number, position: Position, yaw = 0) {
+    const outline = new THREE.Shape(corners.map(([x, y]) => new THREE.Vector2(x, y)));
+    outline.closePath();
+    this.extrude(material, outline, depth, position, yaw);
+  }
+
+  openingWall(material: Material, w: number, h: number, depth: number, openings: readonly Opening[], position: Position, yaw = 0) {
+    const outline = new THREE.Shape();
+    outline.moveTo(-w / 2, 0);
+    outline.lineTo(w / 2, 0);
+    outline.lineTo(w / 2, h);
+    outline.lineTo(-w / 2, h);
+    outline.closePath();
+    for (const [x, base, width, height] of openings) {
+      const outlineHole = new THREE.Path();
+      archProfile(outlineHole, width, height, 0, x, base);
+      outline.holes.push(outlineHole);
+    }
+    this.extrude(material, outline, depth, position, yaw);
+  }
+
+  barrel(material: Material, w: number, rise: number, length: number, position: Position, yaw = 0) {
+    const thickness = 0.24;
+    const vault = new THREE.Shape();
+    vault.absellipse(0, 0, w / 2, rise, 0, Math.PI, false);
+    vault.absellipse(0, 0, w / 2 - thickness, rise - thickness, Math.PI, 0, true);
+    vault.closePath();
+    this.extrude(material, vault, length, position, yaw);
+  }
+
+  lathe(material: Material, profile: readonly Point[], position: Position, sides = 16) {
+    this.add(material, new THREE.LatheGeometry(profile.map(([radius, height]) => new THREE.Vector2(radius, height)), sides), position);
   }
 
   arch(fill: Material, trim: Material, w: number, h: number, frame: number, position: Position, yaw = 0) {
     const inset = new THREE.Shape();
     archProfile(inset, w, h);
-    this.extrude(fill, inset, 0.03, position, yaw);
+    this.extrude(fill, inset, 0.03, position, yaw, w < 0.7 ? 3 : 7);
+    this.archFrame(trim, w, h, frame, position, yaw);
+  }
+
+  archFrame(trim: Material, w: number, h: number, frame: number, position: Position, yaw = 0) {
     const moulding = new THREE.Shape();
     archProfile(moulding, w + 2 * frame, h + frame, -frame);
     const opening = new THREE.Path();
     archProfile(opening, w, h);
     moulding.holes.push(opening);
-    this.extrude(trim, moulding, 0.16, position, yaw);
+    this.extrude(trim, moulding, 0.16, position, yaw, w < 0.7 ? 3 : 7);
   }
 
   cross(material: Material, w: number, h: number, [x, y, z]: Position) {
@@ -118,234 +153,369 @@ class Architecture {
   }
 }
 
-function archProfile(path: THREE.Path, width: number, height: number, base = 0) {
+function archProfile(path: THREE.Path, width: number, height: number, base = 0, x = 0, y = 0) {
   const radius = width / 2;
-  path.moveTo(-radius, base);
-  path.lineTo(radius, base);
-  path.lineTo(radius, height - radius);
-  path.absarc(0, height - radius, radius, 0, Math.PI, false);
-  path.lineTo(-radius, base);
+  path.moveTo(x - radius, y + base);
+  path.lineTo(x + radius, y + base);
+  path.lineTo(x + radius, y + height - radius);
+  path.absarc(x, y + height - radius, radius, 0, Math.PI, false);
+  path.lineTo(x - radius, y + base);
   path.closePath();
-}
-
-function urn(model: Architecture, [x, y, z]: Position, scale: number) {
-  const profile = [[0.25, 0], [0.35, 0.09], [0.72, 0.35], [0.74, 0.52], [0.59, 0.70], [0.38, 0.84], [0.43, 0.89], [0.43, 0.99], [0.35, 0.99], [0.33, 0.82], [0.25, 0.81]];
-  const points = profile.map(([radius, height]) => new THREE.Vector2(scale * radius, scale * height));
-  model.add("brick", new THREE.LatheGeometry(points, 14), [x, y, z]);
-  model.cylinder("shadow", 0.33 * scale, 0.33 * scale, 0.025, [x, y + 0.81 * scale, z]);
 }
 
 function clock(model: Architecture, x: number, y: number, z: number, radius: number) {
   model.cylinder("trim", radius + 0.12, radius + 0.12, 0.12, [x, y, z], 24, Math.PI / 2);
   model.cylinder("wall", radius, radius, 0.11, [x, y, z + 0.07], 24, Math.PI / 2);
-  for (let i = 0; i < 4; i++) {
-    const angle = i * Math.PI / 2;
-    model.box("shadow", 0.09, 0.09, 0.08, [x + Math.sin(angle) * radius * 0.77, y + Math.cos(angle) * radius * 0.77, z + 0.135]);
+  for (let i = 0; i < 12; i++) {
+    const angle = i * Math.PI / 6;
+    const inside = i % 3 === 0 ? 0.65 : 0.72;
+    model.segment("shadow", [Math.sin(angle) * radius * inside, Math.cos(angle) * radius * inside], [Math.sin(angle) * radius * 0.85, Math.cos(angle) * radius * 0.85], 0.04, 0.035, [x, y, z + 0.135]);
   }
   model.segment("shadow", [0, 0], [0.18 * radius, 0.69 * radius], 0.085, 0.07, [x, y, z + 0.14]);
   model.segment("shadow", [0, 0], [-0.49 * radius, -0.25 * radius], 0.085, 0.07, [x, y, z + 0.14]);
 }
 
 function cathedral() {
-  const model = new Architecture({ wall: 0xf1e5cd, trim: 0xfff2db, stone: 0xb3a087, roof: 0xab8772, wood: 0x553728, shadow: 0x322c29, metal: 0x494944, brick: 0xb17a5e });
-  // The Getty study measures the front at 21 metres. The long side follows the OSM footprint.
-  const front = 31.4;
-  model.box("stone", 21.25, 0.54, 64, [0, 0.27, 0]);
-  for (const x of [-8, 8]) {
-    model.box("wall", 4.9, 8.4, 62, [x, 4.44, -0.35]);
-    model.box("roof", 5.05, 0.28, 62, [x, 8.78, -0.35]);
-  }
-  model.box("wall", 10.3, 10.7, 4.2, [0, 5.62, 29.3]);
-  for (const z of [-27.3, -18, -4.5, 7, 21.5]) {
-    model.box("wall", 10.4, 9.7, 0.66, [0, 5.1, z]);
-  }
-  // Gaps in the roof mark the earthquake damage documented along the nave and central dome.
-  for (const [start, length] of [[-31.4, 8.6], [-14.8, 8.6], [0.3, 10.9], [15.4, 7], [26.4, 3.1]]) {
-    model.box("roof", 11.3, 0.28, length, [0, 10.85, start + length * 0.5]);
-    model.gable("roof", 11.3, 2.2, length, [0, 10.99, start]);
-  }
-  for (const z of [16, 7, -2.2, -11.6, -19.5]) {
-    model.box("stone", 0.38, 8.6, 0.74, [-10.48, 4.52, z]);
-    model.arch("shadow", "stone", 1, 1.75, 0.14, [-10.59, 5.9, z + 2.8], -Math.PI / 2);
-  }
-  model.arch("wood", "trim", 3.9, 6.3, 0.36, [0, 0.71, front + 0.035]);
-  model.box("wood", 0.12, 5.62, 0.11, [0, 3.52, front + 0.1]);
-  for (const x of [-3.65, 3.65]) {
-    model.arch("shadow", "trim", 1.35, 2.62, 0.18, [x, 3.2, front + 0.055]);
-    model.cylinder("trim", 0.20, 0.32, 1.25, [x, 3.94, front + 0.16], 8);
-    model.add("trim", new THREE.IcosahedronGeometry(0.24), [x, 4.73, front + 0.16]);
-  }
-  for (const x of [-5.2, -2.7, 2.7, 5.2]) {
-    model.box("stone", 0.94, 0.8, 0.91, [x, 0.93, front + 0.04]);
-    model.cylinder("trim", 0.28, 0.38, 7.2, [x, 4.92, front + 0.4]);
-    model.box("trim", 0.9, 0.43, 0.8, [x, 8.69, front + 0.36]);
-  }
-  model.box("trim", 12.6, 0.59, 0.91, [0, 9.07, front + 0.19]);
-  model.gable("wall", 12.1, 2.72, 0.58, [0, 9.39, front - 0.13]);
-  model.segment("trim", [-6.12, 0], [0, 2.9], 0.34, 0.43, [0, 9.49, front + 0.37]);
-  model.segment("trim", [0, 2.9], [6.12, 0], 0.34, 0.43, [0, 9.49, front + 0.37]);
-  model.arch("shadow", "trim", 1.01, 1.23, 0.11, [0, 9.82, front + 0.48]);
+  const model = new Architecture({ wall: 0xd5cbb9, trim: 0xe8dfcf, stone: 0xa9a093, roof: 0xb5a28f, wood: 0x624832, shadow: 0x393632, metal: 0x43433f, brick: 0xa3614c });
+  const front = 29.8;
+  model.box("stone", 21.25, 0.36, 64, [0, 0.18, 0]);
 
-  for (const x of [-7.9, 7.9]) {
-    model.box("wall", 5.15, 10.5, 5.7, [x, 5.51, front - 2.68]);
-    model.box("trim", 5.49, 0.49, 5.95, [x, 10.82, front - 2.68]);
-    model.box("wall", 4.72, 4.47, 4.9, [x, 13.25, front - 2.67]);
-    model.arch("shadow", "trim", 1.87, 3.01, 0.20, [x, 11.62, front - 0.21]);
-    for (const pillar of [-1.93, 1.93]) {
-      model.box("trim", 0.28, 4.08, 0.32, [x + pillar, 13.28, front - 0.11]);
+  // The surveyed long walls carry low aisle roofs and quincha cupolas on each side of the nave.
+  for (const side of [-1, 1]) {
+    const lateralYaw = side * Math.PI / 2;
+    model.box("wall", 1.22, 7.48, 58.8, [side * 9.81, 4.09, -0.43]);
+    model.box("brick", 0.06, 1.14, 59, [side * 10.45, 0.93, -0.43]);
+    model.box("trim", 0.51, 0.33, 59, [side * 10.08, 7.98, -0.43]);
+    model.box("roof", 4.85, 0.32, 54, [side * 7.81, 7.82, 2.6]);
+    for (const z of [23.8, 15, 6.1, -2.9]) {
+      const x = side * 7.71;
+      model.lathe("roof", [[2.12, 0], [2.12, 0.2], [1.9, 0.74], [1.52, 1.12], [0.75, 1.55], [0.26, 1.62]], [x, 7.94, z], 14);
+      model.cylinder("trim", 0.19, 0.32, 0.58, [x, 9.79, z], 8);
+      model.cylinder("stone", 0.03, 0.24, 0.31, [x, 10.23, z], 8);
+      model.box("wall", 0.58, 7.7, 0.85, [side * 10.5, 4.21, z - 3.95]);
+      model.box("trim", 0.57, 0.21, 1.1, [side * 10.53, 8.08, z - 3.95]);
+      model.arch("shadow", "stone", 1.1, 1.54, 0.11, [side * 10.46, 5.81, z], lateralYaw);
     }
-    model.box("trim", 5.04, 0.42, 5.2, [x, 15.57, front - 2.67]);
+    const aislePier = side * 5.15;
+    for (const z of [21, 12.6, 4.2, -4.2, -12.6]) {
+      model.box("stone", 1.26, 0.61, 1.29, [aislePier, 0.64, z]);
+      model.box("wall", 0.71, 6.85, 0.77, [aislePier, 4.37, z]);
+      model.box("trim", 1.08, 0.36, 1.15, [aislePier, 7.83, z]);
+      model.archFrame("wall", 7.35, 4.9, 0.27, [aislePier, 6.04, z - 4.2], lateralYaw);
+    }
   }
-  model.cylinder("wall", 1.78, 2.02, 1.52, [-7.9, 16.45, front - 2.67]);
-  model.add("wall", new THREE.SphereGeometry(1.87, 18, 9, 0, Math.PI * 2, 0, Math.PI / 2), [-7.9, 17.21, front - 2.67]);
-  model.cross("metal", 0.64, 1.18, [-7.9, 19.1, front - 2.67]);
+  model.arch("wood", "trim", 2.75, 5.1, 0.26, [10.5, 0.4, -14.7], Math.PI / 2);
+  model.gable("wall", 5.15, 1.45, 0.34, [10.34, 7.99, -14.76], Math.PI / 2);
+  model.box("wall", 20.55, 7.6, 1.14, [0, 4.21, -29.8]);
 
-  model.box("brick", 3.4, 2.2, 3.75, [7.9, 16.85, front - 2.67]);
-  model.box("wall", 0.56, 3.05, 2.35, [9.47, 17.12, front - 2.66]);
-  model.box("wall", 3.26, 1.48, 0.34, [7.9, 16.46, front - 0.76]);
-  clock(model, 7.9, 16.57, front - 0.5, 0.7);
-
-  const fence = front + 1.34;
-  model.box("stone", 21.25, 0.27, 1.2, [0, 0.135, fence - 0.14]);
-  for (let x = -10.28; x <= 10.29; x += 0.36) {
-    model.box("metal", 0.055, 1.52, 0.055, [x, 1.03, fence]);
+  // Documented roof openings reveal the remaining wooden ribs and a quarter of the crossing dome.
+  const naveRoof = 9.05;
+  for (const [start, length] of [[-28.8, 8.35], [-3.7, 9.5], [18, 11.9]]) {
+    model.barrel("roof", 10.72, 3.48, length, [0, naveRoof, start]);
   }
-  for (const y of [0.51, 1.48]) model.box("metal", 20.75, 0.075, 0.075, [0, y, fence]);
-  for (const x of [-10.25, -2.1, 2.1, 10.25]) {
-    model.box("metal", 0.145, 1.79, 0.15, [x, 1.16, fence]);
+  for (const z of [6.2, 7.31, 9.15, 11.65, 13.88, 15.85, 17.61]) {
+    model.barrel("wood", 10.48, 3.3, 0.12, [0, naveRoof - 0.07, z]);
+  }
+  for (const side of [-1, 1]) model.box("wood", 0.28, 0.36, 23.7, [side * 5.34, naveRoof - 0.14, 7.65]);
+  model.barrel("roof", 9.2, 2.91, 20.4, [-10.2, 8.03, -13.81], Math.PI / 2);
+  const survivingDome = new THREE.SphereGeometry(5.12, 22, 12, Math.PI / 2, Math.PI * 1.5, 0, Math.PI / 2);
+  survivingDome.scale(1, 0.77, 1);
+  model.add("roof", survivingDome, [0, 11.14, -13.81]);
+  for (const angle of [0.18, 0.4, 0.69, 1.02, 1.23, 1.43]) {
+    const rib = new THREE.EllipseCurve(0, 0, 4.93, 3.83, 0, Math.PI / 2, false, 0);
+    const points = rib.getPoints(7).map(({ x, y }) => new THREE.Vector3(-x * Math.cos(angle), y, x * Math.sin(angle)));
+    model.add("wood", new THREE.TubeGeometry(new THREE.CatmullRomCurve3(points), 7, 0.057, 5, false), [0, 11.09, -13.81]);
+  }
+
+  // The entrance is framed by paired pilasters and two statue niches, with a sunburst in the tympanum.
+  model.box("wall", 14.1, 9.55, 1.35, [0, 5.08, front - 0.675]);
+  model.box("brick", 14.1, 1.09, 0.12, [0, 0.905, front + 0.028]);
+  model.arch("wood", "trim", 3.61, 5.21, 0.29, [0, 0.41, front + 0.072]);
+  model.archFrame("stone", 4.23, 5.52, 0.14, [0, 0.33, front + 0.052]);
+  for (const x of [-1.26, -0.72, 0, 0.72, 1.26]) {
+    model.box("shadow", 0.032, 4.05, 0.024, [x, 2.53, front + 0.11]);
+  }
+  for (const x of [-2.64, 2.64]) {
+    model.arch("stone", "trim", 0.96, 2.06, 0.12, [x, 1.77, front + 0.055]);
+    model.lathe("trim", [[0.22, 0], [0.22, 0.16], [0.36, 0.37], [0.24, 0.76], [0.25, 0.97], [0.16, 1.19], [0.08, 1.27]], [x, 2.02, front + 0.23], 10);
+    model.add("trim", new THREE.IcosahedronGeometry(0.15, 1), [x, 3.39, front + 0.23]);
+    model.box("trim", 0.92, 0.16, 0.42, [x, 1.79, front + 0.22]);
+  }
+  for (const x of [-4.02, -3.53, 3.53, 4.02]) {
+    model.box("stone", 0.59, 0.57, 0.53, [x, 0.9, front + 0.19]);
+    model.box("trim", 0.31, 4.41, 0.38, [x, 3.38, front + 0.23]);
+    model.box("trim", 0.53, 0.24, 0.58, [x, 5.62, front + 0.24]);
+  }
+  for (const x of [-5.9, -3.74, -1.73, 1.73, 3.74, 5.9]) {
+    const width = Math.abs(x) > 5 ? 1.76 : 1.19;
+    model.box("brick", width, 2.68, 0.11, [x, 7.7, front + 0.062]);
+    if (Math.abs(x) < 5.3) model.box("stone", width * 0.7, 2.08, 0.06, [x + 0.18, 7.7, front + 0.14]);
+  }
+  model.box("trim", 8.6, 0.31, 0.58, [0, 5.91, front + 0.28]);
+  model.box("trim", 13.95, 0.33, 0.65, [0, 9.14, front + 0.21]);
+  model.box("trim", 14.35, 0.27, 0.7, [0, 9.48, front + 0.26]);
+  model.gable("wall", 14.08, 2.26, 0.53, [0, 9.59, front - 0.23]);
+  model.segment("trim", [-7.15, 0], [0, 2.27], 0.24, 0.46, [0, 9.67, front + 0.35]);
+  model.segment("trim", [0, 2.27], [7.15, 0], 0.24, 0.46, [0, 9.67, front + 0.35]);
+  model.cylinder("stone", 0.45, 0.45, 0.11, [0, 10.25, front + 0.38], 16, Math.PI / 2);
+  for (let i = 0; i < 24; i++) {
+    const angle = i * Math.PI / 12;
+    const length = i % 2 ? 0.73 : 1.0;
+    model.segment("trim", [0.52 * Math.cos(angle), 0.43 * Math.sin(angle)], [(0.52 + length) * Math.cos(angle), (0.43 + length * 0.36) * Math.sin(angle)], 0.064, 0.09, [0, 10.25, front + 0.42]);
+  }
+  model.lathe("trim", [[0.62, 0], [0.53, 0.18], [0.47, 0.77], [0.63, 0.93], [0.39, 1.37], [0, 1.59]], [0, 6.28, front + 0.39], 11);
+
+  // Both surviving tiered cupolas sit on damaged square, timber-framed bell towers.
+  for (const x of [-8.12, 8.12]) {
+    const z = front - 2.02;
+    model.box("wall", 4.63, 8.48, 4.66, [x, 4.6, z]);
+    model.box("brick", 4.7, 0.92, 4.7, [x, 0.82, z]);
+    for (const [y, w, h] of [[8.83, 5.11, 0.23], [9.12, 4.97, 0.29], [14.17, 4.36, 0.28], [17.41, 4.13, 0.36]]) {
+      model.box("trim", w, h, w, [x, y, z]);
+    }
+    for (const lateral of [-1, 1]) {
+      for (const face of [-1, 1]) {
+        model.box("wall", 0.64, 8.14, 0.64, [x + lateral * 1.65, 13.26, z + face * 1.65]);
+        model.box("trim", 0.28, 5.05, 0.36, [x + lateral * 1.74, 11.89, z + face * 1.94]);
+        model.box("wood", 0.16, 5.28, 0.18, [x + lateral * 1.36, 11.96, z + face * 1.49]);
+      }
+      model.box("wood", 3.08, 0.17, 0.15, [x, 13.47, z + lateral * 1.59]);
+      model.box("wood", 0.15, 0.17, 3.08, [x + lateral * 1.59, 13.47, z]);
+      model.archFrame("stone", 1.35, 3.64, 0.13, [x + lateral * 1.94, 9.58, z], lateral * Math.PI / 2);
+    }
+    model.archFrame("trim", 1.55, 3.85, 0.16, [x, 9.5, z + 2.03]);
+    const shutterZ = z + (x > 0 ? 0.98 : 1.82);
+    model.arch("wood", "stone", 1.45, 3.66, 0.08, [x, 9.53, shutterZ]);
+    for (const offset of [-0.49, -0.26, 0, 0.26, 0.49]) {
+      model.box("shadow", 0.036, 2.9, 0.045, [x + offset, 11, shutterZ + 0.058]);
+    }
+    model.box("wall", 3.61, 3.15, 0.4, [x, 15.76, z - 1.64]);
+    if (x > 0) {
+      model.box("wall", 3.61, 3.15, 0.46, [x, 15.76, z + 1.59]);
+      clock(model, x, 15.78, z + 1.83, 0.94);
+    } else {
+      const damagedWall = new THREE.Shape([new THREE.Vector2(-1.86, 0), new THREE.Vector2(1.86, 0), new THREE.Vector2(1.86, 2.93), new THREE.Vector2(-1.86, 2.93)]);
+      const damage = new THREE.Path([new THREE.Vector2(-0.19, 2.06), new THREE.Vector2(0.4, 1.98), new THREE.Vector2(0.83, 1.64), new THREE.Vector2(0.54, 1.18), new THREE.Vector2(0.15, 0.7), new THREE.Vector2(-0.35, 0.88), new THREE.Vector2(-0.88, 1.38), new THREE.Vector2(-0.65, 1.73)]);
+      damagedWall.holes.push(damage);
+      model.extrude("wall", damagedWall, 0.22, [x, 14.37, z + 1.59]);
+      model.box("wood", 1.61, 0.18, 0.14, [x, 15.67, z + 1.53]);
+    }
+    model.cylinder("wall", 1.56, 1.77, 0.76, [x, 17.91, z], 20);
+    model.lathe("trim", [[1.87, 0], [1.87, 0.15], [1.7, 0.28], [1.54, 0.61], [1.39, 0.95], [1.11, 1.26], [0.83, 1.37], [0.73, 1.63], [0.61, 1.82], [0.42, 2.15], [0.33, 2.54], [0.25, 2.63]], [x, 18.28, z], 20);
+    for (const offset of [-0.32, 0.32]) {
+      model.arch("shadow", "stone", 0.29, 0.43, 0.05, [x + offset, 17.64, z + 1.7]);
+    }
+    model.cross("metal", 0.73, 1.15, [x, 20.91, z]);
+  }
+
+  for (const [depth, height] of [[2.22, 0.12], [1.75, 0.24], [1.23, 0.36]]) {
+    model.box("stone", 16.8, height, depth, [0, height * 0.5, front + 0.71]);
+  }
+  const fence = 32.67;
+  model.box("stone", 21.25, 0.22, 0.38, [0, 0.11, fence]);
+  for (let x = -10.28; x <= 10.29; x += 0.34) model.box("metal", 0.047, 1.61, 0.047, [x, 1.02, fence]);
+  for (const y of [0.47, 1.54]) model.box("metal", 20.71, 0.055, 0.057, [0, y, fence]);
+  for (const x of [-10.28, -6.13, -2.08, 2.08, 6.13, 10.28]) {
+    model.box("metal", 0.116, 1.82, 0.12, [x, 1.12, fence]);
+    model.cylinder("metal", 0, 0.087, 0.23, [x, 2.15, fence], 5);
   }
   return model.finish("catedral", Math.atan2(0.952, -0.305));
 }
 
 function luren() {
-  const model = new Architecture({ wall: 0xdad1bf, trim: 0xf1e6cf, stone: 0xaba38e, roof: 0x776f65, wood: 0x523731, glass: 0x698997, shadow: 0x3d4144, metal: 0x645748 });
-  model.box("stone", 21.75, 0.60, 37, [0, 0.3, 10.44]);
-  model.box("stone", 38.5, 0.60, 17.8, [0.65, 0.3, -16.65]);
-  model.box("wall", 21.2, 13, 36.9, [0, 6.8, 10.4]);
-  model.gable("roof", 21.7, 4.75, 37.4, [0, 13.32, -8.3]);
-  model.box("wall", 38, 9.95, 17.2, [0.65, 5.27, -16.65]);
-  model.gable("roof", 17.6, 3.28, 38.4, [-18.55, 10.25, -16.65], Math.PI / 2);
-  model.cylinder("stone", 6.65, 6.65, 0.6, [0.65, 0.3, -21.1], 16);
-  model.cylinder("wall", 6.58, 6.58, 8.65, [0.65, 4.63, -21.1], 16);
-  model.cylinder("roof", 0.7, 6.65, 4.18, [0.65, 11.01, -21.1], 16);
+  const model = new Architecture({ wall: 0xcac9bd, trim: 0xe4dfd0, stone: 0x8d9189, roof: 0xc1c3b9, wood: 0x886039, glass: 0x647a75, amber: 0xb88f4b, shadow: 0x343730, metal: 0x525953 });
+  const front = 27.95;
+  const towerZ = 24.83;
+  model.box("stone", 21.75, 0.57, 36.9, [0, 0.285, 10.52]);
+  model.box("stone", 38.35, 0.57, 17.67, [0.65, 0.285, -16.62]);
+  model.cylinder("stone", 6.72, 6.72, 0.57, [0.65, 0.285, -21.05], 18);
+
+  // The aerial view shows barrel-vaulted roofs, shorter lateral aisles and the crossing dome.
+  model.box("wall", 21, 8.15, 34.95, [0, 4.64, 9.145]);
+  model.box("wall", 11.45, 3.26, 38, [0, 10.07, 10.51]);
+  model.barrel("roof", 11.91, 3.75, 38, [0, 11.75, -8.5]);
+  model.box("wall", 37.87, 9.88, 16.98, [0.65, 5.51, -16.65]);
+  model.barrel("roof", 17.36, 3.49, 37.9, [-18.3, 10.45, -16.65], Math.PI / 2);
+  model.cylinder("wall", 6.6, 6.6, 9.15, [0.65, 5.19, -21.11], 18);
+  model.lathe("roof", [[6.68, 0], [6.64, 0.31], [6.22, 1], [5.68, 1.93], [4.42, 3], [2.76, 3.69], [0, 3.88]], [0.65, 9.74, -21.11], 20);
+
+  const domeX = 0.65, domeZ = -15.48;
+  model.cylinder("trim", 5.72, 5.96, 0.63, [domeX, 12.6, domeZ], 20);
+  model.cylinder("wall", 5.27, 5.31, 3.85, [domeX, 14.61, domeZ], 20);
+  model.cylinder("trim", 5.57, 5.39, 0.37, [domeX, 16.62, domeZ], 20);
+  for (let i = 0; i < 8; i++) {
+    const angle = i * Math.PI / 4;
+    const [x, z] = [domeX + 5.32 * Math.sin(angle), domeZ + 5.32 * Math.cos(angle)];
+    model.arch("glass", "trim", 0.99, 2.08, 0.14, [x, 13.37, z], angle);
+    model.box("trim", 0.095, 1.67, 0.10, [x + 0.05 * Math.sin(angle), 14.21, z + 0.05 * Math.cos(angle)], angle);
+  }
+  model.lathe("roof", [[5.48, 0], [5.39, 0.35], [5.19, 1.12], [4.8, 2.07], [4.2, 3], [3.35, 3.81], [2.44, 4.46], [1.08, 4.98]], [domeX, 16.82, domeZ], 24);
+  for (let i = 0; i < 8; i++) {
+    const angle = i * Math.PI / 4;
+    const profile: readonly Point[] = [[5.51, 0], [5.23, 1.12], [4.23, 3], [3.37, 3.81], [2.47, 4.46], [1.08, 4.98]];
+    const ribs = profile.map(([r, y]) => new THREE.Vector3(r * Math.sin(angle), y, r * Math.cos(angle)));
+    model.add("trim", new THREE.TubeGeometry(new THREE.CatmullRomCurve3(ribs), 8, 0.066, 5, false), [domeX, 16.82, domeZ]);
+  }
+  model.cylinder("trim", 0.78, 1.15, 0.29, [domeX, 21.79, domeZ], 16);
+  lurenLantern(model, domeX, 21.79, domeZ, 1.2);
+  model.cross("metal", 0.57, 0.9, [domeX, 24.28, domeZ]);
 
   for (const side of [-1, 1]) {
-    const x = 10.65 * side;
-    for (const z of [-5, 1.4, 7.45, 13.5, 19.6, 25.2]) {
-      model.box("trim", 0.48, 11.05, 0.66, [x, 5.86, z]);
+    const yaw = side * Math.PI / 2;
+    for (const [width, height, depth, x, y] of [[0.17, 0.99, 36.18, 10.55, 1.055], [0.59, 0.28, 36.18, 10.59, 8.78], [0.15, 0.18, 36.18, 10.68, 8.53]]) {
+      model.box(y < 2 ? "stone" : "trim", width, height, depth, [side * x, y, 9.78]);
     }
-    for (const z of [4.5, 10.5, 16.6, 22.6]) {
-      model.arch("glass", "trim", 1.42, 3.78, 0.21, [x + side * 0.28, 7.03, z], side * Math.PI / 2);
+    for (const z of [-7.05, 0.42, 7.82, 15.2, 22.6]) {
+      model.box("wall", 0.78, 7.74, 0.93, [side * 10.51, 4.61, z]);
+      model.box("trim", 1.08, 0.34, 1.24, [side * 10.56, 8.55, z]);
     }
-    model.arch("glass", "trim", 2.25, 3.92, 0.24, [0.65 + side * 19.04, 4.3, -16.65], side * Math.PI / 2);
-
-    const frontPinnacle = 8.55 * side;
-    model.box("wall", 3.5, 13.6, 4.6, [frontPinnacle, 7.1, 26]);
-    model.box("trim", 3.78, 0.40, 4.9, [frontPinnacle, 13.95, 26]);
-    model.cylinder("stone", 0.18, 1.7, 4.05, [frontPinnacle, 16.2, 26], 8);
-    model.cylinder("trim", 0.17, 0.25, 0.62, [frontPinnacle, 18.49, 26], 8);
-    model.arch("wood", "trim", 1.90, 4.4, 0.28, [frontPinnacle, 0.67, 28.34]);
-    model.arch("glass", "trim", 1.43, 2.6, 0.18, [frontPinnacle, 8.46, 28.34]);
-    model.box("trim", 0.56, 8.54, 0.53, [side * 5.45, 4.92, 28.86]);
+    for (const z of [-3.28, 4.13, 11.52, 18.89, 25.32]) {
+      model.arch("glass", "trim", 1.45, 3.03, 0.17, [side * 10.54, 3.69, z], yaw);
+      model.arch("glass", "trim", 1.02, 1.49, 0.12, [side * 5.79, 10.18, z], yaw);
+      model.box("stone", 0.16, 2.24, 0.083, [side * 10.61, 4.84, z], yaw);
+    }
+    const transept = 0.65 + side * 18.95;
+    model.box("stone", 0.17, 0.98, 16.84, [transept + side * 0.035, 1.05, -16.65]);
+    model.box("trim", 0.48, 0.34, 17.4, [transept, 10.42, -16.65]);
+    model.arch("wood", "trim", 2.33, 5.17, 0.26, [transept + side * 0.07, 0.68, -16.65], yaw);
+    for (const z of [-21.68, -11.69]) model.arch("glass", "trim", 1.61, 3.01, 0.2, [transept + side * 0.07, 3.58, z], yaw);
   }
 
-  model.box("wall", 10.4, 19.8, 6.55, [0, 10.2, 25.8]);
-  model.box("trim", 11.06, 0.53, 6.97, [0, 12.22, 25.8]);
-  model.box("trim", 10.73, 0.39, 6.87, [0, 19.74, 25.8]);
-  model.arch("wood", "trim", 4.22, 6.69, 0.46, [0, 0.67, 29.13]);
-  model.box("metal", 0.10, 5.62, 0.07, [0, 3.49, 29.22]);
-  model.arch("glass", "trim", 2.92, 3.52, 0.25, [0, 7.91, 29.13]);
-  for (const x of [-0.69, 0, 0.69]) {
-    model.box("stone", 0.10, 2.33, 0.07, [x, 9.14, 29.22]);
+  // The restored front has a deeply recessed central doorway with grouped stained-glass panels above.
+  const portal: Opening = [0, 0.58, 4.12, 5.28];
+  model.openingWall("wall", 6.78, 7.09, 2.66, [portal], [0, 0, front - 1.04]);
+  model.arch("wood", "trim", 3.23, 4.73, 0.22, [0, 0.61, front - 1.08]);
+  model.archFrame("trim", 4.12, 5.28, 0.24, [0, 0.58, front + 1.64]);
+  model.archFrame("stone", 4.59, 5.58, 0.12, [0, 0.53, front + 1.67]);
+  for (const x of [-2.72, 2.72]) {
+    model.box("stone", 1.05, 0.91, 0.93, [x, 1.05, front + 1.52]);
+    model.box("trim", 0.83, 0.24, 0.85, [x, 3.94, front + 1.49]);
   }
-  clock(model, 0, 16.7, 29.18, 1.27);
+  model.box("wood", 0.11, 4.05, 0.08, [0, 2.68, front - 1.025]);
+  for (const x of [-0.76, 0.76]) {
+    for (const y of [1.53, 2.64, 3.71]) facadePanel(model, "amber", x, y, front - 1.03, 0.91, 0.76, 0.071);
+  }
+  for (const [depth, rise] of [[2.48, 0.19], [2.1, 0.37], [1.76, 0.56]]) model.box("trim", 6.96, rise, depth, [0, rise / 2, front + 1.49]);
 
-  model.box("wall", 5.72, 6.95, 5.75, [0, 23.13, 25.82]);
-  for (const direction of [-1, 1]) {
-    model.arch("shadow", "trim", 1.93, 3.58, 0.26, [0, 21.03, 25.82 + direction * 2.91], direction < 0 ? Math.PI : 0);
-    model.arch("shadow", "trim", 1.93, 3.58, 0.26, [direction * 2.9, 21.03, 25.82], direction * Math.PI / 2);
-    for (const z of [23.27, 28.37]) {
-      model.box("trim", 0.49, 6.53, 0.49, [direction * 2.57, 23.03, z]);
-      model.cylinder("stone", 0.04, 0.59, 1.79, [direction * 2.57, 27.82, z], 8);
+  for (const side of [-1, 1]) {
+    const outer = side * 9.71, inner = side * 4.52;
+    model.box("wall", 7.18, 10.53, 1.2, [side * 6.96, 5.78, front - 0.47]);
+    model.polygon("wall", [[side * 3.56, 0], [side * 9.79, 0], [side * 4.03, 4.11], [side * 3.56, 4.28]], 0.47, [0, 10.85, front - 0.14]);
+    model.segment("trim", [side * 9.76, 0], [side * 4.01, 4.18], 0.23, 0.37, [0, 10.9, front + 0.28]);
+    facadeBand(model, side * 6.94, 8.2, front + 0.08, 6.94, 0.53);
+    for (const x of [5.69, 6.97, 8.25]) facadePanel(model, "trim", side * x, 9.74, front + 0.136, 0.98, 0.46, 0.065);
+    model.box("stone", 7.55, 1.15, 0.28, [side * 6.92, 1.14, front + 0.12]);
+    stainedWindow(model, side * 7.2, 2.19, front + 0.16, 2.64, 3.84, 3);
+    stainedWindow(model, side * 3.64, 2.25, front + 0.45, 0.79, 3.45, 1);
+
+    for (const [x, top] of [[outer, 12.78], [inner, 17.52]]) {
+      model.box("wall", 1.35, top - 0.57, 1.41, [x, (top + 0.57) * 0.5, front - 0.24]);
+      model.box("stone", 1.6, 1.14, 1.62, [x, 1.14, front - 0.24]);
+      for (const y of [8.75, top - 0.27, top + 0.08]) model.box("trim", 1.64, 0.23, 1.65, [x, y, front - 0.24]);
+      lurenLantern(model, x, top + 0.18, front - 0.24, 1.07);
     }
   }
-  model.box("trim", 6.16, 0.49, 6.17, [0, 26.62, 25.82]);
-  model.cylinder("stone", 0.13, 2.73, 6.4, [0, 30.06, 25.82], 8);
-  model.cross("metal", 1.12, 1.86, [0, 33.26, 25.82]);
-  model.box("stone", 22.5, 0.28, 2.05, [0, 0.14, 30.12]);
-  model.box("trim", 21.8, 0.25, 1.65, [0, 0.405, 29.93]);
+
+  model.box("wall", 6.89, 6.66, 7.0, [0, 10.35, towerZ]);
+  facadeBand(model, 0, 7.29, front + 0.38, 6.97, 0.39);
+  facadeBand(model, 0, 12.55, front + 0.38, 7.15, 0.37);
+  model.box("stone", 4.4, 3.72, 0.08, [0, 10.04, front + 0.402]);
+  stainedWindow(model, 0, 8.17, front + 0.45, 3.88, 3.46, 4);
+  model.box("amber", 0.83, 1.1, 0.13, [0, 12.05, front + 0.49]);
+  model.box("trim", 0.93, 0.12, 0.27, [0, 12.62, front + 0.52]);
+
+  const belfryWidth = 5.64, belfryFace = belfryWidth / 2;
+  const bellWindows: readonly Opening[] = [[-1.12, 3.92, 1.47, 3.77], [1.12, 3.92, 1.47, 3.77]];
+  const [belfryBase, belfryHeight] = [13.72, 9.44];
+  for (const yaw of [0, Math.PI / 2, Math.PI, -Math.PI / 2]) {
+    const vx = Math.sin(yaw), vz = Math.cos(yaw);
+    model.openingWall("wall", belfryWidth, belfryHeight, 0.36, bellWindows, [vx * (belfryFace - 0.36), belfryBase, towerZ + vz * (belfryFace - 0.36)], yaw);
+    for (const offset of [-1.12, 1.12]) {
+      const [x, z] = [vx * belfryFace + vz * offset, towerZ + vz * belfryFace - vx * offset];
+      model.archFrame("trim", 1.47, 3.77, 0.17, [x, belfryBase + 3.92, z], yaw);
+      model.box("wood", 1.37, 0.56, 0.10, [x - vx * 0.25, belfryBase + 4.32, z - vz * 0.25], yaw);
+      const bell = [x - vx * 0.89, 18.97, z - vz * 0.89] as const;
+      model.lathe("amber", [[0.44, 0], [0.42, 0.1], [0.32, 0.2], [0.28, 0.5], [0.17, 0.68], [0.07, 0.76]], bell, 10);
+    }
+  }
+  for (const x of [-2.53, 0, 2.53]) model.box("trim", 0.32, 7.3, 0.28, [x, 19.33, towerZ + 2.78]);
+  model.cylinder("trim", 0.96, 1.025, 0.175, [0, 16.08, towerZ + 2.85], 24, Math.PI / 2);
+  model.cylinder("shadow", 0.73, 0.73, 0.105, [0, 16.08, towerZ + 2.96], 24, Math.PI / 2);
+  model.cylinder("glass", 0.55, 0.55, 0.09, [0, 16.08, towerZ + 3.02], 20, Math.PI / 2);
+  for (const x of [-1.58, 1.58]) model.arch("shadow", "trim", 0.53, 1.48, 0.095, [x, 15.4, towerZ + 2.85]);
+  for (const [w, h, y] of [[6.04, 0.23, 13.34], [6.09, 0.38, 17.16], [6.11, 0.36, 23.1], [6.62, 0.27, 23.62], [6.97, 0.22, 23.89]]) {
+    model.box("trim", w, h, w, [0, y, towerZ]);
+  }
+  for (let x = -2.9; x <= 2.94; x += 0.29) {
+    model.box("stone", 0.075, 0.23, 0.16, [x, 23.63, towerZ + 3.33]);
+    model.box("stone", 0.16, 0.23, 0.075, [3.33, 23.63, towerZ + x]);
+    model.box("stone", 0.16, 0.23, 0.075, [-3.33, 23.63, towerZ + x]);
+  }
+
+  // The clock sits in the base of the tall tapered spire, above the paired bell openings.
+  model.box("wall", 4.42, 3.14, 4.39, [0, 25.55, towerZ]);
+  model.gable("trim", 3.43, 0.68, 0.28, [0, 26.45, towerZ + 2.19]);
+  clock(model, 0, 25.48, towerZ + 2.25, 0.71);
+  for (const x of [-2.63, 2.63]) {
+    for (const z of [towerZ - 2.63, towerZ + 2.63]) lurenLantern(model, x, 24.06, z, 1.13);
+  }
+  model.lathe("wall", [[2.72, 0], [2.61, 0.28], [2.14, 1.42], [1.77, 3.16], [1.47, 5.19], [1.11, 7.51], [0.82, 8.68], [0.79, 9.13]], [0, 26.95, towerZ], 8);
+  for (const yaw of [0, Math.PI / 2, Math.PI, -Math.PI / 2]) {
+    const [vx, vz] = [Math.sin(yaw), Math.cos(yaw)];
+    model.arch("shadow", "trim", 0.52, 1.55, 0.1, [vx * 2.09, 27.32, towerZ + vz * 2.09], yaw);
+    model.arch("shadow", "trim", 0.43, 1.6, 0.095, [vx * 1.31, 30.89, towerZ + vz * 1.31], yaw);
+  }
+  lurenLantern(model, 0, 36.05, towerZ, 1.08);
+  model.cross("metal", 0.98, 1.59, [0, 38.53, towerZ]);
   // The front and the nave are slightly offset from the centre of the mapped footprint.
   return model.finish("luren", Math.atan2(-0.273, -0.962), 2.25);
 }
 
-const SIGN_GLYPHS: Record<string, readonly (readonly Point[])[]> = {
-  A: [[[0, 0], [0.4, 1], [0.8, 0]], [[0.18, 0.43], [0.62, 0.43]]],
-  C: [[[0.8, 0.84], [0.62, 1], [0.18, 1], [0, 0.84], [0, 0.16], [0.18, 0], [0.62, 0], [0.8, 0.16]]],
-  D: [[[0, 0], [0, 1], [0.53, 1], [0.8, 0.75], [0.8, 0.25], [0.53, 0], [0, 0]]],
-  E: [[[0.8, 1], [0, 1], [0, 0], [0.8, 0]], [[0, 0.5], [0.65, 0.5]]],
-  G: [[[0.8, 0.85], [0.63, 1], [0.18, 1], [0, 0.81], [0, 0.18], [0.18, 0], [0.8, 0], [0.8, 0.47], [0.46, 0.47]]],
-  I: [[[0.4, 0], [0.4, 1]], [[0.12, 0], [0.68, 0]], [[0.12, 1], [0.68, 1]]],
-  L: [[[0, 1], [0, 0], [0.8, 0]]],
-  M: [[[0, 0], [0, 1], [0.4, 0.47], [0.8, 1], [0.8, 0]]],
-  N: [[[0, 0], [0, 1], [0.8, 0], [0.8, 1]]],
-  O: [[[0.18, 0], [0, 0.18], [0, 0.82], [0.18, 1], [0.62, 1], [0.8, 0.82], [0.8, 0.18], [0.62, 0], [0.18, 0]]],
-  R: [[[0, 0], [0, 1], [0.65, 1], [0.8, 0.86], [0.8, 0.62], [0.65, 0.49], [0, 0.49]], [[0.42, 0.49], [0.8, 0]]],
-  S: [[[0.8, 0.86], [0.66, 1], [0.17, 1], [0, 0.83], [0, 0.62], [0.15, 0.49], [0.64, 0.49], [0.8, 0.36], [0.8, 0.15], [0.65, 0], [0.16, 0], [0, 0.14]]],
-  U: [[[0, 1], [0, 0.18], [0.18, 0], [0.62, 0], [0.8, 0.18], [0.8, 1]]],
-};
-
-function museum() {
-  const model = new Architecture({ wall: 0xd49e46, trim: 0xe5ba66, stone: 0xcac0aa, roof: 0xbcb7a5, wood: 0x6b4c36, shadow: 0x343c37, glass: 0x6b8080, metal: 0xbec2b5, brick: 0xa7603c, green: 0x586a3e });
-
-  model.box("stone", 40.2, 0.42, 60.3, [0, 0.21, 1.6]);
-  model.box("wall", 38.4, 7.7, 53.9, [0, 4.25, -1.3]);
-  model.box("roof", 38.65, 0.27, 54.1, [0, 8.23, -1.3]);
-  model.box("wall", 38.4, 7.75, 2.54, [0, 4.28, 26.91]);
-  model.box("trim", 38.65, 0.48, 0.62, [0, 8.29, 28.13]);
-  model.box("trim", 38.45, 0.33, 0.29, [0, 5.6, 28.22]);
-  model.box("stone", 38.5, 0.71, 0.24, [0, 0.7, 28.22]);
-
-  model.box("shadow", 6.59, 4.3, 0.09, [-2.9, 2.52, 28.22]);
-  model.box("glass", 4.39, 3.46, 0.12, [-2.9, 2.13, 28.27]);
-  model.box("wood", 0.16, 3.46, 0.12, [-2.9, 2.13, 28.34]);
-  model.box("metal", 0.07, 0.43, 0.13, [-3.17, 2.03, 28.43]);
-  model.box("metal", 0.07, 0.43, 0.13, [-2.63, 2.03, 28.43]);
-  model.box("trim", 7.17, 0.39, 0.86, [-2.9, 4.75, 28.51]);
-
-  for (const [x, width] of [[-13.8, 6.1], [9.45, 5.1], [15.05, 3.4]]) {
-    model.box("wood", width + 0.32, 2.47, 0.17, [x, 3.23, 28.26]);
-    model.box("glass", width, 2.13, 0.18, [x, 3.23, 28.34]);
-    for (const offset of [-1, 0, 1]) {
-      model.box("wood", 0.09, 2.15, 0.12, [x + offset * width / 4, 3.23, 28.44]);
-    }
-    model.box("wood", width, 0.10, 0.12, [x, 3.23, 28.44]);
+function lurenLantern(model: Architecture, x: number, y: number, z: number, scale: number) {
+  const profile: readonly Point[] = [[0.67, 0], [0.67, 0.2], [0.53, 0.36], [0.51, 1.53], [0.63, 1.63], [0.61, 1.77], [0.48, 2.01], [0.23, 2.28], [0.16, 2.42], [0.04, 2.52], [0, 2.52]];
+  model.lathe("trim", profile.map(([radius, height]) => [radius * scale, height * scale]), [x, y, z], 12);
+  for (let i = 0; i < 6; i++) {
+    const angle = i * Math.PI / 3;
+    const [dx, dz] = [Math.sin(angle) * scale, Math.cos(angle) * scale];
+    model.arch("shadow", "stone", 0.29 * scale, 1.03 * scale, 0.036 * scale, [x + dx * 0.493, y + 0.47 * scale, z + dz * 0.493], angle);
   }
-  for (const x of [-7.78, 1.98]) urn(model, [x, 0.42, 29.7], 1.53);
-  for (const [x, z] of [[-19, 29.53], [-17.9, 28.8], [-17.84, 29.86], [17.9, 29.4], [18.4, 28.6], [19, 29.9]]) {
-    model.add("green", new THREE.IcosahedronGeometry(0.85, 1), [x, 0.87, z]);
-  }
-  model.box("stone", 2.25, 0.15, 2.49, [6.9, 0.5, 30.05]);
-  model.cylinder("metal", 0.065, 0.065, 9.42, [6.9, 5.16, 30.05], 8);
-  model.box("brick", 0.61, 1.22, 0.07, [7.24, 8.92, 30.05]);
-  model.box("metal", 0.61, 1.22, 0.07, [7.85, 8.92, 30.05]);
-  model.box("brick", 0.61, 1.22, 0.07, [8.46, 8.92, 30.05]);
+}
 
-  const name = "MUSEO REGIONAL DE ICA";
-  for (const [i, char] of Array.from(name).entries()) {
-    const lines = SIGN_GLYPHS[char] ?? [];
-    for (const line of lines) {
-      const points = line.map(([x, y]) => [x * 0.61, y * 0.69] as const);
-      for (let j = 1; j < points.length; j++) model.segment("shadow", points[j - 1], points[j], 0.08, 0.06, [-9.48 + i * 0.67, 6.49, 28.25]);
+function facadePanel(model: Architecture, material: Material, x: number, y: number, z: number, width: number, height: number, stroke: number) {
+  for (const side of [-1, 1]) {
+    model.box(material, stroke, height, stroke, [x + side * width * 0.5, y, z]);
+    model.box(material, width, stroke, stroke, [x, y + side * height * 0.5, z]);
+  }
+}
+
+function facadeBand(model: Architecture, x: number, y: number, z: number, width: number, depth: number) {
+  model.box("trim", width, 0.19, depth, [x, y + 0.11, z]);
+  model.box("stone", width * 0.98, 0.29, depth * 0.71, [x, y - 0.11, z]);
+  for (let offset = -width * 0.45; offset < width * 0.47; offset += 0.29) {
+    model.box("trim", 0.065, 0.18, 0.065, [x + offset, y - 0.1, z + depth * 0.36]);
+  }
+}
+
+function stainedWindow(model: Architecture, x: number, y: number, z: number, width: number, height: number, panels: number) {
+  model.arch("shadow", "trim", width, height, 0.15, [x, y, z]);
+  model.archFrame("stone", width + 0.28, height + 0.17, 0.081, [x, y - 0.038, z + 0.013]);
+  const panelWidth = width / (panels + 0.6);
+  for (let i = 0; i < panels; i++) {
+    const center = x + panelWidth * (i + 0.5 - panels / 2);
+    const rise = height - (panels > 1 && (i === 0 || i === panels - 1) ? 0.63 : 0.47);
+    model.arch("glass", "stone", panelWidth * 0.83, rise, 0.033, [center, y + 0.08, z + 0.064]);
+    for (let offset = 0.44; offset < rise - 0.35; offset += 0.47) {
+      model.polygon("amber", [[0, -0.163], [panelWidth * 0.24, 0], [0, 0.163], [-panelWidth * 0.24, 0]], 0.021, [center, y + offset, z + 0.098]);
     }
   }
-  return model.finish("museo", Math.atan2(-0.0115, -1));
+  model.box("trim", width + 0.4, 0.15, 0.24, [x, y, z + 0.04]);
 }
 
 export function createIcaArchitecture(id: LandmarkId): THREE.Group | null {
   switch (id) {
     case "catedral": return cathedral();
     case "luren": return luren();
-    case "museo": return museum();
+    case "museo": return createIcaMuseum();
     default: return null;
   }
 }

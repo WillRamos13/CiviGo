@@ -10,11 +10,11 @@ const { frameModel, modelFramingPoints } = loadTs('lib/three-framing.ts');
 test('plaza is real bounded geometry with distinct architectural and garden features', () => {
   const model = createPlazaModel(), bounds = new THREE.Box3().setFromObject(model);
   const size = bounds.getSize(new THREE.Vector3()), center = bounds.getCenter(new THREE.Vector3());
-  assert.ok(size.x > 135 && size.x < 150);
-  assert.ok(size.z > 135 && size.z < 150);
+  assert.ok(size.x > 165 && size.x < 175);
+  assert.ok(size.z > 165 && size.z < 175);
   assert.ok(size.y > 11 && size.y < 20);
   assert.ok(Math.abs(center.x) < 2 && Math.abs(center.z) < 2, 'orbit has a stable centred pivot');
-  for (const name of ['Obelisco de dos agujas', 'Piletas', 'Ficus y mobiliario', 'Pérgola', 'Portales y fachadas']) {
+  for (const name of ['Obelisco de dos agujas', 'Piletas', 'Ficus y mobiliario', 'Pérgola', 'Portales y fachadas', 'Volúmenes de la manzana']) {
     assert.ok(model.getObjectByName(name)?.children.length, name);
   }
   assert.equal(model.userData.basinCount, 7);
@@ -31,6 +31,28 @@ test('plaza is real bounded geometry with distinct architectural and garden feat
   });
   assert.ok(triangles > 15000 && triangles < 100000, `triangle budget: ${triangles}`);
   assert.ok(meshes < 100, `static objects are batched: ${meshes}`);
+});
+
+test('the fountain water is recessed through a real opening in the pavement', () => {
+  const model = createPlazaModel();
+  model.updateMatrixWorld(true);
+  const surface = model.getObjectByName('Pavimento y jardines').getObjectByName('paver');
+  const water = model.getObjectByName('Piletas').getObjectByName('water');
+  const ray = new THREE.Raycaster(new THREE.Vector3(2.8, 25, 0), new THREE.Vector3(0, -1, 0));
+  const samples = [[2.8, 0], ...Array.from({ length: 6 }, (_, segment) => {
+    const angle = segment * Math.PI / 3 + Math.PI / 2 + 18 * Math.PI / 180;
+    return [6.9 * Math.cos(angle), -6.9 * Math.sin(angle)];
+  })];
+  for (const [x, z] of samples) {
+    ray.ray.origin.set(x, 25, z);
+    assert.equal(ray.intersectObject(surface).length, 0);
+    const [basin] = ray.intersectObject(water);
+    assert.ok(basin && basin.point.y < 0.1);
+  }
+  ray.ray.origin.set(17, 25, 0);
+  const [paving] = ray.intersectObject(surface);
+  assert.ok(paving && paving.point.y > 0.31);
+  assert.equal(ray.intersectObject(water).length, 0);
 });
 
 test('asymmetric plaza fits and stays centred on a portrait and a landscape camera', () => {

@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
-import type { CityPoint, CitySceneData } from "@/lib/city-scene";
+import type { CityPoint, CitySceneData } from "../../lib/city-scene";
+import { OASIS_BUILDINGS, OASIS_ELEVATION, OASIS_PATHS, OASIS_TREES } from "./huacachina-geography";
 
 const shorelineId = "way/148131510";
 const halfWidth = 225;
@@ -9,10 +10,10 @@ const widthSegments = 100;
 const depthSegments = 80;
 
 const palette = {
-  pool: "#607d56", ripple: "#7b9670", walk: "#bfaa8a", side: "#c29b62",
-  stucco: "#e8d2b1", white: "#f1e4c9", adobe: "#c29469",
-  roof: "#a77b62", terrace: "#c6b592", shadow: "#5a6255",
-  bark: "#8b6e49", grass: "#6b6d40", leaf: "#49603b", leafLight: "#73834a", leafDark: "#3c5837",
+  pool: "#ffffff", ripple: "#8d9f78", glint: "#becbb1", walk: "#bca794", road: "#a39685", side: "#b89466",
+  stucco: "#e4caa5", white: "#e8e3d7", adobe: "#c18d63", ochre: "#d0ae64",
+  roof: "#b48a78", terrace: "#ccc0aa", shadow: "#5b655e", shade: "#a9a482",
+  bark: "#7a6448", grass: "#726e42", leaf: "#526346", leafLight: "#758653", leafDark: "#3b5540",
 };
 type Surface = keyof typeof palette;
 
@@ -32,46 +33,115 @@ function shoreDistance(x: number, z: number, ring: readonly CityPoint[]) {
   return Math.sqrt(closestSquared) * (inside ? -1 : 1);
 }
 
-function profile(x: number, z: number, cx: number, cz: number, width: number, depth: number, angle: number) {
-  const dx = x - cx, dz = z - cz;
-  const u = (dx * Math.cos(angle) + dz * Math.sin(angle)) / width;
-  const v = (dz * Math.cos(angle) - dx * Math.sin(angle)) / depth;
-  return Math.exp(-(u * u + v * v));
+function measuredRelief(x: number, z: number) {
+  const depth = OASIS_ELEVATION.length - 1;
+  const width = OASIS_ELEVATION[0].length - 1;
+  const east = THREE.MathUtils.clamp((x + halfWidth) / (2 * halfWidth), 0, 1) * width;
+  const south = THREE.MathUtils.clamp((z + halfDepth) / (2 * halfDepth), 0, 1) * depth;
+  const loX = Math.min(Math.floor(east), width - 1), loZ = Math.min(Math.floor(south), depth - 1);
+  const mix = THREE.MathUtils.lerp;
+  return mix(
+    mix(OASIS_ELEVATION[loZ][loX], OASIS_ELEVATION[loZ][loX + 1], east - loX),
+    mix(OASIS_ELEVATION[loZ + 1][loX], OASIS_ELEVATION[loZ + 1][loX + 1], east - loX),
+    south - loZ,
+  );
 }
 
 function groundHeight(x: number, z: number, shore: number) {
-  const shoreBank = THREE.MathUtils.lerp(-1.7, 0.59, THREE.MathUtils.smoothstep(shore, -7, 7));
-  const lee = 68 * profile(x, z, -85, -124, 127, 46, -0.24);
-  const windward = 53 * profile(x, z, -179, -33, 95, 43, -1.08);
-  const crescent = 34 * profile(x, z, 61, -149, 119, 50, 0.18);
-  const southernDunes = 49 * profile(x, z, -114, 136, 140, 42, 0.14);
-  const lowDunes = 25 * profile(x, z, 106, 146, 123, 50, -0.18);
-  const ridges = Math.max(lee, windward, crescent, southernDunes, lowDunes);
-  const buffer = THREE.MathUtils.smoothstep(shore, 19, 78);
-  const relief = (Math.sin(x * 0.067 + z * 0.034) + Math.cos(z * 0.107 - x * 0.017)) * 1.1;
-  return shoreBank + buffer * (ridges + relief);
+  if (shore <= 2.3) return THREE.MathUtils.lerp(-2.1, -0.28, THREE.MathUtils.smoothstep(shore, -9, 2.3));
+  const bank = THREE.MathUtils.lerp(-0.28, 0.7, THREE.MathUtils.smoothstep(shore, 2.3, 8));
+  const blend = THREE.MathUtils.smoothstep(shore, 6, 28);
+  const ripples = (Math.sin(x * 0.067 + z * 0.034) + Math.cos(z * 0.107 - x * 0.017)) * 0.46;
+  return THREE.MathUtils.lerp(bank, Math.max(0.3, measuredRelief(x, z)) + ripples, blend);
 }
 
 function terrainGeometry(ring: readonly CityPoint[]) {
   const terrain = new THREE.PlaneGeometry(halfWidth * 2, halfDepth * 2, widthSegments, depthSegments).rotateX(-Math.PI / 2);
   const positions = terrain.attributes.position;
   const colors: number[] = [];
-  const damp = new THREE.Color("#8a8a55"), sand = new THREE.Color("#d6b278");
-  const crest = new THREE.Color("#efcb8d"), shade = new THREE.Color("#bc8e58");
+  const damp = new THREE.Color("#818364"), sand = new THREE.Color("#cfb594");
+  const crest = new THREE.Color("#efcf9e"), shade = new THREE.Color("#b39371");
   const tint = new THREE.Color();
   for (let i = 0; i < positions.count; i++) {
     const x = positions.getX(i), z = positions.getZ(i);
     const distance = shoreDistance(x, z, ring), y = groundHeight(x, z, distance);
     positions.setY(i, y);
-    const wind = Math.sin(z * 0.19 + x * 0.028 + Math.sin(x * 0.07)) * 0.055;
-    tint.copy(sand).lerp(crest, THREE.MathUtils.smoothstep(y + wind * 20, 8, 65) * 0.8)
-      .lerp(shade, Math.max(0, wind) * 2.4)
-      .lerp(damp, (1 - THREE.MathUtils.smoothstep(distance, -0.1, 10)) * 0.82);
+    const wind = Math.sin(z * 0.2 + x * 0.045 + Math.sin(x * 0.061)) * 0.048;
+    tint.copy(sand).lerp(crest, THREE.MathUtils.smoothstep(y + wind * 20, 7, 50) * 0.79)
+      .lerp(shade, Math.max(0, wind) * 2.15)
+      .lerp(damp, (1 - THREE.MathUtils.smoothstep(distance, -0.1, 9)) * 0.75);
     colors.push(tint.r, tint.g, tint.b);
   }
   terrain.setAttribute("color", new THREE.Float32BufferAttribute(colors, 3));
   terrain.computeVertexNormals();
   return terrain;
+}
+
+function surfaceFrom(positions: number[]) {
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+  geometry.computeVertexNormals();
+  return geometry;
+}
+
+function lagoonSurface(boundary: THREE.Shape, ring: readonly CityPoint[]) {
+  const shape = new THREE.ShapeGeometry(boundary).rotateX(-Math.PI / 2);
+  const source = shape.index ? shape.toNonIndexed() : shape;
+  const points = source.getAttribute("position");
+  const positions: number[] = [], colors: number[] = [];
+  const olive = new THREE.Color("#667744"), reflectedSky = new THREE.Color("#8daea0");
+  const nearShore = new THREE.Color("#839064"), tint = new THREE.Color();
+  const steps = 8;
+  for (let first = 0; first < points.count; first += 3) {
+    const ax = points.getX(first), az = points.getZ(first);
+    const bx = points.getX(first + 1), bz = points.getZ(first + 1);
+    const cx = points.getX(first + 2), cz = points.getZ(first + 2);
+    const emit = (row: number, column: number) => {
+      const u = row / steps, v = column / steps;
+      const x = ax + (bx - ax) * u + (cx - ax) * v;
+      const z = az + (bz - az) * u + (cz - az) * v;
+      const shallows = 1 - THREE.MathUtils.smoothstep(-shoreDistance(x, z, ring), 2.2, 13);
+      const reflection = 0.45 * Math.exp(-((z - 0.17 * x + 14) ** 2) / 920);
+      tint.copy(olive).lerp(reflectedSky, reflection).lerp(nearShore, shallows * 0.60);
+      positions.push(x, 0, z);
+      colors.push(tint.r, tint.g, tint.b);
+    };
+    for (let row = 0; row < steps; row++) {
+      for (let column = 0; column < steps - row; column++) {
+        emit(row, column); emit(row + 1, column); emit(row, column + 1);
+        if (column + row < steps - 1) {
+          emit(row + 1, column); emit(row + 1, column + 1); emit(row, column + 1);
+        }
+      }
+    }
+  }
+  shape.dispose();
+  if (source !== shape) source.dispose();
+  const lagoon = surfaceFrom(positions);
+  lagoon.setAttribute("color", new THREE.Float32BufferAttribute(colors, 3));
+  return lagoon;
+}
+
+function drapedPath(line: readonly CityPoint[], width: number, ground: (x: number, z: number) => number) {
+  const positions: number[] = [];
+  for (let i = 1; i < line.length; i++) {
+    const [ax, az] = line[i - 1], [bx, bz] = line[i];
+    const length = Math.hypot(bx - ax, bz - az);
+    if (length < 0.01) continue;
+    const steps = Math.ceil(length / 2.6);
+    const offsetX = (bz - az) * width / (length * 2);
+    const offsetZ = (ax - bx) * width / (length * 2);
+    const vertex = (x: number, z: number) => [x, ground(x, z) + 0.12, z];
+    for (let step = 0; step < steps; step++) {
+      const x = THREE.MathUtils.lerp(ax, bx, step / steps), z = THREE.MathUtils.lerp(az, bz, step / steps);
+      const xx = THREE.MathUtils.lerp(ax, bx, (step + 1) / steps), zz = THREE.MathUtils.lerp(az, bz, (step + 1) / steps);
+      if (Math.max(Math.abs(x), Math.abs(xx)) > halfWidth - width || Math.max(Math.abs(z), Math.abs(zz)) > halfDepth - width) continue;
+      const a = vertex(x + offsetX, z + offsetZ), b = vertex(x - offsetX, z - offsetZ);
+      const c = vertex(xx + offsetX, zz + offsetZ), d = vertex(xx - offsetX, zz - offsetZ);
+      positions.push(...a, ...b, ...c, ...b, ...d, ...c);
+    }
+  }
+  return positions.length > 0 ? surfaceFrom(positions) : null;
 }
 
 function terrainSides(height: (x: number, z: number) => number) {
@@ -99,8 +169,9 @@ function terrainSides(height: (x: number, z: number) => number) {
 
 function palmFrond(length: number, width: number, curve: number) {
   const positions: number[] = [];
-  for (let i = 0; i < 9; i++) {
-    const a = i / 9, b = (i + 1) / 9;
+  const segments = 7;
+  for (let i = 0; i < segments; i++) {
+    const a = i / segments, b = (i + 1) / segments;
     const outer = (t: number) => Math.sin(Math.PI * t) ** 0.8 * width;
     const droop = (t: number) => Math.sin(t * Math.PI) * curve - t * t * length * 0.37;
     const left = [a * length, droop(a) - outer(a) * 0.3, outer(a)];
@@ -118,16 +189,19 @@ function palmFrond(length: number, width: number, curve: number) {
   return frond;
 }
 
-/** Exact mapped shoreline with a terrain and settlement model interpreted from ground and aerial photos. */
+/** Georeferenced shoreline, elevation and footprints with photo-referenced details above ground. */
 export function createHuacachinaModel(data: CitySceneData, anchor: Pick<THREE.Vector3, "x" | "z">): THREE.Group {
   const root = new THREE.Group();
   root.name = "Oasis de Huacachina";
   root.userData = {
     units: "metres",
     landmarkId: "huacachina",
-    frontYaw: 0.18,
+    frontYaw: -0.9,
     shorelineSource: shorelineId,
-    reference: "MINCETUR 237 y Vista panorámica de la laguna Huacachina (Hee.nanda, CC0)",
+    buildingFootprintCount: OASIS_BUILDINGS.length,
+    treeLocationCount: OASIS_TREES.length,
+    elevationSource: "https://registry.opendata.aws/terrain-tiles/",
+    reference: "OpenStreetMap (ODbL), Terrain Tiles (Mapzen / USGS) y Vista panorámica de la laguna Huacachina (Hee.nanda, CC0)",
   };
   const footprint = data.footprints.find(item => item.osmId === shorelineId && item.kind === "water");
   if (!footprint || footprint.ring.length < 4) return root;
@@ -174,98 +248,94 @@ export function createHuacachinaModel(data: CitySceneData, anchor: Pick<THREE.Ve
 
   part = "Laguna";
   const water = new THREE.Shape(ring.map(([x, z]) => new THREE.Vector2(x, -z)));
-  add(new THREE.ShapeGeometry(water).rotateX(-Math.PI / 2), "pool", 0, 0.08, 0);
+  add(lagoonSurface(water, ring), "pool", 0, 0.08, 0);
   for (let row = -11; row <= 10; row++) {
     for (let col = -11; col <= 11; col++) {
-      const x = col * 8.15 + Math.sin(row * 4.3 + col * 3) * 3;
-      const z = row * 4.55 + Math.cos(row * 2.3 - col * 1.84) * 2;
+      const x = col * 8.4 + Math.sin(row * 4.3 + col * 3) * 3;
+      const z = row * 4.8 + Math.cos(row * 2.3 - col * 1.84) * 2;
       if (shoreDistance(x, z, ring) > -7 || (row * 11 + col * 7) % 4 === 0) continue;
-      const width = 1.75 + Math.abs(Math.sin(row * 8.2 + col)) * 4.1;
-      box(width, 0.013, 0.20, x, 0.10, z, "ripple", Math.cos(row * 0.75 + col * 0.32) * 0.11);
+      const extent = 2 + Math.abs(Math.sin(row * 8.2 + col)) * 5.75;
+      const vertices: number[] = [];
+      for (let segment = 0; segment < 4; segment++) {
+        const u = segment / 4, v = (segment + 1) / 4;
+        const width = (t: number) => Math.sin(Math.PI * t) * 0.18;
+        const line = (t: number) => Math.sin(t * Math.PI * 1.9 + row) * 0.57 + t * 0.45;
+        const ax = (u - 0.5) * extent, bx = (v - 0.5) * extent;
+        vertices.push(ax, 0, line(u) - width(u), ax, 0, line(u) + width(u), bx, 0, line(v) - width(v),
+          ax, 0, line(u) + width(u), bx, 0, line(v) + width(v), bx, 0, line(v) - width(v));
+      }
+      add(surfaceFrom(vertices), (row + col) % 7 === 1 ? "glint" : "ripple", x, 0.101, z);
     }
   }
 
   part = "Entorno";
-  // Only nearby OSM road segments remain on the cutout.
-  for (const road of data.roads) {
-    const points = road.map(local);
-    for (let i = 1; i < points.length; i++) {
-      const [ax, az] = points[i - 1], [bx, bz] = points[i];
-      const length = Math.hypot(bx - ax, bz - az);
-      const steps = Math.ceil(length / 3);
-      for (let step = 0; step < steps; step++) {
-        const progress = (step + 0.5) / steps;
-        const x = THREE.MathUtils.lerp(ax, bx, progress), z = THREE.MathUtils.lerp(az, bz, progress);
-        if (x < -145 || x > 194 || Math.abs(z) > 115) continue;
-        const distance = shoreDistance(x, z, ring);
-        if (distance < 4 || distance > (x > 100 ? 96 : 48)) continue;
-        box(length / steps + 0.16, 0.09, x > 100 ? 4.1 : 2.7, x, groundHeight(x, z, distance) + 0.11,
-          z, "walk", -Math.atan2(bz - az, bx - ax));
-      }
-    }
+  for (const [kind, path] of OASIS_PATHS) {
+    const road = kind === "residential" || kind === "service";
+    const width = road ? kind === "residential" ? 4.8 : 3.2 : kind === "path" ? 1.1 : 2.0;
+    const geometry = drapedPath(path, width, groundLevel);
+    if (geometry) add(geometry, road ? "road" : "walk", 0, 0, 0);
   }
 
   part = "Edificios del oasis";
-  // Low-rise volumes along the visible shore are photo-referenced, with approximate dimensions.
-  const hotels = [
-    [-106, -64, 16, 15, 5.1, 0.02], [-88, -69, 15, 12, 6.4, -0.02],
-    [-70, -72, 13, 15, 4.6, 0.04], [-55, -72, 13, 17, 6.8, -0.02],
-    [-39, -72, 15, 12, 7.6, -0.04], [-23, -70, 12, 13, 5.7, -0.03],
-    [-8, -67, 13, 12, 8.4, -0.07], [8, -67, 16, 13, 7.1, -0.02],
-    [25, -65, 14, 12, 7.7, -0.07], [42, -63, 18, 13, 5.6, 0.0],
-    [61, -61, 16, 12, 6.9, -0.04], [79, -60, 16, 16, 5.8, -0.02],
-    [97, -55, 18, 13, 5.8, -0.24], [112, -41, 9, 18, 7.9, 0.33],
-    [118, -23, 12, 15, 5.7, 0.13], [119, -5, 16, 12, 8.1, 0.11],
-    [116, 15, 16, 13, 6.7, -0.11], [108, 32, 14, 14, 7.1, -0.17],
-    [91, 40, 14, 10, 5.3, 0.12], [75, 41, 11, 14, 7.4, -0.07],
-    [60, 43, 16, 13, 7.8, -0.14], [42, 48, 14, 12, 4.9, -0.17],
-    [26, 55, 13, 12, 5.3, -0.46], [12, 64, 12, 11, 6.9, -0.29],
-    [-1, 76, 15, 12, 5.4, -0.58], [-18, 76, 15, 14, 5.2, -0.17],
-    [-36, 77, 15, 13, 6.7, -0.16], [-55, 73, 15, 12, 4.9, -0.36],
-    [133, 50, 11, 17, 5.5, 0.25], [145, 46, 10, 11, 5.3, -0.05],
-    [124, 70, 13, 13, 5.5, 0.26], [135, 83, 13, 12, 6.8, 0.2],
-  ];
-  for (const [i, [x, z, width, depth, h, yaw]] of hotels.entries()) {
-    const y = groundLevel(x, z) - 0.12;
-    const paint = i % 5 === 2 ? "adobe" : i % 3 ? "white" : "stucco";
-    const at = (u: number, v: number): CityPoint =>
-      [x + u * Math.cos(yaw) + v * Math.sin(yaw), z - u * Math.sin(yaw) + v * Math.cos(yaw)];
-    box(width, h, depth, x, y + h / 2, z, paint, yaw);
-    box(width + 0.48, 0.36, depth + 0.48, x, y + h, z, i % 4 ? "terrace" : "roof", yaw);
-    for (const side of [-1, 1]) {
-      let [rx, rz] = at(0, side * depth / 2);
-      box(width, 0.6, 0.29, rx, y + h + 0.31, rz, paint, yaw);
-      [rx, rz] = at(side * width / 2, 0);
-      box(0.29, 0.6, depth, rx, y + h + 0.31, rz, paint, yaw);
-    }
-    const bays = Math.floor(width / 2.55);
-    for (let n = 0; n < bays; n++) {
-      const u = (n + 0.5) * width / bays - width / 2;
-      for (const side of [-1, 1]) {
-        const [wx, wz] = at(u, side * (depth / 2 + 0.04));
-        box(1.0, 0.86, 0.12, wx, y + h * 0.66, wz, "shadow", yaw);
-        if (h > 5.75) box(0.85, 1.08, 0.12, wx, y + h * 0.32, wz, "shadow", yaw);
+  // OSM provides the ground plans. Volumes and finish vary as observed in the aerial references.
+  const swatches: Surface[] = ["white", "stucco", "white", "adobe", "ochre", "white"];
+  for (const [wayId, , outline] of OASIS_BUILDINGS) {
+    const edges = outline.map(([x, z], i) => {
+      const [xx, zz] = outline[(i + 1) % outline.length];
+      return { x, z, xx, zz, length: Math.hypot(xx - x, zz - z) };
+    });
+    const area = edges.reduce((sum, { x, z, xx, zz }) => sum + x * zz - xx * z, 0) * 0.5;
+    const grounds = outline.map(([x, z]) => groundLevel(x, z));
+    const base = Math.min(...grounds) - 0.18;
+    const floors = Math.abs(area) < 110 ? 1 + (wayId % 4 === 0 ? 1 : 0) : 2 + (wayId % 5 === 1 ? 1 : 0);
+    const roofY = Math.max(...grounds) + floors * 2.73 + 0.25;
+    const paint = swatches[wayId % swatches.length];
+    const boundaryShape = new THREE.Shape(outline.map(([x, z]) => new THREE.Vector2(x, -z)));
+    const walls = new THREE.ExtrudeGeometry(boundaryShape, { depth: roofY - base, bevelEnabled: false });
+    add(walls.rotateX(-Math.PI / 2), paint, 0, base, 0);
+    add(new THREE.ShapeGeometry(boundaryShape).rotateX(-Math.PI / 2), wayId % 5 > 0 ? "terrace" : "roof", 0, roofY + 0.045, 0);
+    for (const { x, z, xx, zz, length } of edges) {
+      if (length < 0.2) continue;
+      const yaw = -Math.atan2(zz - z, xx - x);
+      const nx = (zz - z) / length * Math.sign(area), nz = (x - xx) / length * Math.sign(area);
+      box(length + 0.10, 0.47, 0.24, (x + xx) / 2, roofY + 0.2, (z + zz) / 2, paint, yaw);
+      if (length < 6.0) continue;
+      const bays = Math.floor(length / 3.5);
+      const towardsLagoon = Math.hypot((x + xx) / 2 + nx * 1.4, (z + zz) / 2 + nz * 1.4) < Math.hypot((x + xx) / 2, (z + zz) / 2);
+      for (let column = 0; column < bays; column++) {
+        const u = (column + 0.5) / bays;
+        const frameX = THREE.MathUtils.lerp(x, xx, u) + nx * 0.075;
+        const frameZ = THREE.MathUtils.lerp(z, zz, u) + nz * 0.075;
+        for (let floor = 0; floor < floors; floor++) {
+          if (!towardsLagoon && (wayId + column + floor) % 4 === 1) continue;
+          const y = roofY - (floor + 0.52) * 2.73;
+          const width = towardsLagoon ? 1.45 : 1.12;
+          const windowYaw = yaw + (area > 0 ? Math.PI : 0);
+          add(new THREE.PlaneGeometry(width, 1.23), "shadow", frameX, y, frameZ, windowYaw);
+          if (towardsLagoon) box(width + 0.17, 0.09, 0.31, frameX, y - 0.65, frameZ, "shade", yaw);
+        }
       }
     }
   }
 
   part = "Palmeras y vegetación";
-  const palms: CityPoint[] = [];
+  const palms = OASIS_TREES.filter(([x, z]) => Math.abs(x) < halfWidth - 5.5 && Math.abs(z) < halfDepth - 5.5);
   for (let i = 0; i < ring.length; i++) {
     const [ax, az] = ring[i], [bx, bz] = ring[(i + 1) % ring.length];
     const length = Math.hypot(bx - ax, bz - az);
-    const count = Math.ceil(length / 8.2);
+    const count = Math.ceil(length / 10.5);
     for (let j = 0; j < count; j++) {
       const t = j / count, offset = 3.5 + Math.sin(i * 4.47 + j * 2.1) * 1.8;
       const x = THREE.MathUtils.lerp(ax, bx, t) + (bz - az) * offset / length;
       const z = THREE.MathUtils.lerp(az, bz, t) - (bx - ax) * offset / length;
-      if (shoreDistance(x, z, ring) <= 0 || (i * 5 + j * 3) % 5 === 3) continue;
+      if (shoreDistance(x, z, ring) <= 3 || (i * 5 + j * 3) % 5 === 3) continue;
+      if (palms.some(([tx, tz]) => Math.hypot(tx - x, tz - z) < 6.0)) continue;
       palms.push([x, z]);
     }
   }
   for (const [i, [x, z]] of palms.entries()) {
     const y = groundLevel(x, z);
-    if (i % 4 === 0) {
+    if (i % 4 === 0 || Math.abs(x) > 110 && i % 3 !== 0) {
       for (let n = 0; n < 5; n++) {
         const angle = n * 2.4 + i * 0.74;
         const crown = new THREE.IcosahedronGeometry(1.65 + n % 3 * 0.56, 1).scale(1.25, 0.89, 1);
@@ -274,14 +344,15 @@ export function createHuacachinaModel(data: CitySceneData, anchor: Pick<THREE.Ve
       }
       continue;
     }
-    const height = 6.5 + Math.abs(Math.sin(i * 4.43)) * 6.5;
+    const height = 5.4 + Math.abs(Math.sin(i * 4.43)) * 7.4;
     const lean = Math.sin(i * 3.83) * 1.25;
     const trunk = new THREE.CylinderGeometry(0.19, 0.31, height, 7).rotateZ(-Math.atan(lean / height));
     add(trunk, "bark", x + lean * 0.5, y + height * 0.5, z);
-    for (let blade = 0; blade < 10; blade++) {
+    const blades = 9;
+    for (let blade = 0; blade < blades; blade++) {
       const r = 2.7 + 0.71 * Math.cos(i * 8.1 + blade * 3.34);
       const frond = palmFrond(r, 0.53, 0.75 + (blade % 3) * 0.15);
-      const angle = blade * (Math.PI * 2 / 10) + i * 1.18;
+      const angle = blade * (Math.PI * 2 / blades) + i * 1.18;
       add(frond, blade % 4 === 0 ? "leafLight" : blade % 4 === 1 ? "leafDark" : "leaf",
         x + lean, y + height * 0.985 + (blade % 3) * 0.19, z, angle);
     }
@@ -293,18 +364,19 @@ export function createHuacachinaModel(data: CitySceneData, anchor: Pick<THREE.Ve
     group.name = name;
     root.add(group);
     for (const [paint, pieces] of surfaces) {
-      const material = materials.get(paint) ?? new THREE.MeshStandardMaterial({
-        color: palette[paint], name: paint,
-        roughness: paint === "pool" ? 0.42 : 0.88,
-        side: paint.startsWith("leaf") ? THREE.DoubleSide : THREE.FrontSide,
-      });
+      const material = materials.get(paint) ?? (paint === "pool"
+        ? new THREE.MeshPhysicalMaterial({ name: paint, vertexColors: true, roughness: 0.29, clearcoat: 0.76, clearcoatRoughness: 0.2 })
+        : new THREE.MeshStandardMaterial({
+          color: palette[paint], name: paint, roughness: 0.88,
+          side: paint.startsWith("leaf") ? THREE.DoubleSide : THREE.FrontSide,
+        }));
       materials.set(paint, material);
       const geometry = mergeGeometries(pieces);
       pieces.forEach(piece => piece.dispose());
       if (!geometry) throw new Error("No se pudo construir una superficie de Huacachina");
       const mesh = identify(new THREE.Mesh(geometry, material));
       mesh.name = paint;
-      mesh.castShadow = paint !== "pool" && paint !== "ripple" && paint !== "walk";
+      mesh.castShadow = !["pool", "ripple", "glint", "walk", "road"].includes(paint);
       group.add(mesh);
     }
   }

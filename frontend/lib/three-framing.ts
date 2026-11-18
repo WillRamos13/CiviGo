@@ -5,13 +5,19 @@ export function modelFramingPoints(model: THREE.Group, origin: THREE.Vector3) {
   // otherwise a geographic anchor would be subtracted from local coordinates.
   model.updateWorldMatrix(true, true);
   const points: THREE.Vector3[] = [];
-  for (const part of model.children) {
-    const bounds = new THREE.Box3().setFromObject(part);
+  model.traverse((part) => {
+    if (!(part instanceof THREE.Mesh)) return;
+    const geometry = part.geometry;
+    const boundsOwner = part instanceof THREE.InstancedMesh ? part : geometry;
+    if (!boundsOwner.boundingBox) boundsOwner.computeBoundingBox();
+    const bounds = boundsOwner.boundingBox;
+    if (!bounds || bounds.isEmpty()) return;
+    // Retain each box's orientation so angled façades use the available view.
     for (const x of [bounds.min.x, bounds.max.x])
       for (const y of [bounds.min.y, bounds.max.y])
         for (const z of [bounds.min.z, bounds.max.z])
-          points.push(new THREE.Vector3(x, y, z).sub(origin));
-  }
+          points.push(new THREE.Vector3(x, y, z).applyMatrix4(part.matrixWorld).sub(origin));
+  });
   return points;
 }
 
