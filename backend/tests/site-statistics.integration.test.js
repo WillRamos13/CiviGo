@@ -26,10 +26,11 @@ test(
           rol: "ADMIN",
         },
       });
-      for (const fecha of [
-        "2000-02-01T18:00:00Z",
-        "2026-10-10T18:00:00Z",
-        "2026-09-10T18:00:00Z",
+      for (const [fecha, fuente] of [
+        ["2000-02-01T18:00:00Z", "ARCHIVO"],
+        ["2026-10-10T18:00:00Z", "CIUDADANO"],
+        ["2026-09-10T18:00:00Z", "CIUDADANO"],
+        ["2026-10-08T18:00:00Z", "CARGA_INICIAL"],
       ])
         ids.push(
           (
@@ -42,6 +43,7 @@ test(
                 distrito: "Ica",
                 fechaEvento: new Date(fecha),
                 historico: fecha.startsWith("2000"),
+                fuente,
               },
             })
           ).id,
@@ -62,7 +64,9 @@ test(
       }
       const d = await siteStatistics(db, new Date("2026-10-15T12:00:00Z"));
       assert.ok(d.totals.historical >= 1);
+      assert.ok(d.demonstration.incidents >= 1);
       assert.ok(d.charts.years.some((row) => row.label === "2000"));
+      assert.ok(!d.charts.sources.some((row) => row.label === "CARGA_INICIAL"));
       const comparison = d.typeComparison.find((row) => row.label === id);
       assert.deepEqual(comparison, {
         label: id,

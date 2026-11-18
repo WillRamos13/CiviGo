@@ -12,7 +12,7 @@ import RoutePlanner from '@/components/RoutePlanner';
 import CollapsiblePanel from '@/components/CollapsiblePanel';
 import { useAuth } from '@/components/AuthProvider';
 import { api, post, errorMessage, distance, formatDate } from '@/lib/api';
-import { isHistoricalAntecedent, incidentSource } from '@/lib/incidents';
+import { isDemonstrationIncident, isHistoricalAntecedent, incidentSource } from '@/lib/incidents';
 import { useLiveRefresh } from '@/lib/use-live-refresh';
 import { buildIncidentFilterGroups, filterIncidentsByType } from '@/lib/incident-filters';
 import { filterIncidentsByYears, incidentYearOptions, type IncidentYears } from '@/lib/incident-years';
@@ -209,7 +209,7 @@ function AccountMap() {
                                 <p>{i.descripcion?.slice(0, 100) || 'Sin descripción adicional'}</p>
                                 {isHistoricalAntecedent(i) && <p className="muted">{i.fechaEvento && <>Ocurrió: {formatDate(i.fechaEvento)}<br /></>}{incidentSource(i) && <>Procedencia: {incidentSource(i)}</>}</p>}
                             </div>
-                            <div className="recent-incident-badges"><span className="badge">Gravedad {i.gravedad ?? i.nivelRiesgo ?? 'por evaluar'}</span><span className="badge recent-incident-state">{isHistoricalAntecedent(i) ? 'Histórico' : i.estado}</span></div>
+                            <div className="recent-incident-badges"><span className="badge">Gravedad {i.gravedad ?? i.nivelRiesgo ?? 'por evaluar'}</span><span className="badge recent-incident-state">{isDemonstrationIncident(i) ? 'Demostración' : isHistoricalAntecedent(i) ? 'Histórico' : i.estado}</span></div>
                             <ChevronRight size={18} className="recent-incident-arrow" aria-hidden="true"/>
                         </button>)}
                     </div>}

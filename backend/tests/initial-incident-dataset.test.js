@@ -137,7 +137,7 @@ test("validated administrative scenarios preserve provenance without fabricating
   }
 });
 
-test("scenario severities and dates are usable by risk and lifecycle without overriding catalog flags", () => {
+test("scenario severities and dates remain valid without contributing to operational risk", () => {
   for (const { incident, report } of dataset.entries) {
     assert.ok(
       Number.isInteger(incident.nivelRiesgo) &&
@@ -154,17 +154,12 @@ test("scenario severities and dates are usable by risk and lifecycle without ove
       now - incident.fechaEvento < 3 * 3600000,
       "Fresh seed dates must not look like old or future incidents",
     );
-    const risk = incidentRisk(incident, now);
-    assert.equal(risk.pending, false);
-    assert.equal(risk.confidence, 1);
-    assert.equal(risk.points, incident.nivelRiesgo);
-    // A verified administrative record is not retired merely because the
-    // individual-report proof reminder reaches day 7.
-    if (incident.individual)
-      assert.equal(
-        incidentRisk(incident, new Date(+now + 8 * 86400000)).confidence,
-        1,
-      );
+    assert.deepEqual(incidentRisk(incident, now), {
+      pending: false,
+      confidence: 0,
+      points: 0,
+      age: 0,
+    });
     assert.ok(
       incident.descripcion.length >= 120 && incident.descripcion.length < 1000,
     );

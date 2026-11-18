@@ -63,6 +63,9 @@ export interface Incidente {
     estado: string;
     nivelRiesgo: number | null;
     gravedad?: number | null;
+    gravedadHistoricaMetodo?: string;
+    antecedenteOficial?: boolean;
+    aportePuntos?: number | null;
     totalReportes: number;
     confirmaciones?: number | unknown[];
     validacion?: number;

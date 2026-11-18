@@ -27,6 +27,7 @@ interface StatisticsData {
   generatedAt: string;
   timeZone: string;
   filters: { district?: string | null; type?: string | null };
+  demonstration?: { incidents: number; reports: number };
   totals: {
     incidents: number;
     reports: number;
@@ -429,6 +430,13 @@ export default function StatisticsPanel() {
               </div>
             ))}
           </div>
+          {data.demonstration && (
+            <p className="muted text-sm">
+              Los gráficos excluyen {count(data.demonstration.incidents)}{" "}
+              incidentes de demostración y {count(data.demonstration.reports)}{" "}
+              reportes vinculados.
+            </p>
+          )}
           <article className="statistics-comparison card">
             <div>
               <span className="eyebrow">{comparisonGroup === "security" ? "INCIDENTES DE SEGURIDAD" : "TODOS LOS INCIDENTES FILTRADOS"}</span>

@@ -1,5 +1,5 @@
 import type { Incidente, Posicion, Ruta, LocationFix } from './types';
-import { isHistoricalAntecedent } from './incidents';
+import { isDemonstrationIncident, isHistoricalAntecedent } from './incidents';
 import { isPosition } from './route-cache';
 import { gpsProblem } from './gps-quality';
 
@@ -14,7 +14,7 @@ export function nearRoute(p: Posicion, r: Ruta, limit = 100) {
     return false;
 }
 export function isRouteWarning(incident: Incidente) {
-    if (!['ACTIVO', 'VALIDADO', 'PENDIENTE'].includes(incident.estado) || isHistoricalAntecedent(incident)) return false;
+    if (!['ACTIVO', 'VALIDADO', 'PENDIENTE'].includes(incident.estado) || isDemonstrationIncident(incident) || isHistoricalAntecedent(incident)) return false;
     return (incident.gravedad ?? incident.nivelRiesgo ?? 0) >= 4 || incident.porEvaluar === true || (incident.emergencia === true && incident.nivelRiesgo === null);
 }
 

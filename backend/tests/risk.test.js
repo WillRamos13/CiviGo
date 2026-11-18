@@ -33,3 +33,41 @@ test("Cada incidente suma una vez en su tramo y 15% solamente en los conectados 
   const incident={id:1,latitud:0,longitud:.0002,nivelRiesgo:4,validacion:1,estado:"ACTIVO",evaluacion:"AGENTE"};
   const scores=scoreSegments(segments,[incident,incident]);assert.equal(scores[0].points,4);assert.equal(scores[1].points,.6);assert.equal(scores[2].points,0);assert.equal(scores[3].points,0);
 });
+
+test("El antecedente oficial preliminar aporta por antigüedad y nunca genera alertas ni bloquea vías", () => {
+  const now = new Date("2026-11-17T12:00:00Z");
+  const segment = { id: "a", start: "1", end: "2", coordinates: [[0, 0], [.001, 0]] };
+  const historical = {
+    id: 1,
+    fuente: "MININTER / PNP - SIDPOL; lote de prueba",
+    totalReportes: 0,
+    tipo: "Calle bloqueada",
+    latitud: 0,
+    longitud: 0.0002,
+    nivelRiesgo: 4,
+    validacion: 0,
+    estado: "PENDIENTE",
+    evaluacion: "PENDIENTE",
+    gravedadHistoricaMetodo: "MODALIDAD_HISTORICA_V1",
+    historico: true,
+    individual: true,
+    emergencia: true,
+    publicado: true,
+    fechaEvento: "2025-11-18T12:00:00Z",
+    fechaCreacion: "2025-11-18T12:00:00Z",
+  };
+  const demo = { ...historical, id: 2, fuente: "CARGA_INICIAL", validacion: 1, evaluacion: "AGENTE" };
+  assert.equal(incidentRisk(historical, now).points, 1);
+  assert.equal(incidentRisk({ ...historical, fechaEvento: "2023-11-16" }, now).points, 0);
+  assert.equal(incidentRisk({ ...historical, fuente: "CIUDADANO" }, now).pending, true);
+  assert.equal(incidentRisk({ ...historical, publicado: false }, now).points, 0);
+  const [score] = scoreSegments([segment], [historical, demo], now);
+  assert.equal(score.points, 1);
+  assert.deepEqual(score.incidentIds, [1]);
+  assert.deepEqual(score.emergencies, []);
+  assert.equal(score.blocked, false);
+  const [reviewed] = scoreSegments([segment], [{ ...historical, evaluacion: "AGENTE", validacion: 1 }], now);
+  assert.equal(reviewed.points, 2);
+  assert.deepEqual(reviewed.emergencies, []);
+  assert.equal(reviewed.blocked, false);
+});
