@@ -1,4 +1,5 @@
 const { effectivePermissions } = require("./agent-permissions");
+const { isOfficialHistoricalIncident } = require("./historical-severity");
 function publicUser(user) {
   return {
     id: user.id,
@@ -138,6 +139,10 @@ function incident(i, privateView = false, staffView = false) {
     distrito: i.distrito,
     nivelRiesgo: i.nivelRiesgo,
     gravedad: i.nivelRiesgo,
+    ...(isOfficialHistoricalIncident(i) ? { antecedenteOficial: true } : {}),
+    ...(i.gravedadHistoricaMetodo
+      ? { gravedadHistoricaMetodo: i.gravedadHistoricaMetodo }
+      : {}),
     estado: i.estado,
     totalReportes:
       !privateView && allReports.length

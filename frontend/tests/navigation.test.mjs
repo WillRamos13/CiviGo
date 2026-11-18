@@ -26,6 +26,7 @@ test('warning uses current incidents; historical import and resolved incidents d
     assert.equal(isRouteWarning(incident), true);
     assert.equal(isRouteWarning({...incident, estado: 'RESUELTO'}), false);
     assert.equal(isRouteWarning({...incident, fuente: 'DATACRIM'}), false);
+    assert.equal(isRouteWarning({...incident, fuente: 'CARGA_INICIAL'}), false);
     assert.equal(isRouteWarning({...incident, gravedad: null, nivelRiesgo: null, emergencia: true}), true);
     assert.equal(nearRoute({latitud: -14.06, longitud: -75.725}, route), true);
     assert.equal(nearRoute({latitud: -14.08, longitud: -75.725}, route), false);

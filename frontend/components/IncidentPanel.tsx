@@ -9,7 +9,7 @@ import { api, post, currentPosition, errorMessage, formatDate, ApiError } from '
 import { useAuth } from './AuthProvider';
 import { canParticipate } from '@/lib/session';
 import type { Incidente, Mensaje } from '@/lib/types';
-import { isHistoricalAntecedent, incidentSource, incidentEvaluationLabel } from '@/lib/incidents';
+import { isDemonstrationIncident, isHistoricalAntecedent, incidentSource, incidentEvaluationLabel } from '@/lib/incidents';
 import { referencePhotoCredit } from '@/lib/reference-photo';
 import { confirmationExplanation } from '@/lib/citizen-rules';
 import { useCitizenRules } from '@/lib/use-citizen-rules';
@@ -100,6 +100,8 @@ export default function IncidentPanel({ incidente, onClose, onRefresh, variant =
     const chatOpen = detail.chatAbierto !== false && (!['RESUELTO', 'RETIRADO', 'FALSO'].includes(detail.estado) || individual);
     const count = Array.isArray(detail.confirmaciones) ? detail.confirmaciones.length : detail.confirmaciones ?? 0;
     const antecedent = isHistoricalAntecedent(detail), source = incidentSource(detail);
+    const demonstration = isDemonstrationIncident(detail);
+    const allowsCurrentVotes = !demonstration && !detail.antecedenteOficial;
     const media = (detail.adjuntos ?? []).filter(a => !a.privado && a.url && (a.mimeType.startsWith('image/') || a.mimeType.startsWith('video/')));
     const cover = media[0];
     const presentation=incidentPresentation(detail.tipoSlug,detail.tipoNombre,detail.tipo);
@@ -120,14 +122,19 @@ export default function IncidentPanel({ incidente, onClose, onRefresh, variant =
                 <dl className={styles.information}>
                     <div><dt><MapPin size={20}/>Ubicación</dt><dd>{detail.distrito || 'Provincia de Ica'}<small>{detail.latitud.toFixed(5)}, {detail.longitud.toFixed(5)}</small>{onShowOnMap && <button type="button" className={styles.mapLink} onClick={onShowOnMap}>Ver en el mapa <ExternalLink size={13}/></button>}</dd></div>
                     <div><dt><FileText size={20}/>Tipo de incidente</dt><dd>{detail.tipoNombre || detail.tipo}{presentation&&<><small>{presentation.categoryName} · {presentation.subcategory}</small><small>{presentation.description}</small></>}</dd></div>
-                    <div><dt><Activity size={20}/>Estado</dt><dd><span className={styles.state} data-state={detail.estado}>{stateLabel[detail.estado] || detail.estado}</span>{detail.publicado === false && <small>No visible en el mapa</small>}</dd></div>
+                    <div><dt><Activity size={20}/>Estado</dt><dd><span className={styles.state} data-state={detail.estado}>{demonstration ? 'Demostración' : antecedent ? 'Antecedente histórico' : stateLabel[detail.estado] || detail.estado}</span>{detail.publicado === false && <small>No visible en el mapa</small>}</dd></div>
                     <div><dt><FileText size={20}/>Descripción</dt><dd className={styles.description}>{detail.descripcion || 'Sin descripción adicional.'}</dd></div>
                 </dl>
                 <details className={styles.validation}>
                     <summary>Validación y aportes · gravedad {gravity == null ? 'por evaluar' : gravity}</summary>
                     <div className="actions"><span className="badge">{incidentEvaluationLabel(detail)}</span>{antecedent && <span className="badge">Antecedente histórico</span>}{individual && <span className="badge">Reporte individual</span>}</div>
                     <div className="report-meta"><span>Ocurrió: {antecedent && !detail.fechaEvento ? 'Fecha del hecho no indicada' : formatDate(timestamp)}</span>{source && <span>Procedencia: {source}</span>}{detail.fechaPublicacion && <span>Publicado: {formatDate(detail.fechaPublicacion)}</span>}</div>
-                    {antecedent && <p className="notice">Este registro corresponde a un hecho pasado y aporta antecedentes al riesgo del tramo.</p>}
+                    {demonstration && <p className="notice">Escenario ficticio excluido del cálculo de riesgo y de las alertas del recorrido.</p>}
+                    {antecedent && !demonstration && <p className="notice">
+                        Este registro corresponde a un hecho pasado.
+                        {detail.gravedadHistoricaMetodo && ' La gravedad se estimó con la modalidad documentada y sigue pendiente de revisión humana.'}
+                        {typeof detail.aportePuntos === 'number' && detail.aportePuntos > 0 && ' Su aporte al riesgo disminuye con la antigüedad.'}
+                    </p>}
                     <div className="grid-2"><div><small className="muted">Aportes agrupados</small><h3>{detail.totalReportes ?? 1}</h3></div><div><small className="muted">{individual ? 'Revisión de pruebas privadas' : 'Confirmaciones ciudadanas'}</small><h3>{individual ? detail.estado === 'VALIDADO' ? 'Validado por un agente' : 'Pendiente de validación' : rules ? `${count} / ${rules.confirmaciones}` : count}</h3></div></div>
                     <p className="muted">La gravedad del incidente y el nivel de la calle son valores diferentes.</p>
                 </details>
@@ -137,9 +144,9 @@ export default function IncidentPanel({ incidente, onClose, onRefresh, variant =
                 {success && <div className="notice notice-success" role="status">{success}</div>}
                 {canParticipate(usuario) ? <div className={styles.participation}>
                     <h3>Ayuda a verificar este incidente</h3>
-                    {!individual && ["ACTIVO", "VALIDADO", "PENDIENTE"].includes(detail.estado) && <><p className="muted">{confirmationExplanation(rules)}</p><div className="actions"><button className="btn btn-primary btn-small" disabled={busy} onClick={() => nearby('confirmar')}><Check size={14}/>Sigue ocurriendo</button><button className="btn btn-secondary btn-small" disabled={busy} onClick={() => nearby('resolver')}>Ya se resolvió</button></div></>}
-                    {["RESUELTO", "RETIRADO"].includes(detail.estado) && <button className="btn btn-secondary btn-small" disabled={busy} onClick={() => nearby("reabrir")}>Solicitar reapertura</button>}
-                    {individual && <p className="muted">Este delito se valida mediante las pruebas privadas del autor. No recibe confirmaciones comunitarias.</p>}
+                    {allowsCurrentVotes && !individual && ["ACTIVO", "VALIDADO", "PENDIENTE"].includes(detail.estado) && <><p className="muted">{confirmationExplanation(rules)}</p><div className="actions"><button className="btn btn-primary btn-small" disabled={busy} onClick={() => nearby('confirmar')}><Check size={14}/>Sigue ocurriendo</button><button className="btn btn-secondary btn-small" disabled={busy} onClick={() => nearby('resolver')}>Ya se resolvió</button></div></>}
+                    {allowsCurrentVotes && ["RESUELTO", "RETIRADO"].includes(detail.estado) && <button className="btn btn-secondary btn-small" disabled={busy} onClick={() => nearby("reabrir")}>Solicitar reapertura</button>}
+                    {allowsCurrentVotes && individual && <p className="muted">Este delito se valida mediante las pruebas privadas del autor. No recibe confirmaciones comunitarias.</p>}
                     <button className="btn btn-quiet btn-small" onClick={() => setFlag(flag ? '' : 'FALSO')}><Flag size={13}/>Solicitar revisión</button>
                     {flag && <form onSubmit={e => { e.preventDefault(); void act(() => post('/incidents/' + detail.id + '/flags', { tipo: flag, motivo: reason }), 'Tu solicitud fue enviada a revisión. El incidente permanece visible durante la investigación.'); }}>
                         <div className="field"><label htmlFor="incident-flag">Motivo de revisión</label><select id="incident-flag" value={flag} onChange={e => setFlag(e.target.value)}><option value="FALSO">Creo que es un reporte falso</option><option value="NO_ENCONTRADO">No encontré el incidente</option></select><textarea aria-label="Descripción del motivo de revisión" value={reason} onChange={e => setReason(e.target.value)} required minLength={5} maxLength={1000} placeholder="Explica lo que observaste"/></div><button className="btn btn-secondary btn-small" disabled={busy}>Enviar a un agente</button>

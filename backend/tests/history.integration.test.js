@@ -155,3 +155,97 @@ test(
     }
   },
 );
+
+test(
+  "La API distingue el peso preliminar comprobado de un histórico sin procedencia coincidente",
+  { skip: !connection },
+  async () => {
+    const prisma = require("../src/lib/db");
+    const app = require("../src/server");
+    const run = crypto.randomBytes(10).toString("hex");
+    const fuente = "MININTER / PNP - SIDPOL; prueba " + run;
+    const sha256 = (value) => crypto.createHash("sha256").update(value).digest("hex");
+    const data = {
+      tipo: "Hurto",
+      descripcion: "Modalidad publicada: HURTO. Distrito del hecho según la fuente: ICA.",
+      latitud: -14.0678,
+      longitud: -75.7286,
+      distrito: "Ica",
+      publicado: true,
+      historico: true,
+      individual: true,
+      estado: "PENDIENTE",
+      evaluacion: "PENDIENTE",
+      nivelRiesgo: 2,
+      validacion: 0,
+      totalReportes: 0,
+      fechaEvento: new Date(Date.now() - 86400000),
+      fuente,
+    };
+    const keys = [];
+    let server;
+    try {
+      const trusted = await prisma.incident.create({ data });
+      const untrusted = await prisma.incident.create({
+        data: { ...data, descripcion: "Descripción cambiada luego de la evaluación." },
+      });
+      const old = await prisma.incident.create({
+        data: { ...data, fechaEvento: new Date(Date.now() - 4 * 365 * 86400000) },
+      });
+      for (const row of [trusted, untrusted, old]) {
+        const idDgc = String(row.id);
+        const reference = "MININTER:ogc-denuncias:id_dgc:" + idDgc;
+        const clave = "historical:" + sha256("MININTER:ogc-denuncias\n" + reference);
+        keys.push(clave);
+        await prisma.appConfig.create({
+          data: {
+            clave,
+            valor: {
+              incidenteId: row.id,
+              referencia: reference,
+              procedencia: { idDgc },
+              gravedadPreliminar: {
+                metodo: "MODALIDAD_HISTORICA_V1",
+                nivel: 2,
+                revisionHumana: false,
+                descripcionSHA256: sha256(data.descripcion),
+              },
+            },
+          },
+        });
+      }
+      server = app.listen(0, "127.0.0.1");
+      await new Promise((resolve) => server.once("listening", resolve));
+      const endpoint = "http://127.0.0.1:" + server.address().port + "/api/incidents";
+      const read = async (suffix) => {
+        const response = await fetch(endpoint + suffix);
+        assert.equal(response.status, 200);
+        return response.json();
+      };
+      const detail = await read("/" + trusted.id);
+      assert.equal(detail.gravedadHistoricaMetodo, "MODALIDAD_HISTORICA_V1");
+      assert.equal(detail.antecedenteOficial, true);
+      assert.equal(detail.evaluacion, "PENDIENTE");
+      assert.equal(detail.pesoValidacion, 0);
+      assert.equal(detail.aportePuntos, 1);
+      assert.equal((await read("/" + untrusted.id)).aportePuntos, null);
+      assert.equal((await read("/" + old.id)).aportePuntos, 0);
+
+      const page = await read("?bbox=-75.73,-14.07,-75.72,-14.06");
+      assert.equal(page.items.find((row) => row.id === trusted.id)?.aportePuntos, 1);
+      assert.equal(page.items.find((row) => row.id === untrusted.id)?.gravedadHistoricaMetodo, undefined);
+      assert.equal(page.items.some((row) => row.id === old.id), false);
+      const stored = await prisma.incident.findUnique({ where: { id: trusted.id } });
+      assert.equal(stored.validacion, 0);
+      assert.equal(stored.evaluacion, "PENDIENTE");
+    } finally {
+      try {
+        await prisma.incident.deleteMany({ where: { fuente } });
+        await prisma.appConfig.deleteMany({ where: { clave: { in: keys } } });
+      } finally {
+        if (server) await new Promise((resolve) => server.close(resolve));
+        await prisma.$disconnect();
+      }
+    }
+  },
+);

@@ -270,6 +270,69 @@ test(
         },
       );
       await t.test(
+        "demonstration records stay separate in filtered statistics and Excel while ungrouped reports still count",
+        async () => {
+          const demo = await pair(crime, "2026-10-06T12:00:00Z", "Ica", {
+            fuente: "CARGA_INICIAL",
+          });
+          await pair(crime, "2026-10-06T12:00:00Z", "Parcona", {
+            fuente: "CARGA_INICIAL",
+          });
+          const ungrouped = await db.report.create({
+            data: {
+              tipo: crime.nombre,
+              tipoId: crime.id,
+              usuarioId: users[0].id,
+              descripcion: "Reporte ciudadano aún sin incidente agrupado.",
+              latitud: demo.latitud,
+              longitud: demo.longitud,
+              fechaEvento: demo.fechaEvento,
+            },
+          });
+          const service = createExportService({ clock: () => +clock });
+          try {
+            const stats = await adminStatistics(db, { type: crime.slug }, clock);
+            assert.equal(stats.totals.incidents, 9);
+            assert.equal(stats.totals.reports, 10);
+            assert.equal(stats.crimeComparison.current, 2);
+            assert.deepEqual(stats.demonstration, { incidents: 2, reports: 2 });
+
+            const filter = { district: "Ica", type: crime.slug };
+            const filtered = await adminStatistics(db, filter, clock);
+            assert.equal(filtered.totals.incidents, 9);
+            assert.equal(filtered.totals.reports, 9);
+            assert.deepEqual(filtered.demonstration, { incidents: 1, reports: 1 });
+
+            const actor = { id: users[0].id, rol: "ADMIN" };
+            const result = await service.exportPage(db, actor, {
+              table: "estadisticas",
+              ...filter,
+            });
+            assert.equal(
+              result.rows.find(
+                (row) => row.grupo === "demostracion" && row.clave === "incidents",
+              ).cantidad,
+              1,
+            );
+            assert.equal(
+              result.rows.find(
+                (row) => row.grupo === "global-demostracion" && row.clave === "reports",
+              ).cantidad,
+              2,
+            );
+            assert.equal(
+              result.rows.find(
+                (row) => row.grupo === "global-reportStates" && row.clave === "VALIDADO",
+              ).cantidad,
+              eventDates.length + 4,
+            );
+          } finally {
+            service.close();
+            await db.report.delete({ where: { id: ungrouped.id } });
+          }
+        },
+      );
+      await t.test(
         "both endpoints require ADMIN before any filter/query work and never cache",
         async () => {
           for (const path of [

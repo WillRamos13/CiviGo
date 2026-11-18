@@ -1,6 +1,12 @@
 import type { Incidente, Reporte } from './types';
 
-export function incidentEvaluationLabel(incident: Pick<Incidente, 'evaluacion' | 'porEvaluar'>) {
+export function isDemonstrationIncident(incident: Pick<Incidente, 'fuente'>) {
+    return incident.fuente === 'CARGA_INICIAL';
+}
+
+export function incidentEvaluationLabel(incident: Pick<Incidente, 'evaluacion' | 'porEvaluar' | 'fuente' | 'gravedadHistoricaMetodo'>) {
+    if (isDemonstrationIncident(incident)) return 'Escenario de demostración';
+    if (incident.gravedadHistoricaMetodo === 'MODALIDAD_HISTORICA_V1') return 'Gravedad histórica preliminar';
     if (incident.porEvaluar || incident.evaluacion === 'PENDIENTE') return 'Pendiente de revisión';
     if (incident.evaluacion === 'IA') return 'Evaluación preliminar por IA';
     if (incident.evaluacion === 'AGENTE') return 'Evaluación por un agente';
@@ -22,5 +28,6 @@ export function isHistoricalAntecedent(incident: Incidente) {
 export function incidentSource(incident: Incidente) {
     const source = incident.fuente?.trim();
     if (!source) return null;
+    if (isDemonstrationIncident(incident)) return 'Carga inicial de demostración';
     return source.toUpperCase() === 'CIUDADANO' ? 'Reporte ciudadano' : source.replaceAll('_', ' ');
 }

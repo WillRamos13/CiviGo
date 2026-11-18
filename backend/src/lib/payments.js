@@ -393,13 +393,30 @@ function createPaymentService({
         ].includes(status)
       )
         return;
+      const providerPaymentId = String(payment.id);
+      const providerUpdatedAt = Date.parse(payment.date_last_updated);
+      if (order.pagoId === providerPaymentId) {
+        const lastProviderUpdate = Date.parse(order.pagoActualizadoEn);
+        if (providerUpdatedAt < lastProviderUpdate) return;
+        // The provider request completes before taking the database lock. A
+        // delayed response must never reinstate a fully refunded purchase.
+        if (order.estado === "refunded" && status !== "refunded") return;
+        // A dispute can be resolved by the provider. Restore benefits only if
+        // its own timestamp proves the approval is newer than the chargeback.
+        if (
+          order.estado === "charged_back" &&
+          !["charged_back", "refunded"].includes(status) &&
+          (status !== "approved" || !(providerUpdatedAt > lastProviderUpdate))
+        )
+          return;
+      }
       const previousPayments = Array.isArray(order.pagosAnteriores)
         ? order.pagosAnteriores
         : [];
       // A checkout may issue a new payment ID after a rejected/cancelled attempt.
       // Ignore late notifications for replaced attempts; never replace a live grant.
-      if (order.pagoId && order.pagoId !== String(payment.id)) {
-        if (previousPayments.includes(String(payment.id))) return;
+      if (order.pagoId && order.pagoId !== providerPaymentId) {
+        if (previousPayments.includes(providerPaymentId)) return;
         if (!["rejected", "cancelled"].includes(order.estado))
           throw new HttpError(
             409,
@@ -420,12 +437,18 @@ function createPaymentService({
       if (status === "approved") {
         if (!Number.isFinite(approvedTime) || approvedTime > now() + 60000)
           throw new HttpError(400, "Fecha de aprobación inválida.");
+        if (order.estado === "charged_back")
+          grants = grants.map((g) =>
+            g.referencia === order.referencia
+              ? { ...g, estado: "approved" }
+              : g,
+          );
         if (!grants.some((g) => g.referencia === order.referencia))
           grants = [
             ...grants,
             {
               referencia: order.referencia,
-              pagoId: String(payment.id),
+              pagoId: providerPaymentId,
               aprobadoEn: new Date(approvedTime).toISOString(),
               dias: order.dias,
               estado: "approved",
@@ -452,9 +475,14 @@ function createPaymentService({
           valor: {
             ...order,
             estado: finalStatus,
-            pagoId: String(payment.id),
+            pagoId: providerPaymentId,
+            pagoActualizadoEn: Number.isFinite(providerUpdatedAt)
+              ? new Date(providerUpdatedAt).toISOString()
+              : order.pagoId === providerPaymentId
+                ? (order.pagoActualizadoEn ?? null)
+                : null,
             pagosAnteriores:
-              order.pagoId && order.pagoId !== String(payment.id)
+              order.pagoId && order.pagoId !== providerPaymentId
                 ? [...previousPayments, order.pagoId].slice(-20)
                 : previousPayments,
             actualizadoEn: new Date(now()).toISOString(),
@@ -470,7 +498,7 @@ function createPaymentService({
             entidadId: order.referencia,
             datos: {
               estado: finalStatus,
-              pagoId: String(payment.id),
+              pagoId: providerPaymentId,
               centimos: order.centimos,
               moneda: "PEN",
               modo: order.modo,

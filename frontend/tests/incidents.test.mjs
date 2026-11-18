@@ -2,7 +2,13 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { loadTs } from './helpers/ts-module.mjs';
 
-const { reportPublicationState, isHistoricalAntecedent } = loadTs('lib/incidents.ts');
+const { reportPublicationState, isHistoricalAntecedent, incidentEvaluationLabel } = loadTs('lib/incidents.ts');
+
+test('La ficha diferencia la estimación histórica de una revisión humana y de la demostración', () => {
+    assert.equal(incidentEvaluationLabel({ evaluacion: 'PENDIENTE', porEvaluar: true, gravedadHistoricaMetodo: 'MODALIDAD_HISTORICA_V1' }), 'Gravedad histórica preliminar');
+    assert.equal(incidentEvaluationLabel({ evaluacion: 'AGENTE', fuente: 'CARGA_INICIAL' }), 'Escenario de demostración');
+    assert.equal(incidentEvaluationLabel({ evaluacion: 'PENDIENTE' }), 'Pendiente de revisión');
+});
 
 test('una carga inicial activa no se confunde con antecedentes históricos importados', () => {
     assert.equal(isHistoricalAntecedent({ estado: 'VALIDADO', historico: true, fuente: 'CARGA_INICIAL' }), false);

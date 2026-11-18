@@ -297,6 +297,7 @@ router.post(
         nearby = await db.incident.findMany({
           where: {
             tipoId: type.id,
+            fuente: "CIUDADANO",
             estado: { in: ["ACTIVO", "VALIDADO", "PENDIENTE"] },
             OR: [
               { fechaPublicacion: { gte: cutoff } },

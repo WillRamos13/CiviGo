@@ -1,5 +1,10 @@
 "use strict";
 
+const {
+  isOfficialHistoricalIncident,
+  usesPreliminaryHistoricalSeverity,
+} = require("./historical-severity");
+
 const EARTH_RADIUS = 6371000;
 const REMOVED = new Set(["FALSO", "RETIRADO"]);
 const attributionIndexes = new WeakMap();
@@ -68,7 +73,7 @@ function incidentRisk(incident, now = new Date()) {
   const individual = incident.individual ?? type.individual ?? false;
   const removed = REMOVED.has(incident.estado) || incident.publicado === false;
   const resolvedWithoutHistory = incident.estado === "RESUELTO" && !historical;
-  if (removed || resolvedWithoutHistory)
+  if (removed || resolvedWithoutHistory || incident.fuente === "CARGA_INICIAL")
     return { points: 0, pending: false, confidence: 0, age: 0 };
   const age = historical
     ? ageWeight(incident.fechaEvento || incident.fechaCreacion, now)
@@ -76,6 +81,15 @@ function incidentRisk(incident, now = new Date()) {
   if (historical && age === 0)
     return { points: 0, pending: false, confidence: 0, age: 0 };
   const severity = incident.nivelRiesgo;
+  if (usesPreliminaryHistoricalSeverity(incident)) {
+    const confidence = confirmationWeight(0);
+    return {
+      points: severity * confidence * age,
+      pending: false,
+      confidence,
+      age,
+    };
+  }
   if (
     severity === null ||
     severity === undefined ||
@@ -306,8 +320,10 @@ function scoreSegments(
       .replace(/[\u0300-\u036f]/g, "")
       .toLowerCase()
       .replace(/\s+/g, "-");
+    const antecedent = isOfficialHistoricalIncident(incident);
     if (
       kind === "calle-bloqueada" &&
+      !antecedent &&
       incident.validacion >= 1 &&
       incident.evaluacion !== "PENDIENTE" &&
       incident.estado !== "RESUELTO"
@@ -316,6 +332,7 @@ function scoreSegments(
     const emergency = incident.emergencia ?? incident.tipoCatalogo?.emergencia;
     if (
       emergency &&
+      !antecedent &&
       incident.estado !== "RESUELTO" &&
       (risk.pending || incident.nivelRiesgo >= 4)
     ) {

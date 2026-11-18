@@ -134,6 +134,7 @@ function statisticsRows(statistics) {
     etiqueta: key,
     cantidad: count,
   }));
+  rows.push(...demonstrationRows("demostracion", statistics.demonstration));
   for (const group of ["types", "districts", "statuses", "severities"])
     rows.push(
       ...statistics.datasets[group].map((row) => ({
@@ -219,6 +220,22 @@ function statisticsRows(statistics) {
     }
   return rows.map((row) => projectRow(row, STATISTICS_COLUMNS));
 }
+function demonstrationRows(group, counts) {
+  return [
+    {
+      grupo: group,
+      clave: "incidents",
+      etiqueta: "Incidentes ficticios excluidos",
+      cantidad: counts.incidents,
+    },
+    {
+      grupo: group,
+      clave: "reports",
+      etiqueta: "Reportes vinculados a la demostración",
+      cantidad: counts.reports,
+    },
+  ];
+}
 async function collectExport(db, table, filters, now, maxRows) {
   const columns = COLUMNS[table];
   if (table === "estadisticas") {
@@ -231,9 +248,12 @@ async function collectExport(db, table, filters, now, maxRows) {
       grupo: "alcance-global",
       clave: "scope",
       etiqueta:
-        "Actividad general: todos los registros, sin filtros de distrito o tipo",
+        "Actividad general: sin filtros de distrito o tipo",
       valor: "GLOBAL_ALL_TIME",
     });
+    rows.push(
+      ...demonstrationRows("global-demostracion", global.demonstration),
+    );
     for (const [key, value] of Object.entries(global.totals))
       rows.push({
         grupo: "global-totals",

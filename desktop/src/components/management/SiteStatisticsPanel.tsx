@@ -9,6 +9,7 @@ type Comparison = {
 };
 type Data = {
   generatedAt: string;
+  demonstration?: { incidents: number; reports: number };
   totals: Record<string, number>;
   charts: Record<string, MetricRow[]>;
   districtComparison: Comparison[];
@@ -121,8 +122,8 @@ export default function SiteStatisticsPanel() {
         </button>
       </div>
       <p className="muted">
-        Alcance global: todos los registros. Los agregados se renuevan cada
-        minuto. Los filtros de distrito y tipo del panel superior sólo afectan
+        Vista de toda la provincia. Los agregados se renuevan cada minuto.
+        Los filtros de distrito y tipo del panel superior sólo afectan
         sus gráficos y exportaciones filtradas.
       </p>
       <RemoteStatus
@@ -167,6 +168,15 @@ export default function SiteStatisticsPanel() {
               },
             ]}
           />
+          {d.demonstration && (
+            <p className="muted text-sm">
+              La carga de demostración reúne{" "}
+              {new Intl.NumberFormat("es-PE").format(d.demonstration.incidents)}{" "}
+              incidentes y{" "}
+              {new Intl.NumberFormat("es-PE").format(d.demonstration.reports)}{" "}
+              reportes vinculados.
+            </p>
+          )}
           <div
             className="metric-section-tabs"
             role="group"

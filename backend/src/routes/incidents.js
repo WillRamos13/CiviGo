@@ -18,6 +18,10 @@ const {
 const { config } = require("../lib/catalog");
 const { incident, publicUser } = require("../lib/projections");
 const {
+  isOfficialHistoricalIncident,
+  withPreliminaryHistoricalSeverity,
+} = require("../lib/historical-severity");
+const {
   canPublishIncident,
   verifiedVoteInclude,
 } = require("../lib/publication");
@@ -61,7 +65,8 @@ router.get(
         include,
         now,
       );
-      return res.json(rows.map((row) => incident(row)));
+      const enriched = await withPreliminaryHistoricalSeverity(prisma, rows);
+      return res.json(enriched.map((row) => incident(row)));
     }
     const where = publicIncidentWhere(now);
     if (req.query.tipo) where.tipoCatalogo = { slug: String(req.query.tipo) };
@@ -74,10 +79,12 @@ router.get(
         take: viewport.take + 1,
       });
       const rows = page.slice(0, viewport.take);
+      const enriched = await withPreliminaryHistoricalSeverity(
+        prisma,
+        rows.filter((i) => isVisiblePublicIncident(i, now)),
+      );
       return res.json({
-        items: rows
-          .filter((i) => isVisiblePublicIncident(i, now))
-          .map((i) => incident(i)),
+        items: enriched.map((i) => incident(i)),
         nextCursor: page.length > viewport.take ? rows.at(-1).id : null,
       });
     }
@@ -101,11 +108,11 @@ router.get(
     const incidents = [...active, ...historical].sort(
       (a, b) => b.fechaCreacion - a.fechaCreacion,
     );
-    res.json(
-      incidents
-        .filter((i) => isVisiblePublicIncident(i, now))
-        .map((i) => incident(i)),
+    const enriched = await withPreliminaryHistoricalSeverity(
+      prisma,
+      incidents.filter((i) => isVisiblePublicIncident(i, now)),
     );
+    res.json(enriched.map((i) => incident(i)));
   }),
 );
 router.get(
@@ -122,7 +129,8 @@ router.get(
     const visible = row.publicado && (await canPublishIncident(prisma, row.id));
     if (!visible && !owner && !canReview(req.user, row))
       throw new HttpError(404, "Incidente no disponible.");
-    res.json(incident(row));
+    const [enriched] = await withPreliminaryHistoricalSeverity(prisma, [row]);
+    res.json(incident(enriched));
   }),
 );
 for (const action of ["confirmar", "resolver"]) {
@@ -142,6 +150,11 @@ for (const action of ["confirmar", "resolver"]) {
         });
         if (!row || !row.publicado || !(await canPublishIncident(db, row.id)))
           throw new HttpError(404, "Incidente no encontrado.");
+        if (isOfficialHistoricalIncident(row) || row.fuente === "CARGA_INICIAL")
+          throw new HttpError(
+            409,
+            "Este registro no recibe confirmaciones ni votos de resolución.",
+          );
         if (!["ACTIVO", "VALIDADO", "PENDIENTE"].includes(row.estado))
           throw new HttpError(409, "El incidente ya no está activo.");
         if (row.individual)
@@ -262,6 +275,11 @@ router.post(
       where: { id: id(req.params.id) },
     });
     if (!row) throw new HttpError(404, "Incidente no encontrado.");
+    if (isOfficialHistoricalIncident(row) || row.fuente === "CARGA_INICIAL")
+      throw new HttpError(
+        409,
+        "Este registro no admite reaperturas desde el mapa.",
+      );
     const motivo = text(
       req.body.motivo || "Solicitud de reapertura del incidente",
       "Motivo",

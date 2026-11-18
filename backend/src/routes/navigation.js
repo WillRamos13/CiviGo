@@ -9,7 +9,8 @@ const { scoreSegments } = require("../lib/risk");
 const { MODES } = require("../lib/navigation");
 const { config } = require("../lib/catalog");
 const { transaction } = require("../lib/workflows");
-const { publicIncidentEligibility } = require("../lib/publication");
+const { publicIncidentWhere } = require("../lib/recent-incidents");
+const { withPreliminaryHistoricalSeverity } = require("../lib/historical-severity");
 const { createTrafficService } = require("../lib/navigation-traffic");
 const { searchCorridor } = require("../lib/route-discovery");
 const router = express.Router();
@@ -27,32 +28,32 @@ router.use("/roads", (req, res, next) => {
   next();
 });
 async function incidents() {
-  return prisma.incident
-    .findMany({
-      where: {
-        publicado: true,
-        estado: { notIn: ["FALSO", "RETIRADO"] },
-        AND: [publicIncidentEligibility()],
-      },
-      include: {
-        tipoCatalogo: true,
-        reportes: {
-          where: { usuario: { correoVerificado: true } },
-          select: {
-            adjuntos: {
-              where: { tipo: "EVIDENCIA", privado: true },
-              select: { id: true },
-            },
+  const rows = await prisma.incident.findMany({
+    where: {
+      ...publicIncidentWhere(),
+      estado: { notIn: ["FALSO", "RETIRADO"] },
+      fuente: { not: "CARGA_INICIAL" },
+    },
+    include: {
+      tipoCatalogo: true,
+      reportes: {
+        where: { usuario: { correoVerificado: true } },
+        select: {
+          adjuntos: {
+            where: { tipo: "EVIDENCIA", privado: true },
+            select: { id: true },
           },
         },
       },
-    })
-    .then((rows) =>
-      rows.map((row) => ({
-        ...row,
-        pruebasRecibidas: row.reportes.some((r) => r.adjuntos.length > 0),
-      })),
-    );
+    },
+  });
+  return withPreliminaryHistoricalSeverity(
+    prisma,
+    rows.map((row) => ({
+      ...row,
+      pruebasRecibidas: row.reportes.some((r) => r.adjuntos.length > 0),
+    })),
+  );
 }
 router.use(
   "/roads",

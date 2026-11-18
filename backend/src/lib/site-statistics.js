@@ -1,5 +1,11 @@
 "use strict";
-const { statisticsPeriod, deltaPercent } = require("./admin-statistics");
+const {
+  statisticsPeriod,
+  deltaPercent,
+  operationalIncident,
+  operationalReport,
+  countDemonstration,
+} = require("./admin-statistics");
 const { premiumEnd } = require("./payments");
 const group = (rows, label) =>
   rows.map((row) => ({ label: String(label(row)), count: row._count._all }));
@@ -27,8 +33,10 @@ async function collectSiteStatistics(tx, now = new Date()) {
     providers,
     orders,
     paidGrants,
+    demonstration,
   ] = await Promise.all([
     tx.incident.findMany({
+      where: operationalIncident,
       select: {
         fechaEvento: true,
         historico: true,
@@ -52,7 +60,11 @@ async function collectSiteStatistics(tx, now = new Date()) {
         monedas: true,
       },
     }),
-    tx.report.groupBy({ by: ["estado"], _count: { _all: true } }),
+    tx.report.groupBy({
+      by: ["estado"],
+      where: operationalReport,
+      _count: { _all: true },
+    }),
     tx.attachment.groupBy({
       by: ["privado", "mimeType"],
       _count: { _all: true },
@@ -93,6 +105,7 @@ async function collectSiteStatistics(tx, now = new Date()) {
       where: { clave: { startsWith: "premium:paid:" } },
       select: { clave: true, valor: true },
     }),
+    countDemonstration(tx),
   ]);
   const counts = (rows, key) => {
     const map = new Map();
@@ -142,6 +155,7 @@ async function collectSiteStatistics(tx, now = new Date()) {
     generatedAt: now.toISOString(),
     scope: "GLOBAL_ALL_TIME",
     timeZone: "America/Lima",
+    demonstration,
     totals: {
       incidents: incidents.length,
       historical: incidents.filter((row) => row.historico).length,
@@ -234,6 +248,7 @@ async function collectSiteStatistics(tx, now = new Date()) {
       previousEnd: period.previousSameDays.end.toISOString(),
     },
     notes: [
+      "Las cifras de incidentes y reportes excluyen la carga inicial ficticia, que se cuenta por separado.",
       "Las cifras de incidentes usan la fecha del hecho; los registros históricos no son emergencias actuales. El gráfico de horas excluye antecedentes porque su hora puede ser desconocida.",
       "Los recorridos guardados no equivalen a todos los viajes realizados.",
       "Los ingresos excluyen pruebas, devoluciones y pagos sin aprobación. Una cuenta puede tener Premium manual y de pago a la vez; el total cuenta cada cuenta una sola vez.",

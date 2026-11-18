@@ -3,6 +3,22 @@
 const { HttpError } = require("./http");
 const { DISTRICTS } = require("./catalog");
 
+const DEMONSTRATION_INCIDENT = { fuente: "CARGA_INICIAL" };
+const operationalIncident = { fuente: { not: DEMONSTRATION_INCIDENT.fuente } };
+const operationalReport = {
+  OR: [{ incidenteId: null }, { incidente: operationalIncident }],
+};
+
+async function countDemonstration(db, incidentWhere = {}, reportWhere = {}) {
+  const [incidents, reports] = await Promise.all([
+    db.incident.count({ where: { ...incidentWhere, ...DEMONSTRATION_INCIDENT } }),
+    db.report.count({
+      where: { AND: [reportWhere, { incidente: DEMONSTRATION_INCIDENT }] },
+    }),
+  ]);
+  return { incidents, reports };
+}
+
 // Peru uses UTC-5 all year. Keep event dates separate from insertion dates:
 // importing older incidents today must not count them as today's events.
 const OFFSET = 5 * 60 * 60 * 1000;
@@ -111,10 +127,16 @@ function deltaPercent(current, previous) {
 }
 async function collectStatistics(db, filters, now = new Date()) {
   const period = statisticsPeriod(now);
-  const scope = incidentScope(filters);
-  const [incidents, reportDates, accounts] = await Promise.all([
+  const date = { fechaEvento: { gte: period.start, lt: period.end } };
+  const incidentWhere = { ...incidentScope(filters), ...date };
+  const reportWhere = {
+    ...date,
+    ...(filters.district ? { incidente: { distrito: filters.district } } : {}),
+    ...(filters.type ? { tipoCatalogo: { slug: filters.type } } : {}),
+  };
+  const [incidents, reportDates, accounts, demonstration] = await Promise.all([
     db.incident.findMany({
-      where: { ...scope, fechaEvento: { gte: period.start, lt: period.end } },
+      where: { ...incidentWhere, ...operationalIncident },
       select: {
         tipo: true,
         distrito: true,
@@ -128,19 +150,14 @@ async function collectStatistics(db, filters, now = new Date()) {
       },
     }),
     db.report.findMany({
-      where: {
-        fechaEvento: { gte: period.start, lt: period.end },
-        ...(filters.district
-          ? { incidente: { distrito: filters.district } }
-          : {}),
-        ...(filters.type ? { tipoCatalogo: { slug: filters.type } } : {}),
-      },
+      where: { ...reportWhere, ...operationalReport },
       select: { fechaEvento: true },
     }),
     db.user.groupBy({
       by: ["rol", "correoVerificado"],
       _count: { _all: true },
     }),
+    countDemonstration(db, incidentWhere, reportWhere),
   ]);
   const roles = new Map();
   for (const row of accounts) {
@@ -192,6 +209,7 @@ async function collectStatistics(db, filters, now = new Date()) {
       endExclusive: true,
     },
     accountScope: "ALL_ACCOUNTS",
+    demonstration,
     totals: {
       incidents: incidents.length,
       reports: reportDates.length,
@@ -250,6 +268,9 @@ module.exports = {
   collectStatistics,
   statisticsFilters,
   incidentScope,
+  operationalIncident,
+  operationalReport,
+  countDemonstration,
   statisticsPeriod,
   deltaPercent,
 };

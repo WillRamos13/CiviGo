@@ -22,6 +22,7 @@ const {
   inCoverage,
 } = require("../lib/http");
 const { ownUser, incident, attachment } = require("../lib/projections");
+const { withPreliminaryHistoricalSeverity } = require("../lib/historical-severity");
 const { config, validateConfig, DISTRICTS } = require("../lib/catalog");
 const { services } = require("../lib/providers");
 const {
@@ -237,7 +238,8 @@ router.get(
       orderBy: [{ fechaActualizacion: "desc" }, { id: "desc" }],
       ...paging.args,
     });
-    const views = rows.map((i) => {
+    const enriched = await withPreliminaryHistoricalSeverity(prisma, rows);
+    const views = enriched.map((i) => {
       const view = incident(i, canReview(req.user, i, "evidencia"), true);
       return { ...view, flags: i.flags, revisiones: i.revisiones };
     });
